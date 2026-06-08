@@ -34,7 +34,7 @@ class GlobalRouterUnit(nn.Module):
         self.mlp_r = GateMLP(2 * d_model, cfg.mlp_hidden, num_registers)
         self.mlp_w = GateMLP(2 * d_model, cfg.mlp_hidden, num_registers)
         nn.init.zeros_(self.mlp_r.net[-1].bias)
-        nn.init.constant_(self.mlp_w.net[-1].bias, -2.0)
+        nn.init.zeros_(self.mlp_w.net[-1].bias)
 
     def forward(self, x: Tensor, s: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         if x.dim() != 3 or s.dim() != 3:
