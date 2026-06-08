@@ -1,0 +1,11 @@
+_base_: "../../configs/base.yaml"
+
+model:
+  register:
+    s0_learnable: false
+
+wandb:
+  tags: ["phase3", "ablation", "zero-s0"]
+  notes: "S_0 initialization ablation"
+  group: "ablation-s0"
+  run_name: "ablation-zero-s0"

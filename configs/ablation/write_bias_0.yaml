@@ -1,0 +1,11 @@
+_base_: "../../configs/base.yaml"
+
+model:
+  register:
+    write_gate_bias_init: 0.0
+
+wandb:
+  tags: ["phase3", "ablation", "write-bias-0"]
+  notes: "Write gate bias ablation"
+  group: "ablation-write-bias"
+  run_name: "ablation-write-bias-0"

@@ -4,13 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grt"
-version = "0.1.0"
-description = "Gated Register Transformer phase 1 implementation"
+version = "0.2.0"
+description = "Gated Register Transformer"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.2.0",
     "pyyaml>=6.0",
     "einops>=0.7.0",
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+    "datasets>=2.18",
+    "transformers>=4.39",
     "wandb>=0.17",
 ]
 

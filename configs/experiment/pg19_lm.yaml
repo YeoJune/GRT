@@ -1,0 +1,26 @@
+_base_: "../../configs/base.yaml"
+
+model:
+  segment_len: 128
+  num_registers: 32
+  d_model: 256
+  vocab_size: 32000
+
+training:
+  batch_size: 8
+  max_segments: 128
+  max_steps: 100000
+  lr: 1.0e-4
+
+data:
+  dataset: "pg19"
+  split_train: "train"
+  split_eval: "validation"
+  tokenizer: "gpt2"
+  num_workers: 4
+  task: "lm"
+  seq_len: 512
+
+wandb:
+  tags: ["phase2", "pg19", "lm"]
+  notes: "Phase 2 language modeling baseline run on PG-19"

@@ -1,0 +1,11 @@
+_base_: "../../configs/base.yaml"
+
+model:
+  router:
+    mode: "mean_pool"
+
+wandb:
+  tags: ["phase3", "ablation", "mean-pool-router"]
+  notes: "Router ablation: cross-attn -> mean pool"
+  group: "ablation-router"
+  run_name: "ablation-mean-pool"

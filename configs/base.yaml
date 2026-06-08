@@ -18,5 +18,49 @@ model:
     dropout_prob: 0.10
     s0_learnable: true
 
+data:
+  dataset: "synthetic"
+  split_train: "train"
+  split_eval: "validation"
+  tokenizer: "gpt2"
+  num_workers: 0
+  task: "synthetic_copy"
+  seq_len: 512
+
+training:
+  batch_size: 16
+  max_segments: 64
+  optimizer: "adamw"
+  lr: 3.0e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  max_steps: 50000
+  grad_clip: 1.0
+  mixed_precision: "bf16"
+  seed: 1234
+
+rtla:
+  enabled: false
+  trace_every_n_steps: 500
+  output_dir: "traces/"
+  float_dtype: "float32"
+  upload_panels: true
+  upload_table: true
+
+logging:
+  save_dir: "checkpoints/"
+  save_every_n_steps: 2000
+  eval_every_n_steps: 1000
+
 wandb:
   enabled: false
+  project: "grt-research"
+  entity: null
+  run_name: null
+  tags: []
+  notes: ""
+  group: null
+  log_freq: 50
+  watch_model: false
+  save_code: true
+  checkpoint_artifact: true

@@ -1,0 +1,11 @@
+_base_: "../../configs/base.yaml"
+
+model:
+  register:
+    dropout_prob: 0.0
+
+wandb:
+  tags: ["phase3", "ablation", "no-reg-dropout"]
+  notes: "Register dropout ablation"
+  group: "ablation-reg-dropout"
+  run_name: "ablation-no-reg-dropout"

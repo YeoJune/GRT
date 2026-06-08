@@ -1,0 +1,22 @@
+_base_: "../../configs/base.yaml"
+
+model:
+  segment_len: 32
+  num_registers: 8
+  d_model: 64
+  alu:
+    num_layers: 1
+    nhead: 2
+    d_ff: 256
+
+training:
+  batch_size: 4
+  max_steps: 1000
+
+data:
+  task: "synthetic_copy"
+  seq_len: 256
+
+wandb:
+  tags: ["phase1", "toy-entity"]
+  notes: "Synthetic entity tracking sanity task"

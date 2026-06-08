@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import torch
+import numpy as np
 from torch import Tensor, nn
 
 from grt.config import ModelConfig
@@ -25,6 +27,40 @@ class TraceBuffer:
         self.s_norms.append(s.detach().norm(dim=-1).cpu())
         self.pred_errors.append(pred_error.detach().cpu())
         self.attn_weights.append(attn_w.detach().cpu())
+
+    def _stack(self, values: list[Tensor], batch_idx: int) -> np.ndarray:
+        arrays = [value[batch_idx].detach().cpu().numpy() for value in values]
+        return np.stack(arrays, axis=0)
+
+    def to_numpy(self, batch_idx: int = 0) -> dict[str, np.ndarray]:
+        return {
+            "r_gates": self._stack(self.r_gates, batch_idx).squeeze(-1),
+            "w_gates": self._stack(self.w_gates, batch_idx).squeeze(-1),
+            "s_norms": self._stack(self.s_norms, batch_idx),
+            "pred_errors": self._stack(self.pred_errors, batch_idx),
+            "attn_weights": self._stack(self.attn_weights, batch_idx),
+        }
+
+    def save(self, path: str, batch_idx: int = 0) -> None:
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(path_obj, **self.to_numpy(batch_idx=batch_idx))
+
+    def gate_stats(self, batch_idx: int = 0) -> dict[str, np.ndarray]:
+        arrays = self.to_numpy(batch_idx=batch_idx)
+        mean_w = arrays["w_gates"].mean(axis=0)
+        mean_r = arrays["r_gates"].mean(axis=0)
+        mean_norm = arrays["s_norms"].mean(axis=0)
+        mean_err = arrays["pred_errors"].mean(axis=0)
+        tier = np.where(mean_w < 0.2, "long-term", np.where(mean_w < 0.7, "working", "scratch"))
+        return {
+            "slot_id": np.arange(len(mean_w)),
+            "mean_w": mean_w,
+            "mean_r": mean_r,
+            "mean_norm": mean_norm,
+            "mean_pred_err": mean_err,
+            "tier": tier,
+        }
 
 
 @dataclass
