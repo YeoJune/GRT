@@ -153,6 +153,7 @@ def _build_in_context_arithmetic_batch(cfg: GRTConfig, device: torch.device | st
     eq_token_id = vocab_size - 2
     sep_token_id = vocab_size - 3
 
+    # 질의 파트의 간격을 맞추기 위해 query_tokens 계산 수정 (수식당 4칸인 것은 동일하나 인과율 정돈)
     fact_tokens = cfg.data.num_equations * 4
     query_tokens = cfg.data.num_queries * 4
     if seq_len < fact_tokens + query_tokens:
@@ -168,6 +169,8 @@ def _build_in_context_arithmetic_batch(cfg: GRTConfig, device: torch.device | st
     for b in range(batch_size):
         cursor = 0
         pairs: list[tuple[int, int, int]] = []
+        
+        # 1. 컨텍스트 수식 배치 (기존 구조 유지)
         for _ in range(cfg.data.num_equations):
             a = int(torch.randint(0, modulus, (1,), device=device).item())
             c = int(torch.randint(0, modulus, (1,), device=device).item())
@@ -184,17 +187,29 @@ def _build_in_context_arithmetic_batch(cfg: GRTConfig, device: torch.device | st
             input_ids[b, cursor : cursor + gap] = torch.randint(0, content_max_id, (gap,), device=device)
             cursor += gap
 
+        # 2. 질의 파트 교정 (정답 유출 차단 및 인과율 정렬)
         for _ in range(cfg.data.num_queries):
             a, c, y = pairs[int(torch.randint(0, len(pairs), (1,), device=device).item())]
+            
             input_ids[b, cursor] = a
             input_ids[b, cursor + 1] = plus_token_id
             input_ids[b, cursor + 2] = c
-            input_ids[b, cursor + 3] = eq_token_id
+            input_ids[b, cursor + 3] = eq_token_id  # 모델은 이 토큰을 보는 순간 다음 정답을 예측해야 함
+            
+            # 정답 유출 방지: 다음 입력 칸에는 무작위 숫자를 채움
+            filler = int(torch.randint(0, modulus, (1,), device=device).item())
+            if filler == y:
+                filler = (filler + 1) % modulus
+            
+            # 다음 세그먼트 혹은 토큰으로 이어지도록 시퀀스를 안전하게 채움
+            if cursor + 4 < seq_len:
+                input_ids[b, cursor + 4] = filler if (cursor + 4 < seq_len - 1) else sep_token_id
+
+            # Causal LM 정렬: [=] 토큰 위치의 라벨에 정답을 주어야, [=]를 밟았을 때 정답 y를 출력함
             labels[b, cursor + 3] = y
             cursor += 4
 
     return {"input_ids": input_ids, "labels": labels}
-
 
 class SyntheticBatchStream:
     def __init__(
