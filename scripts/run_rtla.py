@@ -55,6 +55,21 @@ def main() -> None:
     # move input_ids to device when calling model; we'll handle retries below
     input_ids_orig = input_ids
 
+    # If using a tokenizer whose vocabulary is larger than the model embedding,
+    # clamp token ids to the model vocab to avoid embedding index errors.
+    try:
+        max_id = int(input_ids_orig.max().item())
+    except Exception:
+        max_id = None
+    model_vocab = cfg.model.vocab_size
+    if max_id is not None and max_id >= model_vocab:
+        print(
+            f"Warning: tokenizer produced token id {max_id} >= model.vocab_size ({model_vocab}).\n"
+            "Clamping token ids to the model vocabulary range to avoid IndexError.\n"
+            "For accurate evaluation prefer using a tokenizer with matching vocab size or set `model.vocab_size` accordingly."
+        )
+        input_ids_orig = torch.clamp(input_ids_orig, 0, model_vocab - 1)
+
     # Try running trace on the selected device; if we hit a CUBLAS alloc error, retry on CPU.
     try:
         input_ids = input_ids_orig.to(device)

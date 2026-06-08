@@ -4,18 +4,19 @@ model:
   segment_len: 32
   num_registers: 8
   d_model: 64
+  vocab_size: 50257
   alu:
     num_layers: 1
     nhead: 2
     d_ff: 256
 
 training:
-  batch_size: 4
   batch_size: 2
   max_steps: 1000
-  mixed_precision: "fp16"  # better for consumer GPUs (change to bf16 if supported)
+  mixed_precision: "fp16" # better for consumer GPUs (change to bf16 if supported)
 
 data:
+  tokenizer: "gpt2"
   task: "synthetic_copy"
   seq_len: 256
 
