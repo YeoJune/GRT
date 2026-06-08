@@ -59,6 +59,13 @@ Recommended experiment standard
 - `rtla.enabled: true` with `trace_every_n_steps: 500`
   What to watch while training
 
+Why this task is now closer to the real thing
+
+- `toy_passkey` now uses `passkey_retrieval` instead of `synthetic_copy`.
+- Each sequence contains multiple key-value facts, then several queries at the end.
+- The loss is only applied on the query token positions, so the model must retain the earlier mapping to succeed.
+- If `mean_w` still collapses toward 0 and `mean_r` toward 1, we should make the sequence longer or increase `num_facts` and reduce the query budget further.
+
 - GPU memory usage: `nvidia-smi -l 2`
 - Errors in logs (OOM, NaN loss)
 - If loss is NaN or diverging quickly, stop and proceed to tuning steps below
@@ -112,5 +119,5 @@ python scripts/run_rtla.py configs/experiment/toy_passkey.yaml --checkpoint chec
 
 Notes
 
-- We tuned `configs/experiment/toy_passkey.yaml` to use the standard GPT-2 tokenizer setup (`data.tokenizer: gpt2`, `model.vocab_size: 50257`) plus `mixed_precision: fp16`, `batch_size: 8`, and `max_steps: 5000` for a 5060 Ti. If you hit OOM, drop batch size to 4 first.
+- We tuned `configs/experiment/toy_passkey.yaml` to use the standard GPT-2 tokenizer setup (`data.tokenizer: gpt2`, `model.vocab_size: 50257`) plus `mixed_precision: fp16`, `batch_size: 8`, `max_steps: 5000`, and `passkey_retrieval` for a 5060 Ti. If you hit OOM, drop batch size to 4 first.
 - When making hyperparameter changes, track them (W&B or a simple notes file) so results are reproducible.

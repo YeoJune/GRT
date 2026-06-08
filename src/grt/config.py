@@ -65,6 +65,9 @@ class DataConfig:
     num_workers: int = 0
     task: str = "synthetic_copy"
     seq_len: int = 512
+    num_facts: int = 8
+    num_queries: int = 4
+    noise_token_fraction: float = 0.7
 
 
 @dataclass

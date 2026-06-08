@@ -12,8 +12,11 @@ model:
 
 data:
   tokenizer: "gpt2"
-  task: "synthetic_copy"
+  task: "passkey_retrieval"
   seq_len: 256
+  num_facts: 8
+  num_queries: 4
+  noise_token_fraction: 0.7
 
 training:
   batch_size: 8
