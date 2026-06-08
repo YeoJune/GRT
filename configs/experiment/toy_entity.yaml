@@ -1,14 +1,14 @@
 _base_: "../../configs/base.yaml"
 
 model:
-  segment_len: 32
-  num_registers: 8
-  d_model: 64
+  segment_len: 64
+  num_registers: 32
+  d_model: 256
   vocab_size: 50257
   alu:
-    num_layers: 1
-    nhead: 2
-    d_ff: 256
+    num_layers: 4
+    nhead: 4
+    d_ff: 1024
 
 training:
   batch_size: 8
