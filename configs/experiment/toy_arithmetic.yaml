@@ -10,18 +10,17 @@ model:
     nhead: 2
     d_ff: 256
 
+data:
+  tokenizer: "gpt2"
+  task: "in_context_arithmetic"
+  seq_len: 256
+  num_equations: 24
+  num_queries: 4
+
 training:
   batch_size: 8
   max_steps: 5000
   mixed_precision: "fp16"
-
-data:
-  tokenizer: "gpt2"
-  task: "entity_tracking"
-  seq_len: 256
-  num_entities: 8
-  num_updates: 32
-  num_queries: 4
 
 rtla:
   enabled: true
@@ -39,10 +38,10 @@ logging:
 wandb:
   enabled: true
   project: "grt-research"
-  run_name: "toy-entity-standard"
-  group: "toy-entity"
-  tags: ["phase1", "toy-entity"]
-  notes: "Synthetic entity tracking sanity task"
+  run_name: "toy-arithmetic-standard"
+  group: "toy-arithmetic"
+  tags: ["phase1", "toy-arithmetic"]
+  notes: "Synthetic in-context arithmetic sanity task"
   log_freq: 50
   watch_model: false
   save_code: true

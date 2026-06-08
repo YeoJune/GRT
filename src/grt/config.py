@@ -68,6 +68,9 @@ class DataConfig:
     num_facts: int = 8
     num_queries: int = 4
     noise_token_fraction: float = 0.7
+    num_entities: int = 8
+    num_updates: int = 32
+    num_equations: int = 24
 
 
 @dataclass

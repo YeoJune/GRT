@@ -4,6 +4,18 @@ Goal
 
 - Run the toy passkey experiment, verify training stability, collect RTLA traces and tune early hyperparameters.
 
+Task definitions (3 tasks)
+
+- `passkey_retrieval`: 앞부분에 key-value fact를 여러 개 저장하고, 뒷부분 query 위치에서 해당 value를 맞히는 과제. 장거리 보존 메모리 확인용.
+- `entity_tracking`: 동일 entity가 여러 번 업데이트될 때 마지막 상태를 유지/갱신해 query에서 반환하는 과제. working-memory 안정성 확인용.
+- `in_context_arithmetic`: 시퀀스 내 예시 형태의 산술 패턴을 참고해 query 결과를 내는 과제. scratch/연산형 레지스터 사용 확인용.
+
+Recommended practical sizes
+
+- 공통 toy 기준: `segment_len=32`, `num_registers=8`, `d_model=64`, `batch_size=8`, `max_steps=5000`
+- RTLA 주기: `trace_every_n_steps=500`, 평가/저장 주기: `500`/`1000`
+- OOM 시: `batch_size=4`로 먼저 내리고, 필요하면 `d_ff=192`로 추가 축소
+
 Assumptions
 
 - GPU: NVIDIA 5060 Ti (CUDA available)
