@@ -73,7 +73,13 @@ def _build_passkey_retrieval_batch(cfg: GRTConfig, device: torch.device | str) -
             query_value = values[idx]
             input_ids[batch_idx, cursor] = query_key
             input_ids[batch_idx, cursor + 1] = query_token_id
-            input_ids[batch_idx, cursor + 2] = query_value
+            # Do NOT place the true value into the next input slot — fill with a non-answer filler
+            filler = int(torch.randint(0, content_max_id, (1,), device=device).item())
+            # ensure filler is not equal to the true value
+            if filler == query_value:
+                filler = (filler + 1) % content_max_id
+            input_ids[batch_idx, cursor + 2] = filler
+            # The model should predict the value when it sees the query token (causal LM alignment)
             labels[batch_idx, cursor + 1] = query_value
             cursor += 3
 
@@ -127,7 +133,11 @@ def _build_entity_tracking_batch(cfg: GRTConfig, device: torch.device | str) -> 
             answer = int(latest_value_by_entity.get(ent, 0))
             input_ids[b, cursor] = ent
             input_ids[b, cursor + 1] = query_token_id
-            input_ids[b, cursor + 2] = sep_token_id
+            # do not leak the answer into the next input slot; use random filler instead
+            filler = int(torch.randint(0, content_max_id, (1,), device=device).item())
+            if filler == answer:
+                filler = (filler + 1) % content_max_id
+            input_ids[b, cursor + 2] = filler
             labels[b, cursor + 1] = answer
             cursor += 3
 
