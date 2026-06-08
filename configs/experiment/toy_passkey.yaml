@@ -4,6 +4,21 @@ model:
   segment_len: 32
   num_registers: 8
   d_model: 64
+  vocab_size: 50257
+  alu:
+    num_layers: 1
+    nhead: 2
+    d_ff: 256
+
+data:
+  tokenizer: "gpt2"
+  task: "synthetic_copy"
+  seq_len: 256
+
+training:
+  batch_size: 2
+  max_steps: 1000
+  mixed_precision: "fp16"
 
 rtla:
   enabled: true
@@ -12,31 +27,21 @@ rtla:
   float_dtype: "float32"
   upload_panels: true
   upload_table: true
-  vocab_size: 50257
-  alu:
-  batch_size: 2
-    nhead: 2
-    d_ff: 256
 
-training:
-  batch_size: 512
-  max_steps: 1000
-  mixed_precision: "fp16" # better for consumer GPUs (change to bf16 if supported)
+logging:
+  save_dir: "checkpoints/"
+  save_every_n_steps: 200
+  eval_every_n_steps: 100
 
-data:
-  tokenizer: "gpt2"
-  task: "synthetic_copy"
+wandb:
   enabled: true
   project: "grt-research"
   entity: null
   run_name: "toy-passkey-gpt2-standard"
+  tags: ["phase1", "toy-passkey"]
+  notes: "Synthetic Phase 1 pretraining / passkey-like sanity task"
   group: "toy-passkey"
   log_freq: 50
   watch_model: false
   save_code: true
   checkpoint_artifact: true
-  seq_len: 256
-
-wandb:
-  tags: ["phase1", "toy-passkey"]
-  notes: "Synthetic Phase 1 pretraining / passkey-like sanity task"
