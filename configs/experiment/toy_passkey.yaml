@@ -2,7 +2,7 @@ _base_: "../../configs/base.yaml"
 
 model:
   segment_len: 64
-  num_registers: 32
+  num_registers: 16
   d_model: 256
   vocab_size: 50257
   alu:
@@ -13,10 +13,10 @@ model:
 data:
   tokenizer: "gpt2"
   task: "passkey_retrieval"
-  seq_len: 256
-  num_facts: 8
+  seq_len: 512
+  num_facts: 4
   num_queries: 4
-  noise_token_fraction: 0.7
+  noise_token_fraction: 0.6
 
 training:
   batch_size: 32

@@ -14,7 +14,6 @@ model:
     pool_nhead: 4
     mlp_hidden: 512
   register:
-    write_gate_bias_init: -2.0
     dropout_prob: 0.10
     s0_learnable: true
 
