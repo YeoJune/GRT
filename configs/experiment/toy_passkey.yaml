@@ -11,7 +11,9 @@ model:
 
 training:
   batch_size: 4
+  batch_size: 2
   max_steps: 1000
+  mixed_precision: "fp16"  # better for consumer GPUs (change to bf16 if supported)
 
 data:
   task: "synthetic_copy"
