@@ -1,0 +1,22 @@
+model:
+  segment_len: 128
+  num_registers: 32
+  d_model: 256
+  vocab_size: 32000
+  alu:
+    num_layers: 2
+    nhead: 4
+    d_ff: 1024
+    dropout: 0.1
+    activation: "gelu"
+  router:
+    mode: "cross_attn"
+    pool_nhead: 4
+    mlp_hidden: 512
+  register:
+    write_gate_bias_init: -2.0
+    dropout_prob: 0.10
+    s0_learnable: true
+
+wandb:
+  enabled: false
