@@ -92,13 +92,13 @@ python scripts/train.py configs/experiment/toy_passkey.yaml --max_steps 200
 - Evaluate a checkpoint:
 
 ```powershell
-python scripts/evaluate.py configs/experiment/toy_passkey.yaml --checkpoint checkpoints/step_000200.pt
+python scripts/evaluate.py configs/experiment/toy_passkey.yaml --checkpoint checkpoints/step_000000.pt
 ```
 
 - Create/save RTLA panels from a checkpoint:
 
 ```powershell
-python scripts/run_rtla.py configs/experiment/toy_passkey.yaml --checkpoint checkpoints/step_000200.pt --input_text "The quick brown fox"
+python scripts/run_rtla.py configs/experiment/toy_passkey.yaml --checkpoint checkpoints/step_000000.pt --input_text "The quick brown fox"
 ```
 
 Notes

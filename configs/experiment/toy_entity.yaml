@@ -10,7 +10,7 @@ model:
     d_ff: 256
 
 training:
-  batch_size: 4
+  batch_size: 512
   max_steps: 1000
 
 data:

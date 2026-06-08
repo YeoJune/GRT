@@ -7,7 +7,7 @@ model:
   vocab_size: 32000
 
 training:
-  batch_size: 8
+  batch_size: 512
   max_segments: 128
   max_steps: 100000
   lr: 1.0e-4
