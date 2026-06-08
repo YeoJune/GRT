@@ -48,7 +48,15 @@ Step 3 — Short training run (first experiment)
 python scripts/train.py configs/experiment/toy_passkey.yaml --max_steps 200
 ```
 
-What to watch while training
+Recommended experiment standard
+
+- `data.tokenizer: gpt2`
+- `model.vocab_size: 50257`
+- `training.batch_size: 2`
+- `training.mixed_precision: fp16`
+- `wandb.enabled: true`
+- `rtla.enabled: true` with `trace_every_n_steps: 100`
+  What to watch while training
 
 - GPU memory usage: `nvidia-smi -l 2`
 - Errors in logs (OOM, NaN loss)

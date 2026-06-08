@@ -4,9 +4,17 @@ model:
   segment_len: 32
   num_registers: 8
   d_model: 64
+
+rtla:
+  enabled: true
+  trace_every_n_steps: 100
+  output_dir: "traces/"
+  float_dtype: "float32"
+  upload_panels: true
+  upload_table: true
   vocab_size: 50257
   alu:
-    num_layers: 1
+  batch_size: 2
     nhead: 2
     d_ff: 256
 
@@ -18,6 +26,15 @@ training:
 data:
   tokenizer: "gpt2"
   task: "synthetic_copy"
+  enabled: true
+  project: "grt-research"
+  entity: null
+  run_name: "toy-passkey-gpt2-standard"
+  group: "toy-passkey"
+  log_freq: 50
+  watch_model: false
+  save_code: true
+  checkpoint_artifact: true
   seq_len: 256
 
 wandb:
