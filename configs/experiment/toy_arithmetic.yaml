@@ -14,11 +14,11 @@ data:
   tokenizer: "gpt2"
   task: "in_context_arithmetic"
   seq_len: 256
-  num_equations: 24
+  num_equations: 6
   num_queries: 4
 
 training:
-  batch_size: 8
+  batch_size: 32
   max_steps: 5000
   mixed_precision: "fp16"
 

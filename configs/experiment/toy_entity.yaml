@@ -10,18 +10,18 @@ model:
     nhead: 4
     d_ff: 1024
 
-training:
-  batch_size: 8
-  max_steps: 5000
-  mixed_precision: "fp16"
-
 data:
   tokenizer: "gpt2"
   task: "entity_tracking"
   seq_len: 256
-  num_entities: 8
-  num_updates: 32
+  num_entities: 4
+  num_updates: 16
   num_queries: 4
+
+training:
+  batch_size: 32
+  max_steps: 5000
+  mixed_precision: "fp16"
 
 rtla:
   enabled: true
