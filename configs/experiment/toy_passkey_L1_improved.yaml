@@ -1,0 +1,16 @@
+# L1(실제 rung: seq512, 사실4, vocab256) + 개선 모델(d_model 512 + 조건부읽기 제거).
+# 검증: proxy에서 검증된 개선이 실제 rung에서도 baseline(10000스텝에 겨우 2.0)을 능가하나?
+_base_: "toy_passkey_L1.yaml"
+
+model:
+  d_model: 512
+  conditional_read: false
+
+logging:
+  save_dir: "checkpoints/L1_improved/"
+  save_every_n_steps: 999999
+
+wandb:
+  run_name: "ladder-L1-improved"
+  tags: ["ladder", "L1", "improved"]
+  group: "ladder"

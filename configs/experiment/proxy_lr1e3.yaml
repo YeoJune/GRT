@@ -1,0 +1,13 @@
+# 개선 후보 B: 학습률 3e-4 -> 1e-3 (grokking 가속 가설).
+_base_: "proxy_baseline.yaml"
+
+training:
+  lr: 1.0e-3
+
+logging:
+  save_dir: "checkpoints/proxy_lr/"
+
+wandb:
+  run_name: "proxy-lr1e-3"
+  tags: ["improve", "proxy", "lr"]
+  group: "improve"

@@ -1,0 +1,13 @@
+# 개선 후보 C: d_model 256 -> 512 (모델 용량↑).
+_base_: "proxy_baseline.yaml"
+
+model:
+  d_model: 512
+
+logging:
+  save_dir: "checkpoints/proxy_d512/"
+
+wandb:
+  run_name: "proxy-d512"
+  tags: ["improve", "proxy", "d512"]
+  group: "improve"

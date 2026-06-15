@@ -20,11 +20,19 @@ class GateMLP(nn.Module):
 
 
 class GlobalRouterUnit(nn.Module):
-    def __init__(self, cfg: RouterConfig, num_registers: int, d_model: int) -> None:
+    def __init__(
+        self,
+        cfg: RouterConfig,
+        num_registers: int,
+        d_model: int,
+        write_gate_bias_init: float = -2.0,
+        dropout_prob: float = 0.0,
+    ) -> None:
         super().__init__()
         self.cfg = cfg
         self.num_registers = num_registers
         self.d_model = d_model
+        self.dropout_prob = dropout_prob
 
         self.q_pool = nn.Parameter(torch.zeros(1, 1, d_model))
         nn.init.xavier_uniform_(self.q_pool)
@@ -34,7 +42,7 @@ class GlobalRouterUnit(nn.Module):
         self.mlp_r = GateMLP(2 * d_model, cfg.mlp_hidden, num_registers)
         self.mlp_w = GateMLP(2 * d_model, cfg.mlp_hidden, num_registers)
         nn.init.zeros_(self.mlp_r.net[-1].bias)
-        nn.init.zeros_(self.mlp_w.net[-1].bias)
+        nn.init.constant_(self.mlp_w.net[-1].bias, write_gate_bias_init)
 
     def forward(self, x: Tensor, s: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         if x.dim() != 3 or s.dim() != 3:
@@ -59,8 +67,8 @@ class GlobalRouterUnit(nn.Module):
         write_logit = self.mlp_w(router_context)
 
         r_gate = torch.sigmoid(read_logit).unsqueeze(-1)
-        if self.training and getattr(self.cfg, "dropout_prob", 0.0) > 0:
-            dropout_mask = torch.bernoulli(torch.full_like(write_logit, self.cfg.dropout_prob)).bool()
+        if self.training and self.dropout_prob > 0:
+            dropout_mask = torch.bernoulli(torch.full_like(write_logit, self.dropout_prob)).bool()
             write_logit = write_logit.masked_fill(dropout_mask, float("-inf"))
         w_gate = torch.sigmoid(write_logit).unsqueeze(-1)
         return r_gate, w_gate, attn_w

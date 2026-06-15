@@ -1,0 +1,33 @@
+# 진단용 변형: "모델이 학습 자체가 되는가?"를 확인하려고 난이도를 크게 낮춘 passkey.
+# 원래 toy_passkey 대비:
+#   - vocab 50257 -> 256   : 정답 후보 급감, chance loss 10.82 -> ln(256)=5.55 로 낮아짐
+#   - seq_len 512 -> 128    : 사실을 기억해 옮길 거리 단축 (2 세그먼트)
+#   - num_facts 4 -> 2      : 외울 사실 수 감소
+#   - noise 0.6 -> 0.3      : 방해 토큰 감소
+#   - batch 8               : 희소한 라벨(질의 위치)에 그래디언트 신호 보강
+# 기대: 학습이 가능하면 loss 가 5.55 아래로 "내려가는" 게 보여야 함.
+#       그래도 5.55 평지면 -> 더 깊은 버그 의심.
+_base_: "toy_passkey.yaml"
+
+model:
+  vocab_size: 256
+  segment_len: 64
+
+data:
+  seq_len: 128
+  num_facts: 2
+  num_queries: 2
+  noise_token_fraction: 0.3
+
+training:
+  batch_size: 8
+  warmup_steps: 100   # 짧게 -> 학습이 빨리 시작되는 게 보임
+
+rtla:
+  enabled: false
+
+wandb:
+  run_name: "toy-passkey-easy"
+  tags: ["diagnostic", "easy"]
+  notes: "Diagnostic: easy variant to confirm the model can learn at all"
+  group: "diagnostic"

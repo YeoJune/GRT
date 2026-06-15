@@ -1,0 +1,17 @@
+# 사다리 L4: 어휘 16384. chance=ln(16384)=9.70, 목표<2.
+_base_: "toy_passkey.yaml"
+
+model:
+  vocab_size: 16384
+
+training:
+  batch_size: 8
+  warmup_steps: 200
+
+rtla:
+  enabled: false
+
+wandb:
+  run_name: "ladder-L4-vocab16384"
+  tags: ["ladder", "L4"]
+  group: "ladder"

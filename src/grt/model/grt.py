@@ -78,13 +78,36 @@ class GRTModel(nn.Module):
         self.embedding = nn.Embedding(cfg.vocab_size, cfg.d_model)
         nn.init.normal_(self.embedding.weight, std=0.02)
 
-        self.router = GlobalRouterUnit(cfg.router, cfg.num_registers, cfg.d_model)
+        self.router = GlobalRouterUnit(
+            cfg.router,
+            cfg.num_registers,
+            cfg.d_model,
+            write_gate_bias_init=cfg.register.write_gate_bias_init,
+            dropout_prob=cfg.register.dropout_prob,
+        )
         self.alu = ALU(cfg.alu, cfg.segment_len, cfg.num_registers, cfg.d_model)
         self.writeback = RegisterWriteback()
         self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
         self.lm_head.weight = self.embedding.weight
 
         self.s0 = nn.Parameter(torch.zeros(1, cfg.num_registers, cfg.d_model))
+
+        # 세그먼트 내 위치 인코딩 (0..segment_len-1). 트랜스포머가 토큰 순서를
+        # 인식하려면 필수. 세그먼트 간(전역) 위치는 레지스터 메모리가 담당.
+        self.pos_emb = nn.Parameter(torch.zeros(1, cfg.segment_len, cfg.d_model))
+        nn.init.normal_(self.pos_emb, std=0.02)
+
+        # 아키텍처 개선 토글
+        self.register_id = cfg.register_id
+        self.segment_pos = cfg.segment_pos
+        self.conditional_read = cfg.conditional_read
+        if cfg.register_id:
+            self.reg_emb = nn.Parameter(torch.zeros(1, cfg.num_registers, cfg.d_model))
+            nn.init.normal_(self.reg_emb, std=0.02)
+        if cfg.segment_pos:
+            self._max_seg = 64
+            self.seg_emb = nn.Parameter(torch.zeros(self._max_seg, cfg.d_model))
+            nn.init.normal_(self.seg_emb, std=0.02)
 
     def init_registers(self, batch_size: int) -> Tensor:
         if self.cfg.register.s0_learnable:
@@ -107,10 +130,15 @@ class GRTModel(nn.Module):
         all_logits: list[Tensor] = []
         trace = TraceBuffer() if return_trace else None
 
-        for x_t in segments:
+        for seg_idx, x_t in enumerate(segments):
+            x_t = x_t + self.pos_emb
+            if self.segment_pos:
+                x_t = x_t + self.seg_emb[min(seg_idx, self._max_seg - 1)]
             r_gate, w_gate, attn_w = self.router(x_t, s)
-            s_masked = r_gate * s
-            y_t, delta_s = self.alu(x_t, s_masked)
+            s_read = r_gate * s if self.conditional_read else s
+            if self.register_id:
+                s_read = s_read + self.reg_emb
+            y_t, delta_s = self.alu(x_t, s_read)
             s, pred_error = self.writeback(s, delta_s, w_gate)
             logits_t = self.lm_head(y_t)
             all_logits.append(logits_t)

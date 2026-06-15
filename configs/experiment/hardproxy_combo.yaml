@@ -1,0 +1,14 @@
+# 하드 proxy + 결합 개선(d512 + 조건부읽기 제거). proxy에서 통한 게 8세그 대표과제에도 전이되나?
+_base_: "hardproxy_baseline.yaml"
+
+model:
+  d_model: 512
+  conditional_read: false
+
+logging:
+  save_dir: "checkpoints/hardproxy_combo/"
+
+wandb:
+  run_name: "hardproxy-d512-noread"
+  tags: ["improve2", "hardproxy", "combo"]
+  group: "improve2"

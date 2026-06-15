@@ -1,0 +1,19 @@
+# 중간 난이도: 원본의 어려운 구조(seq 512 + 사실 4개 + 8세그먼트 메모리)는 유지하되,
+# 비현실적 어휘 50257 -> 1024 로. 합성 과제에 5만 어휘는 과함(각 토큰이 드물어 임베딩
+# 학습 안 됨 + 출력 5만 분류). chance = ln(1024) = 6.93.
+_base_: "toy_passkey.yaml"
+
+model:
+  vocab_size: 1024
+
+training:
+  batch_size: 8
+  warmup_steps: 200
+
+rtla:
+  enabled: false
+
+wandb:
+  run_name: "toy-passkey-mid-vocab1024"
+  tags: ["diagnostic", "mid"]
+  group: "diagnostic"

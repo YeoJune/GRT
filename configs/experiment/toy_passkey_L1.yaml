@@ -1,0 +1,18 @@
+# 사다리 L1: 원본 구조(seq 512, 사실 4, noise 0.6) 풀스케일 + 어휘만 쉬움(256).
+# 레지스터 메모리가 8세그먼트·4사실 규모에서 작동하는지 시험. chance=ln(256)=5.55, 목표<2.
+_base_: "toy_passkey.yaml"
+
+model:
+  vocab_size: 256
+
+training:
+  batch_size: 8
+  warmup_steps: 200
+
+rtla:
+  enabled: false
+
+wandb:
+  run_name: "ladder-L1-vocab256"
+  tags: ["ladder", "L1"]
+  group: "ladder"

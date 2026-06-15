@@ -1,0 +1,13 @@
+# 아키텍처 개선 2: 세그먼트 인덱스 임베딩 (전역 시간 신호).
+_base_: "proxy_baseline.yaml"
+
+model:
+  segment_pos: true
+
+logging:
+  save_dir: "checkpoints/arch_segpos/"
+
+wandb:
+  run_name: "arch-segpos"
+  tags: ["improve", "proxy", "arch"]
+  group: "improve"

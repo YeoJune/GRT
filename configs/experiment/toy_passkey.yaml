@@ -19,7 +19,7 @@ data:
   noise_token_fraction: 0.6
 
 training:
-  batch_size: 32
+  batch_size: 2 # 원래는 32였음. 로컬 GPU VRAM 한계로 줄임
   max_steps: 50000
   mixed_precision: "fp16"
 

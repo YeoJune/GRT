@@ -36,6 +36,10 @@ class ModelConfig:
     num_registers: int = 32
     d_model: int = 256
     vocab_size: int = 32000
+    # --- 아키텍처 개선 토글 (기본값 = 기존 동작 유지) ---
+    register_id: bool = False      # 레지스터 슬롯별 학습 identity 임베딩 (ALU 입력에 더함)
+    segment_pos: bool = False      # 세그먼트 인덱스 임베딩 (전역 시간 신호)
+    conditional_read: bool = True  # R⊙S 마스킹. False면 ALU가 마스킹 안 된 전체 S를 봄
     alu: ALUConfig = field(default_factory=ALUConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
     register: RegisterConfig = field(default_factory=RegisterConfig)

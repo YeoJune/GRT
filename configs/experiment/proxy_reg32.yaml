@@ -1,0 +1,13 @@
+# 개선 후보 D: 레지스터 16 -> 32 (메모리 용량↑).
+_base_: "proxy_baseline.yaml"
+
+model:
+  num_registers: 32
+
+logging:
+  save_dir: "checkpoints/proxy_reg32/"
+
+wandb:
+  run_name: "proxy-reg32"
+  tags: ["improve", "proxy", "reg32"]
+  group: "improve"

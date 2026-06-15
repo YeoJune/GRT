@@ -1,0 +1,17 @@
+# 사다리 L5 (최종 보스): 어휘 50257 = 원본. chance=ln(50257)=10.82, 목표<2.
+_base_: "toy_passkey.yaml"
+
+model:
+  vocab_size: 50257
+
+training:
+  batch_size: 8
+  warmup_steps: 200
+
+rtla:
+  enabled: false
+
+wandb:
+  run_name: "ladder-L5-vocab50257"
+  tags: ["ladder", "L5"]
+  group: "ladder"
