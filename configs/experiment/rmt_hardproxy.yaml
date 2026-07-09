@@ -1,0 +1,17 @@
+# RMT 베이스 모델 (Phase 2 비교용). grt_hardproxy 와 완전히 동일한 과제/데이터/vocab/
+# 옵티마이저를 쓰고 모델만 RMT 로 교체 → GRT vs RMT 공정 비교.
+# 메모리 토큰 수 = num_registers(=16), 백본은 GRT ALU 와 동일 스펙. vocab 2000 상속.
+_base_: "grt_hardproxy.yaml"
+
+model:
+  arch: "rmt"
+  rmt:
+    num_mem_tokens: 0   # 0 = num_registers 그대로 사용
+
+logging:
+  save_dir: "checkpoints/rmt_hardproxy/"
+
+wandb:
+  run_name: "rmt-hardproxy"
+  tags: ["phase2", "hardproxy", "rmt", "baseline"]
+  group: "phase2-baseline"

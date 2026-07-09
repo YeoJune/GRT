@@ -11,6 +11,7 @@ import torch
 from grt.config import GRTConfig, load_config
 from grt.logging import RTLAUploader, WandbLogger
 from grt.model.grt import GRTModel
+from grt.model.rmt import RMTModel
 from grt.rtla.analyzer import RegisterAnalyzer
 from grt.training import Trainer, build_dataloaders
 
@@ -26,10 +27,16 @@ def main() -> None:
         cfg.training.max_steps = args.max_steps
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = GRTModel(cfg.model).to(device)
-    analyzer = RegisterAnalyzer(model)
+    if cfg.model.arch == "rmt":
+        # RMT 베이스라인: GRT 전용 레지스터 분석기/RTLA 는 의미가 없어 건너뛴다.
+        model = RMTModel(cfg.model).to(device)
+        analyzer = None
+        rtla_uploader = None
+    else:
+        model = GRTModel(cfg.model).to(device)
+        analyzer = RegisterAnalyzer(model)
+        rtla_uploader = RTLAUploader(analyzer, cfg.rtla) if cfg.rtla.enabled else None
     wandb_logger = WandbLogger(cfg.wandb, full_cfg=cfg)
-    rtla_uploader = RTLAUploader(analyzer, cfg.rtla) if cfg.rtla.enabled else None
 
     train_loader, eval_loader = build_dataloaders(cfg, device=device)
     trainer = Trainer(

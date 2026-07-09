@@ -1,0 +1,28 @@
+# GRT 우리 모델 — 빠른 검증 + RMT 비교용 기준. (구 hardproxy_baseline.yaml)
+# L1의 어려운 구조(8세그먼트 + 사실4 + 노이즈0.6) 유지, segment_len 32로 seq 256(=8세그).
+# vocab 2000 (여준 지시: 1000~4000 대역). rmt_hardproxy 와 과제/데이터/vocab 동일, 모델만 GRT.
+_base_: "toy_passkey.yaml"
+
+model:
+  arch: "grt"
+  vocab_size: 2000
+  segment_len: 32
+
+data:
+  seq_len: 256
+
+training:
+  batch_size: 8
+  warmup_steps: 200
+
+rtla:
+  enabled: false
+
+logging:
+  save_dir: "checkpoints/grt_hardproxy/"
+  save_every_n_steps: 999999
+
+wandb:
+  run_name: "grt-hardproxy"
+  tags: ["phase2", "hardproxy", "grt"]
+  group: "phase2-baseline"
