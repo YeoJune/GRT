@@ -132,6 +132,23 @@ def test_unsupported_precision():
     with pytest.raises(ValueError,match="CUDA"):
         check_precision(torch.device("cpu"),"fp16")
 
+def test_periodic_last_checkpoint_survives_interruption(tmp_path):
+    class InterruptedLogger:
+        def log(self, step, payload):
+            if step == 3:
+                raise RuntimeError("simulated interruption before normal shutdown")
+    cfg = tiny_run_config(tmp_path, "rmt", steps=3)
+    cfg.checkpoint.every_steps = 2
+    trainer = Trainer(create_model(cfg.model), cfg, InterruptedLogger())
+    with pytest.raises(RuntimeError, match="interruption"):
+        trainer.train()
+    last = load_checkpoint(tmp_path / "last.pt")
+    periodic = load_checkpoint(tmp_path / "step_000002.pt")
+    assert last["global_step"] == periodic["global_step"] == 2
+    assert last["next_train_sample_id"] == 4
+    for key, value in last["model"].items():
+        torch.testing.assert_close(value, periodic["model"][key], rtol=0, atol=0)
+
 def test_nonfinite_gradient_stops_and_writes_diagnostics(tmp_path):
     cfg = tiny_run_config(tmp_path,"rmt",steps=1)
     model = create_model(cfg.model)

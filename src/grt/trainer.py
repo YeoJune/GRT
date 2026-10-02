@@ -37,7 +37,10 @@ class Trainer:
             progress = min(1.0, max(0.0, (step - t.warmup_steps) / max(1, t.max_steps - t.warmup_steps)))
             return 0.5 * (1 + math.cos(math.pi * progress))
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, schedule)
-        self.scaler = torch.cuda.amp.GradScaler(enabled=t.mixed_precision == "fp16")
+        if hasattr(torch.amp, "GradScaler"):
+            self.scaler = torch.amp.GradScaler("cuda", enabled=t.mixed_precision == "fp16")
+        else:  # PyTorch 2.2 compatibility; newer versions use the current API.
+            self.scaler = torch.cuda.amp.GradScaler(enabled=t.mixed_precision == "fp16")
         self.global_step = 0
         self.next_train_sample_id = 0
         self.best_validation_loss = math.inf
@@ -138,6 +141,7 @@ class Trainer:
                 self.logger.log(self.global_step, payload)
             if self.global_step % self.cfg.checkpoint.every_steps == 0:
                 self.save(f"step_{self.global_step:06d}.pt")
+                self.save("last.pt")
         if not (self.output_dir / "best.pt").exists():
             payload = self.validate()
             if self.logger:
