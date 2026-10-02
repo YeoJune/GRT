@@ -51,6 +51,10 @@ class Logger:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"global_step": step, **payload}, allow_nan=False) + "\n")
         self.upload(step, {**payload, **self.pending_media.pop(step, {})})
+        if "val/loss" in payload:
+            print(f"step={step} val_loss={payload['val/loss']:.5f} "
+                  f"token_accuracy={payload['val/token_accuracy']:.3%} "
+                  f"exact_match={payload['val/exact_match']:.3%}", flush=True)
 
     def queue_trace(self, step, arrays, panel):
         self.pending_media.setdefault(step, {}).update(self.trace_payload(arrays, panel))

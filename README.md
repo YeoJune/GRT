@@ -33,6 +33,50 @@ Colab은 런타임 유형에서 GPU를 선택하세요. W&B 계정은 필요하�
 결과와 `pytest_output.txt`, `pytest.xml`을 `runs/notebook_<timestamp>/`에 저장하고
 마지막 셀에서 ZIP을 만듭니다. 실패하면 해당 로그를 공유하세요.
 
+## Colab T4: Copy 초기 수렴 비교
+
+[notebooks/colab_t4_copy.ipynb](notebooks/colab_t4_copy.ipynb)를 T4 런타임에서 실행하세요.
+공통 override는 [configs/colab_t4_copy.yaml](configs/colab_t4_copy.yaml)입니다.
+
+| 항목 | 두 모델 공통 설정 |
+|---|---|
+| 모델 / 과제 | 표준 small, 4층·D=256·FF=1024, Copy T=4 |
+| 메모리 / 토큰 | M=32, N=128, V=1024, target 20개 |
+| 배치 | microbatch 4 × accumulation 2 = effective batch 8 |
+| 예산 | 5,000 optimizer updates, 학습 샘플 40,000개 |
+| 정밀도 / LR | FP32, 3e-4, warmup 200 + cosine |
+| 검증 / test | 각각 256개, validation 매 250 update |
+| 저장 / 분석 | checkpoint 매 500, GRT RTLA 매 1,000 update |
+
+FP32로 먼저 수렴을 관찰하며 FP16 overflow 변수는 별도 실험으로 둡니다.
+5,000 update는 초기 탐색 예산이며 CE≤0.05 달성을 보장하지 않습니다.
+표준 50,000-update/전체 평가 표본 실험과 구분하고 두 모델에 동일한 데이터·예산을 적용합니다.
+테스트 T=4/10/20은 종료 시 best checkpoint로 평가하며 선택에는 validation만 사용합니다.
+
+설치 셀을 실행한 Colab에서 직접 실행하려면 다음 셀을 사용하세요.
+
+```python
+%cd /content/GRT
+!python -u scripts/train.py --config configs/base.yaml configs/rmt.yaml configs/copy.yaml configs/colab_t4_copy.yaml --output-dir runs/rmt-t4-copy-pilot --device cuda
+!python -u scripts/train.py --config configs/base.yaml configs/grt.yaml configs/copy.yaml configs/colab_t4_copy.yaml --output-dir runs/grt-t4-copy-pilot --device cuda
+```
+
+노트북에서는 RMT와 GRT 학습을 별도 셀로 실행하고, 기본적으로 Google Drive에 run을 저장합니다.
+최신 checkpoint의 설정이 현재 설정과 일치할 때 자동으로 재개하며 완료한 run은 반복하지 않습니다.
+주기 저장 이후 중단했다면 최대 499 update를 다시 실행할 수 있습니다.
+`best.pt`가 더 최신이면 노트북은 그 checkpoint를 재개 지점으로 사용합니다.
+Colab 로컬 `/content`는 런타임 종료 후 보존된다고 가정하지 마세요.
+Drive I/O 시간과 런타임 제한 때문에 완료 시간을 보장하지 않습니다.
+
+노트북의 마지막 셀은 validation CE/정확도 곡선, `comparison.json`,
+두 모델의 기본·확장 길이 결과를 생성합니다. 기본 길이에서 CE≤0.05 도달 여부를 먼저 보세요.
+미달이면 개선 추세와 최근 gradient/LR 및 수렴 정체를 확인하고,
+확장 길이 실패만으로 구현 오류를 결론 내리지 마세요.
+OOM이면 두 모델 모두 새 run에서 `--batch-size 2 --grad-accum-steps 4`를 적용해
+effective batch 8을 유지합니다. 평가 batch도 두 모델에 동일하게 낮춘 새 YAML을 사용하세요.
+
+이 프로필의 실제 T4 메모리·속도·수렴은 로컬에서 실행하지 않았습니다.
+
 ## 학습 / 평가 / 분석
 
 ```bash
@@ -73,6 +117,7 @@ gradient를 유지합니다. 실제 padding은 지원하지 않아 false attenti
 
 각 run은 `resolved_config.yaml`, `metadata.json`, `metrics.jsonl`, `best.pt`, `last.pt`,
 주기 `step_XXXXXX.pt`, `evaluation.json`, GRT의 `rtla/*.npz|json|png`를 저장합니다.
+`last.pt`는 주기 checkpoint 시점과 정상 종료 시 갱신합니다.
 RTLA는 갱신 전 상태에서 샘플별 FP32 norm을 구한 뒤 배치 평균합니다.
 conditional read가 꺼진 R은 inactive read head로 표시하며 의미적 슬롯 역할을 자동 분류하지 않습니다.
 기존 trace 경로는 덮어쓰지 않습니다. 분석을 다시 실행할 때는 새 `--output-dir`를 사용하세요.
