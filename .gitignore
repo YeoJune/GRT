@@ -13,6 +13,7 @@ dist/
 # Training / experiment outputs
 checkpoints/
 traces/
+runs/
 wandb/
 
 # OS / editor

@@ -4,26 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grt"
-version = "0.2.0"
+version = "0.3.0"
 description = "Gated Register Transformer"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.2.0",
     "pyyaml>=6.0",
-    "einops>=0.7.0",
     "numpy>=1.26",
     "matplotlib>=3.8",
-    "tqdm>=4.66",
-    "datasets>=2.18",
-    "transformers>=4.39",
-    "wandb>=0.17",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+wandb = ["wandb>=0.17"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

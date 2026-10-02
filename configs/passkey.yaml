@@ -1,0 +1,5 @@
+data:
+  task: passkey
+  train_segments: 5
+  eval_segments: [5, 15, 30]
+  num_facts: 4
