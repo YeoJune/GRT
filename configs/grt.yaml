@@ -1,0 +1,10 @@
+model:
+  name: grt
+  register:
+    conditional_read: false
+    dropout_prob: 0.0
+    write_gate_bias_init: -2.0
+    s0_learnable: true
+  router:
+    pool_nhead: 4
+    mlp_hidden: 512

@@ -1,0 +1,7 @@
+model:
+  size: large
+  d_model: 512
+  alu:
+    num_layers: 8
+    nhead: 8
+    d_ff: 2048
