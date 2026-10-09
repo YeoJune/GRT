@@ -39,3 +39,5 @@ GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval(`passkey`) 합성 메�
 ## Colab 실험 안내
 
 실험이 필요한 변경에는 사용할 노트북 또는 실행 명령, 주요 설정, 분석을 위해 공유할 결과를 간단히 안내한다. 기본적인 Colab 사용법은 생략하고 이번 변경에 필요한 내용에 집중한다.
+
+Colab 실험은 T4 GPU(VRAM 약 16GB)를 기준으로 모델·activation·optimizer 메모리와 여유 공간을 계산해 배치 크기를 정하고, 실제 peak VRAM 결과로 조절한다. microbatch·gradient accumulation·effective batch를 구분하며, effective batch 변경이 학습 조건에 미치는 영향도 명시한다.
