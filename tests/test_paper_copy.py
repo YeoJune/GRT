@@ -29,8 +29,10 @@ def test_published_dimensions_and_parameter_count(tmp_path):
     model = create_model(cfg.model)
     assert sum(p.numel() for p in model.parameters()) == 926220
     torch.testing.assert_close(model.mem0, model.mem0[:, :1].expand_as(model.mem0))
-    assert cfg.training.batch_size * cfg.training.grad_accum_steps == 32
+    assert cfg.training.batch_size * cfg.training.grad_accum_steps == 512
     assert cfg.training.lr == 1e-4 and cfg.training.scheduler == "plateau"
+    assert cfg.training.max_steps * cfg.training.batch_size == 400000 * 32
+    assert cfg.training.plateau_every_steps * cfg.training.batch_size == 12000 * 32
 
 
 def test_shifted_copy_mask_and_cyclic_train_set(tmp_path):

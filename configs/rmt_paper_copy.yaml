@@ -1,4 +1,4 @@
-# Stage 1: NeurIPS 2022 short Copy (LM-RMT Figure 4, successful M=N=24 rows).
+# Stage 1: published short Copy architecture with a T4 throughput batch override.
 # Standalone config; do not merge recovery/grt configs into this experiment.
 model:
   name: rmt
@@ -27,29 +27,31 @@ data:
   data_seed: 20260916
 training:
   model_seed: 1234
-  batch_size: 32
+  # CPU autograd saved-tensor estimate: ~4.8 GiB at B512, excluding CUDA/backward workspace.
+  batch_size: 512
   grad_accum_steps: 1
-  max_steps: 400000  # Published budget ceiling, not an asserted convergence time.
+  # 512 x 25K = 32 x 400K = 12.8M sample presentations; larger batch changes optimization.
+  max_steps: 25000
   optimizer: adam
   adam_beta2: 0.999
   lr: 0.0001
   weight_decay: 0.0
   scheduler: plateau
   plateau_patience: 8
-  plateau_every_steps: 12000  # Keep the published LR decision cadence despite more frequent logs.
+  plateau_every_steps: 750  # 750 x 512 = 12K x 32 sample presentations per LR decision.
   min_lr: 0.000001
   warmup_steps: 0
   grad_clip: 0.25
   mixed_precision: fp32
   stop_on_convergence: true
 evaluation:
-  batch_size: 32
-  every_steps: 1000
+  batch_size: 512
+  every_steps: 125
   autoregressive_samples: 64
   warmup: 2
   iterations: 5
 checkpoint:
-  every_steps: 1000
+  every_steps: 125
 rtla:
   enabled: false
 wandb:

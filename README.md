@@ -39,18 +39,20 @@ Colab은 런타임 유형에서 GPU를 선택하세요. W&B 계정은 필요하�
 [notebooks/colab_rmt_paper_copy.ipynb](notebooks/colab_rmt_paper_copy.ipynb)를 실행하세요.
 설정은 [configs/rmt_paper_copy.yaml](configs/rmt_paper_copy.yaml)입니다.
 V12·source 24개·답 48개·N=M24, 4층·D128·FF256의 causal 상대 위치 RMT를
-batch32·LR1e-4·FP32로 학습합니다. Teacher forcing과 자기회귀 정확도를 함께 확인하며,
+T4용 batch512·LR1e-4·FP32로 학습합니다. Teacher forcing과 자기회귀 정확도를 함께 확인하며,
 GRT 구현과 비교는 RMT 수렴 결과를 확인한 뒤 진행합니다.
 
 100K train source를 반복하며 validation1024/test2048개, 자기회귀 평가는 각각64개입니다.
-최대400K update이며 validation CE≤.05·teacher-forced 정확도≥99%·자기회귀 정확도≥99%·
+최대25K update(총12.8M sample 제시)이며 validation CE≤.05·teacher-forced 정확도≥99%·자기회귀 정확도≥99%·
 자기회귀 exact match≥95%를 모두 만족하면 종료합니다. 학습 로그는100 update마다,
-검증·저장은1K마다 수행하고 LR 감소 판단은12K 간격을 유지합니다.
+검증·저장은125 update마다 수행하고 LR 감소 판단은750 update 간격입니다.
+원본 batch32보다16배 큰 배치로 sample 예산과 LR 판단의 sample 간격을 유지하되,
+optimizer update 수는 줄었습니다. 배치 증가가 수렴에 미치는 영향은 이번 결과로 확인합니다.
 노트북의 `summary.json`, `convergence.png`, `metrics.jsonl`, `evaluation.json`을 공유하세요.
 
 ```bash
-python -u scripts/train.py --config configs/rmt_paper_copy.yaml --output-dir runs/rmt-paper-copy --device cuda
-python -u scripts/train.py --resume runs/rmt-paper-copy/last.pt --device cuda
+python -u scripts/train.py --config configs/rmt_paper_copy.yaml --output-dir runs/rmt-paper-copy-b512 --device cuda
+python -u scripts/train.py --resume runs/rmt-paper-copy-b512/last.pt --device cuda
 ```
 
 ## 기존 Colab T4: 병렬 복원 Copy pilot
