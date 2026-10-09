@@ -30,8 +30,8 @@ training:
   # CPU autograd saved-tensor estimate: ~4.8 GiB at B512, excluding CUDA/backward workspace.
   batch_size: 512
   grad_accum_steps: 1
-  # 512 x 25K = 32 x 400K = 12.8M sample presentations; larger batch changes optimization.
-  max_steps: 25000
+  # T4 pilot: 2 min/125 updates -> ~32 min for 2K, not the published full sample budget.
+  max_steps: 2000
   optimizer: adam
   adam_beta2: 0.999
   lr: 0.0001

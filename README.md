@@ -43,17 +43,21 @@ T4용 batch512·LR1e-4·FP32로 학습합니다. Teacher forcing과 자기회귀
 GRT 구현과 비교는 RMT 수렴 결과를 확인한 뒤 진행합니다.
 
 100K train source를 반복하며 validation1024/test2048개, 자기회귀 평가는 각각64개입니다.
-최대25K update(총12.8M sample 제시)이며 validation CE≤.05·teacher-forced 정확도≥99%·자기회귀 정확도≥99%·
+최대2K update의 pilot이며 validation CE≤.05·teacher-forced 정확도≥99%·자기회귀 정확도≥99%·
 자기회귀 exact match≥95%를 모두 만족하면 종료합니다. 학습 로그는100 update마다,
 검증·저장은125 update마다 수행하고 LR 감소 판단은750 update 간격입니다.
-원본 batch32보다16배 큰 배치로 sample 예산과 LR 판단의 sample 간격을 유지하되,
-optimizer update 수는 줄었습니다. 배치 증가가 수렴에 미치는 영향은 이번 결과로 확인합니다.
+125 update에2분이라는 T4 실측 기준으로 최대 약32분입니다. 원본 전체 sample 예산을
+사용하지 않으며 이 시간 내 수렴을 보장하지 않습니다. 예산 종료 시 수렴 여부와 추세를 함께 확인합니다.
+노트북은 기존25K 설정의 b512 run도 같은 학습 조건이면 재개하여 총2K에서 멈춥니다.
 노트북의 `summary.json`, `convergence.png`, `metrics.jsonl`, `evaluation.json`을 공유하세요.
 
 ```bash
 python -u scripts/train.py --config configs/rmt_paper_copy.yaml --output-dir runs/rmt-paper-copy-b512 --device cuda
 python -u scripts/train.py --resume runs/rmt-paper-copy-b512/last.pt --device cuda
 ```
+
+기존25K run을 중단 후 재개할 때는 `--stop-after 2000`을 추가하면 optimizer/LR 상태를
+유지하면서 총2K update에서 종료합니다.
 
 ## 기존 Colab T4: 병렬 복원 Copy pilot
 

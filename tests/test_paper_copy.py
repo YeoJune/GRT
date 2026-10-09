@@ -1,4 +1,7 @@
 import copy
+import json
+from dataclasses import asdict
+from types import SimpleNamespace
 from pathlib import Path
 import pytest
 import torch
@@ -31,7 +34,7 @@ def test_published_dimensions_and_parameter_count(tmp_path):
     torch.testing.assert_close(model.mem0, model.mem0[:, :1].expand_as(model.mem0))
     assert cfg.training.batch_size * cfg.training.grad_accum_steps == 512
     assert cfg.training.lr == 1e-4 and cfg.training.scheduler == "plateau"
-    assert cfg.training.max_steps * cfg.training.batch_size == 400000 * 32
+    assert cfg.training.max_steps == 2000
     assert cfg.training.plateau_every_steps * cfg.training.batch_size == 12000 * 32
 
 
@@ -187,3 +190,25 @@ def test_early_stop_requires_free_running_success(tmp_path, monkeypatch):
     assert trainer.converged and (tmp_path / "converged.pt").exists()
     trainer.train()
     assert trainer.global_step == 0  # No further update after a saved convergence decision.
+
+
+def test_notebook_shortens_existing_plateau_run_without_changing_training(tmp_path, monkeypatch):
+    cfg = paper_config(tmp_path)
+    saved = asdict(cfg)
+    saved["training"]["max_steps"] = 25000
+    state = {"config": saved, "global_step": 125, "converged": False}
+    (tmp_path / "last.pt").touch()
+    monkeypatch.setattr("grt.checkpoint.load_checkpoint", lambda path: state)
+    notebook = json.loads((ROOT / "notebooks/colab_rmt_paper_copy.ipynb").read_text())
+    source = "".join(notebook["cells"][2]["source"])
+    commands = []
+    scope = {"REPO_DIR": ROOT, "RUN_DIR": tmp_path,
+             "sys": SimpleNamespace(executable="python"),
+             "subprocess": SimpleNamespace(run=lambda command, **kwargs: commands.append(command))}
+    exec(source, scope)
+    assert commands[0][-2:] == ["--resume", str(tmp_path / "last.pt")]
+    assert commands[0][commands[0].index("--stop-after")+1] == "2000"
+    assert saved["training"]["max_steps"] == 25000  # Saved optimizer budget is unmodified.
+    saved["training"]["lr"] *= 2
+    with pytest.raises(ValueError, match="설정이 다른"):
+        exec(source, scope)

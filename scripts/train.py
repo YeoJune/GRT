@@ -19,11 +19,14 @@ def main(argv=None):
     source.add_argument("--resume")
     parser.add_argument("--output-dir")
     parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--stop-after", type=int, help="Stop at this absolute update without changing the saved LR budget; allowed on resume")
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--grad-accum-steps", type=int)
     parser.add_argument("--mixed-precision", choices=["fp32", "bf16", "fp16"])
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     args = parser.parse_args(argv)
+    if args.stop_after is not None and args.stop_after <= 0:
+        parser.error("--stop-after must be positive")
     state = None
     if args.resume:
         if any(v is not None for v in (args.output_dir, args.max_steps, args.batch_size, args.grad_accum_steps, args.mixed_precision)):
@@ -51,6 +54,8 @@ def main(argv=None):
     model = create_model(cfg.model).to(device)
     save_config(cfg, directory / "resolved_config.yaml")
     run_meta = metadata(model, cfg)
+    if args.stop_after is not None:
+        run_meta["execution_stop_after"] = args.stop_after
     if state is not None:
         run_meta["resumed_from"] = str(Path(args.resume).resolve())
         write_json(directory / f"resume_metadata_step_{state['global_step']:06d}.json", run_meta)
@@ -65,7 +70,7 @@ def main(argv=None):
     try:
         if state is not None:
             trainer.resume(state)
-        progress = trainer.train()
+        progress = trainer.train(stop_after=args.stop_after)
         selected = "converged.pt" if progress["converged"] else "best.pt"
         best_state = load_checkpoint(directory / selected)
         best_model, _ = restore_model(best_state, device)
