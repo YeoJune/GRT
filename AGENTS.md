@@ -24,6 +24,7 @@ GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval(`passkey`) 합성 메�
 - 작업 전 관련 코드·설정, `README.md`, `documents/`의 관련 설계·실험 기록을 확인한다. 문서의 적용 범위와 현재 요청을 함께 파악하고, 구현과 문서의 불일치는 명시한다.
 - 현재 두 모델은 공통 logits-only 인터페이스와 학습·평가 코드를 사용하되 모델 구현은 독립적이다. loss 계산은 모델 외부에, GRT 분석은 RTLA에 둔다.
 - 현재 검증은 ARMT 논문의 Remember(`paper_ar`) 과제로, GPT-NeoX RMT·pair별 세그먼트·curriculum·생성 exact match를 사용한다. RMT 성공 확인 후 GRT를 연결한다. 기존 `recovery`의 병렬 복원과 2022 기반 `paper_copy`의 두 번 Copy는 별도 과제다. 원본 구조·과제 기능과 학습/실행 최적화를 구분하고, 짧은 검증을 논문 전체 실험 재현으로 표현하지 않는다. 데이터·loss mask·상태 전달 변경 시 정답 누출과 재현성을 확인한다.
+- 기능 점검용 `balanced_contexts`는 서로 다른 key/value, context별 모든 질의, split 간 context 분리를 사용한다. 원본 random Remember와 데이터 분포가 다름을 명시하고, 모든 질의 성공률·질의 위치별 정확도를 확인한다. 기존 random 실험의 checkpoint를 이 holdout 검증에 재사용하지 않는다.
 - 설정은 `base → 모델 → 과제 → override` 순으로 병합하고 목록은 교체한다. 실험의 실제 조건은 `resolved_config.yaml`과 실행 metadata로 확인한다. 설정을 바꾼 실험은 기존 결과를 덮어쓰지 않고 별도 run으로 기록한다.
 - 모델 비교에서는 데이터·학습 예산·평가 조건의 차이를 밝힌다. 짧은 실행 점검, 기본 길이 수렴, 길이 확장 성능을 구분하며 gate 분포만으로 메모리의 의미적 역할을 단정하지 않는다.
 

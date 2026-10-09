@@ -1,5 +1,6 @@
 """Integer-token benchmarks; data RNG never touches the model RNG."""
 import hashlib
+import math
 from typing import TypedDict
 import torch
 from torch import Tensor
@@ -60,6 +61,8 @@ class SyntheticDataset(Dataset):
                 pairs = torch.randint(1, pairs + 1, (), generator=length_rng).item()
             if self.split == "train":
                 sample_id %= self.cfg.train_samples
+            if self.cfg.remember_sampling == "balanced_contexts":
+                return generate_balanced_remember(self.split, sample_id, pairs, self.cfg.data_seed)
             return generate_remember(self.split, sample_id, pairs, self.cfg.key_size,
                                      self.cfg.value_size, self.cfg.data_seed)
         if self.cfg.protocol == "paper_copy":
@@ -104,6 +107,57 @@ def generate_remember(split, sample_id, pairs, key_size=1, value_size=1, data_se
     # Labels are already next-token aligned; GEN predicts the first value.
     answer_start = ids.numel() - value_size - 1
     labels[answer_start-1:-1] = ids[answer_start:]
+    return {"input_ids": ids, "attention_mask": torch.ones_like(ids, dtype=torch.bool), "labels": labels}
+
+
+def remember_context_capacity(pairs, split):
+    total = math.comb(16, pairs) * math.perm(16, pairs)
+    boundaries = (0, total * 3 // 4, total * 7 // 8, total)
+    index = ("train", "validation", "test").index(split)
+    return boundaries[index], boundaries[index+1] - boundaries[index]
+
+
+def generate_balanced_remember(split, sample_id, pairs, data_seed=20260916):
+    """Unique, split-disjoint mappings; consecutive samples query every fact.
+
+    Controlled Remember variant: distinct values and fixed context length.
+    An affine permutation of the finite mapping space avoids source collisions
+    across splits, including permutations of the fact order.
+    """
+    if not 1 <= pairs <= 16 or sample_id < 0:
+        raise ValueError("Invalid balanced Remember size/index")
+    offset, capacity = remember_context_capacity(pairs, split)
+    context, query_index = divmod(sample_id, pairs)
+    if context >= capacity:
+        raise ValueError("Requested more unique contexts than the split contains")
+    total = math.comb(16, pairs) * math.perm(16, pairs)
+    digest = hashlib.sha256(f"{data_seed}/balanced_remember/{pairs}".encode()).digest()
+    multiplier = int.from_bytes(digest[:8], "little") % total or 1
+    while math.gcd(multiplier, total) != 1:
+        multiplier = (multiplier + 1) % total or 1
+    rank = ((offset + context) * multiplier + int.from_bytes(digest[8:16], "little")) % total
+    key_rank, value_rank = divmod(rank, math.perm(16, pairs))
+    keys, start = [], 0
+    for position in range(pairs):
+        for candidate in range(start, 16):
+            block = math.comb(15-candidate, pairs-position-1)
+            if key_rank < block:
+                keys.append(candidate)
+                start = candidate + 1
+                break
+            key_rank -= block
+    pool, values = list(range(16)), []
+    for position in range(pairs):
+        block = math.perm(15-position, pairs-position-1)
+        index, value_rank = divmod(value_rank, block)
+        values.append(pool.pop(index))
+    order = torch.randperm(pairs, generator=generator(data_seed, "balanced_remember", "context", rank, "order"))
+    facts = torch.tensor([[keys[i],100,values[i],102] for i in order.tolist()])
+    query = facts[query_index].clone()
+    query[1] = 101
+    ids = torch.cat([facts.flatten(), query])
+    labels = torch.full_like(ids, -100)
+    labels[-3:-1] = query[-2:]
     return {"input_ids": ids, "attention_mask": torch.ones_like(ids, dtype=torch.bool), "labels": labels}
 
 def collate(samples) -> Batch:

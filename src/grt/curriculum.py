@@ -10,6 +10,7 @@ from grt.evaluator import evaluate_lengths
 from grt.logger import Logger, metadata, write_json
 from grt.models.factory import create_model
 from grt.trainer import Trainer
+from grt.data import remember_context_capacity
 
 
 def stage_config(cfg, index):
@@ -25,6 +26,13 @@ def stage_config(cfg, index):
     result.data.eval_segments = (cfg.data.eval_segments if index == len(cfg.training.curriculum)-1
                                  else [stage.num_pairs + 1])
     result.run.output_dir = str(Path(cfg.run.output_dir) / f"stage_{index+1:02d}_pairs{stage.num_pairs}_key{stage.key_size}")
+    if result.data.remember_sampling == "balanced_contexts":
+        for split, field in (("train","train_samples"),("validation","validation_samples"),("test","test_samples")):
+            capacity = remember_context_capacity(stage.num_pairs, split)[1]
+            requested = getattr(result.data, field)
+            setattr(result.data, field, min(requested // stage.num_pairs, capacity) * stage.num_pairs)
+        result.evaluation.autoregressive_samples = min(result.evaluation.autoregressive_samples,
+            result.data.validation_samples) // stage.num_pairs * stage.num_pairs
     return validate_config(result)
 
 
@@ -88,6 +96,10 @@ def run_curriculum(cfg, device):
         selected = stage_dir / ("converged.pt" if progress["converged"] else "best.pt")
         record = {"num_pairs": stage.num_pairs, "key_size": stage.key_size,
                   "checkpoint": str(selected), **progress}
+        if stage_cfg.data.remember_sampling == "balanced_contexts":
+            record.update(data_sampling="balanced_contexts", train_contexts=stage_cfg.data.train_samples // stage.num_pairs,
+                          validation_contexts=stage_cfg.data.validation_samples // stage.num_pairs,
+                          test_contexts=stage_cfg.data.test_samples // stage.num_pairs)
         validation_rows = [json.loads(line) for line in (stage_dir / "metrics.jsonl").read_text().splitlines()
                            if '"val/loss"' in line]
         record["last_validation"] = validation_rows[-1] if validation_rows else None

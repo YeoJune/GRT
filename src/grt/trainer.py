@@ -93,9 +93,11 @@ class Trainer:
             generation_loader = make_loader(d, "validation", d.train_segments,
                 self.cfg.evaluation.autoregressive_samples, self.cfg.evaluation.batch_size)
             generation = evaluate_remember_generation(self.model, generation_loader, d.value_size,
-                                                      self.cfg.training.mixed_precision)
+                self.cfg.training.mixed_precision, balanced_queries=d.remember_sampling == "balanced_contexts")
             payload.update({f"val/autoregressive/{k}": v for k, v in generation.items()})
             self.converged = generation["exact_match"] >= self.cfg.training.convergence_exact_match
+            if d.remember_sampling == "balanced_contexts":
+                self.converged = self.converged and generation['all_queries_exact_match'] >= self.cfg.training.convergence_exact_match
         interval = self.cfg.training.plateau_every_steps or self.cfg.evaluation.every_steps
         if self.cfg.training.scheduler == "plateau" and self.global_step % interval == 0:
             self.scheduler.step(metrics["loss"])

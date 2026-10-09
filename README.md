@@ -35,9 +35,45 @@ Colab은 런타임 유형에서 GPU를 선택하세요. W&B 계정은 필요하�
 결과와 `pytest_output.txt`, `pytest.xml`을 `runs/notebook_<timestamp>/`에 저장하고
 마지막 셀에서 ZIP을 만듭니다. 실패하면 해당 로그를 공유하세요.
 
-## Colab T4: 논문 Remember 과제의 RMT 검증 (1단계)
+## Colab T4: Remember 기능 점검 (1단계)
 
-[notebooks/colab_rmt_paper_remember.ipynb](notebooks/colab_rmt_paper_remember.ipynb)를 실행하세요.
+[notebooks/colab_rmt_paper_remember.ipynb](notebooks/colab_rmt_paper_remember.ipynb)는
+`rmt_paper_remember.yaml`에 [rmt_remember_functional.yaml](configs/rmt_remember_functional.yaml)을 병합해 실행합니다.
+원본 RMT와 Remember의 입력·출력 형식을 유지하면서, 기능 점검용으로 **서로 다른 key/value**를 쓰고
+같은 context의 모든 key를 각각 질의합니다. context는 fact 순서를 바꾼 경우까지 고려해 split 간 분리합니다.
+
+| 단계 | train context / query 예제 | validation / test context | 최대 update |
+|---|---|---|---|
+| 1쌍 | 192 / 192 | 각각32 | 400 |
+| 2쌍 | 12,288 / 24,576 | 각각512 | 1,500 |
+| 3쌍 | 8,192 / 24,576 | 각각341 | 1,000 |
+
+매 단계 고정 pair 수를 학습하고, 예제는 정해진 유한 집합을 반복합니다.
+1쌍의 서로 다른 context는 총16×16=256개이므로 split을192/32/32로 나눕니다.
+2쌍은 `C(16,2)×P(16,2)=28,800`개의 서로 다른 mapping 중 분리된 집합을 사용합니다.
+값을 무시하고 EOS만 맞히거나 마지막 값만 출력하는 전략을 구분하기 위해
+value exact match, 질의 위치별 정확도, **context의 모든 질의가 맞는 비율**을 기록합니다.
+생성 exact match와 모든 질의 성공률이 모두99% 이상이어야 다음 단계로 넘어갑니다.
+최종 성공 후3/5/8쌍을 평가합니다. 이는 논문 전체 실험 재현과 구분한 controlled Remember입니다.
+
+T4 실측 batch512의1/2쌍 peak는1.68/2.49GiB, update 시간은0.246/0.307초였습니다.
+이번에는 microbatch1024 × accumulation1을 사용합니다. 3쌍 peak는 약6.6GiB로 예상하며 실제 peak를 기록합니다.
+같은 측정값을 batch·세그먼트 수로 선형 환산하면 최대 학습 시간은 약32분입니다.
+새 배치의 처리량과 데이터 생성 비용은 미측정이므로 전체 wall budget35분을 두고 검증·저장은100 update마다 합니다.
+최종 test는 별도이며, 진행 중인 update/검증만큼 시간 제한을 초과할 수 있습니다.
+effective batch는512에서1024로 변경되며 LR3e-4는 유지합니다.
+OOM이면 새 run에서 `--batch-size 512 --grad-accum-steps 2`로 effective batch1024를 유지하세요.
+
+```bash
+python -u scripts/train.py --config configs/rmt_paper_remember.yaml configs/rmt_remember_functional.yaml --output-dir runs/rmt-remember-functional --device cuda
+```
+
+노트북의 새 RUN_DIR을 사용하세요. 기존 checkpoint는 모든1쌍 context를 이미 학습했을 수 있어
+이번 split의 holdout 검증에는 재사용하지 않습니다. 같은 명령으로 새 실험을 자동 재개합니다.
+공유 자료는 `summary.json`, `evaluation.json`, `convergence.png`와 각 stage의 `metrics.jsonl`입니다.
+
+## 이전: 원본 형식의 짧은 Remember pilot
+
 설정은 [configs/rmt_paper_remember.yaml](configs/rmt_paper_remember.yaml)입니다.
 원본 RMT의 read/write memory wrapping에 GPT-NeoX(4층·D128·FF128·4 heads·memory32)를 사용합니다.
 435,456개 파라미터, V128 중 일반 기호16개, key/value 각1개입니다.

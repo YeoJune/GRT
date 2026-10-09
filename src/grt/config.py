@@ -59,6 +59,7 @@ class DataConfig:
     key_size: int = 1
     value_size: int = 1
     vary_n_pairs: bool = False
+    remember_sampling: str = "random"
 
 @dataclass
 class CurriculumStage:
@@ -233,6 +234,11 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
             raise ValueError("Remember requires unique keys; increase key_size")
         if any(s.num_pairs <= 0 or s.key_size <= 0 or s.num_pairs > 16 ** s.key_size or s.max_steps <= 0 for s in t.curriculum):
             raise ValueError("Invalid Remember curriculum stage")
+        if d.remember_sampling not in ("random", "balanced_contexts"):
+            raise ValueError("Unknown Remember sampling")
+        if d.remember_sampling == "balanced_contexts" and (d.key_size != 1 or d.value_size != 1 or d.vary_n_pairs or
+                any(s.key_size != 1 or s.num_pairs > 16 for s in t.curriculum)):
+            raise ValueError("Balanced Remember uses single-token distinct keys/values and fixed pair counts")
     elif d.task == "passkey":
         if d.target_len is not None or d.num_facts != 4:
             raise ValueError("passkey requires num_facts=4 and no target_len")
@@ -265,6 +271,8 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
         raise ValueError("Finite training, generation evaluation and early stopping require a paper protocol")
     if d.protocol != "paper_ar" and (t.curriculum or d.vary_n_pairs or d.task == "remember"):
         raise ValueError("Remember curriculum belongs to paper_ar")
+    if d.protocol != "paper_ar" and d.remember_sampling != "random":
+        raise ValueError("Remember sampling belongs to paper_ar")
     if t.grad_clip_type not in ("norm", "value") or not 0 < t.convergence_exact_match <= 1:
         raise ValueError("Invalid gradient clipping or convergence threshold")
     if t.max_seconds is not None and t.max_seconds <= 0:

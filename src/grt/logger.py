@@ -58,6 +58,9 @@ class Logger:
             if "val/autoregressive/token_accuracy" in payload:
                 print(f"  autoregressive_accuracy={payload['val/autoregressive/token_accuracy']:.3%} "
                       f"autoregressive_exact_match={payload['val/autoregressive/exact_match']:.3%}", flush=True)
+                if 'val/autoregressive/all_queries_exact_match' in payload:
+                    print(f"  all_queries_exact_match={payload['val/autoregressive/all_queries_exact_match']:.3%} "
+                          f"by_position={payload['val/autoregressive/query_position_accuracy']}", flush=True)
         elif "train/loss" in payload and (step == 1 or step % 100 == 0):
             print(f"step={step} train_loss={payload['train/loss']:.5f} "
                   f"lr={payload['train/lr']:.3g} grad_norm={payload['train/grad_norm']:.3g}", flush=True)

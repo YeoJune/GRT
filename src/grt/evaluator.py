@@ -51,9 +51,11 @@ def evaluate_copy_generation(model, loader, precision="fp32"):
             "second_copy_accuracy": second_correct/(tokens/2), "samples": samples}
 
 
-def evaluate_remember_generation(model, loader, value_size, precision="fp32"):
+def evaluate_remember_generation(model, loader, value_size, precision="fp32", balanced_queries=False):
     device = next(model.parameters()).device
     tokens = samples = correct = exact = value_exact = 0
+    query_matches = []
+    pair_count = None
     with evaluation_context(model):
         for batch in loader:
             batch = move_batch(batch, device)
@@ -65,10 +67,21 @@ def evaluate_remember_generation(model, loader, value_size, precision="fp32"):
             correct += matches.sum().item()
             exact += matches.all(dim=1).sum().item()
             value_exact += matches[:, :value_size].all(dim=1).sum().item()
+            if balanced_queries:
+                pair_count = batch['input_ids'].shape[1] // model.cfg.segment_len - 1
+                query_matches.append(matches.all(dim=1).cpu())
             samples += matches.shape[0]
             tokens += matches.numel()
-    return {"token_accuracy": correct/tokens, "exact_match": exact/samples,
-            "value_exact_match": value_exact/samples, "samples": samples}
+    result = {"token_accuracy": correct/tokens, "exact_match": exact/samples,
+              "value_exact_match": value_exact/samples, "samples": samples}
+    if balanced_queries:
+        full = torch.cat(query_matches)
+        if full.numel() < pair_count or full.numel() % pair_count:
+            raise ValueError("Balanced evaluation requires complete context query groups")
+        complete = full.reshape(-1, pair_count)
+        result.update(all_queries_exact_match=complete.all(dim=1).float().mean().item(),
+                      query_position_accuracy=complete.float().mean(dim=0).tolist(), contexts=complete.shape[0])
+    return result
 
 def measure_performance(model, batch, precision="fp32", warmup=10, iterations=50):
     if warmup < 0 or iterations <= 0:
@@ -98,7 +111,14 @@ def evaluate_lengths(model, cfg, progress=None):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     rows = []
     for segments in cfg.data.eval_segments:
-        loader = make_loader(cfg.data, "test", segments, cfg.data.test_samples, cfg.evaluation.batch_size)
+        balanced = cfg.data.protocol == "paper_ar" and cfg.data.remember_sampling == "balanced_contexts"
+        test_samples = cfg.data.test_samples
+        generation_samples = cfg.evaluation.autoregressive_samples
+        if balanced:
+            pairs = segments - 1
+            test_samples = test_samples // pairs * pairs
+            generation_samples = min(generation_samples, test_samples) // pairs * pairs
+        loader = make_loader(cfg.data, "test", segments, test_samples, cfg.evaluation.batch_size)
         metrics = evaluate(model, loader, cfg.training.mixed_precision)
         performance = measure_performance(model, next(iter(loader)), cfg.training.mixed_precision,
                                            cfg.evaluation.warmup, cfg.evaluation.iterations)
@@ -114,10 +134,11 @@ def evaluate_lengths(model, cfg, progress=None):
             row.update({f"autoregressive/{k}": v for k, v in
                         evaluate_copy_generation(model, generation_loader, cfg.training.mixed_precision).items()})
         elif cfg.data.protocol == "paper_ar":
-            generation_loader = make_loader(cfg.data, "test", segments, cfg.evaluation.autoregressive_samples,
+            generation_loader = make_loader(cfg.data, "test", segments, generation_samples,
                                             cfg.evaluation.batch_size)
             row.update({f"autoregressive/{k}": v for k, v in evaluate_remember_generation(
-                model, generation_loader, cfg.data.value_size, cfg.training.mixed_precision).items()})
+                model, generation_loader, cfg.data.value_size, cfg.training.mixed_precision,
+                balanced_queries=balanced).items()})
             row["num_pairs"] = segments - 1
         if progress:
             row.update({k: progress.get(k) for k in ("first_target_step", "first_target_seconds", "global_step", "best_validation_loss", "training_seconds")})
