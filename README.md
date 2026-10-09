@@ -3,7 +3,8 @@
 [2026-09-16 명세](documents/20260916_spec.md)에 따른 합성 메모리 벤치마크입니다.
 GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval (`passkey`)에서 비교합니다.
 각 모델은 양방향 세그먼트 attention으로 마지막 세그먼트의 정답 위치를 병렬 복원합니다.
-별도 `paper_copy` 프로필은 원본 RMT의 causal Copy 조건을 검증합니다.
+현재 RMT 검증은 ARMT 논문의 Associative Retrieval Remember(`paper_ar`)로 진행합니다.
+기존 `paper_copy`는 2022 LM-RMT 기반의 별도 Copy 과제로 보존합니다.
 
 ## 설치
 
@@ -34,7 +35,46 @@ Colab은 런타임 유형에서 GPU를 선택하세요. W&B 계정은 필요하�
 결과와 `pytest_output.txt`, `pytest.xml`을 `runs/notebook_<timestamp>/`에 저장하고
 마지막 셀에서 ZIP을 만듭니다. 실패하면 해당 로그를 공유하세요.
 
-## Colab T4: 공개 Copy 조건의 RMT 검증 (1단계)
+## Colab T4: 논문 Remember 과제의 RMT 검증 (1단계)
+
+[notebooks/colab_rmt_paper_remember.ipynb](notebooks/colab_rmt_paper_remember.ipynb)를 실행하세요.
+설정은 [configs/rmt_paper_remember.yaml](configs/rmt_paper_remember.yaml)입니다.
+원본 RMT의 read/write memory wrapping에 GPT-NeoX(4층·D128·FF128·4 heads·memory32)를 사용합니다.
+435,456개 파라미터, V128 중 일반 기호16개, key/value 각1개입니다.
+key-value 한 쌍마다 별도 세그먼트를 처리하고 마지막 query에서 **value와 EOS를 생성**합니다.
+
+`1 → 2 → 3 → 5쌍` curriculum이며 이전 단계의 가중치를 전달하고 optimizer/scheduler는 새로 시작합니다.
+각 단계는 고정 pair 수의 validation512개에서 **생성 exact match≥99%**를 확인해야 다음 단계로 진행합니다.
+학습에서는 현재 단계 범위의 pair 수를 무작위로 선택합니다. 최종 단계 성공 시 test는5/10/15쌍입니다.
+RMT 결과 확인 후 GRT에 동일 과제를 연결합니다.
+
+T4 설정은 FP32, microbatch512 × accumulation1, AdamW LR3e-4·WD.001·linear scheduler·warmup입니다.
+원본 스크립트처럼 scheduler horizon은 각 단계 update 상한의2배, warmup은 상한의10%입니다.
+CPU saved-tensor storage를 batch512로 환산하면1쌍 약2.65GiB, 5쌍 약5.75GiB이고
+CUDA/backward 작업 공간은 별도입니다. 실제 **학습 peak VRAM**은 stage 로그/checkpoint에 기록합니다.
+OOM이면 새 run에서 `--batch-size 256 --grad-accum-steps 2`로 effective batch512를 유지하세요.
+각 단계의 최대 update는1000/500/500/1000이며 생성 기준 달성 시 일찍 넘어갑니다.
+전체 curriculum wall budget은20분이며 마지막 test 평가는 별도입니다. 검증·저장은100 update마다 수행합니다.
+시간 제한은 update/validation 사이에서 확인하므로 진행 중인 한 작업만큼 초과할 수 있습니다.
+
+```bash
+python -u scripts/train.py --config configs/rmt_paper_remember.yaml --output-dir runs/rmt-remember-t4 --device cuda
+```
+
+같은 명령으로 자동 재개합니다. 설정이 다른 run과 기존 Copy checkpoint는 재사용하지 않습니다.
+공유 자료는 루트의 `summary.json`, `evaluation.json`, `convergence.png`와
+각 stage의 `metrics.jsonl`, `resolved_config.yaml`, `metadata.json`입니다.
+EOS를 맞히고 value만 추측해도 teacher-forced token accuracy가 약53%가 될 수 있으므로
+**생성 value exact match와 value+EOS exact match**를 함께 확인하세요.
+
+근거는 [논문](https://arxiv.org/abs/2407.04841) 부록 C/E/I와
+[원본 RMT curriculum](https://github.com/RodkinIvan/associative-recurrent-memory-transformer/blob/24cbb9aed62a5748c4045fd928f7f59899f03b24/scripts/associative_retrieval/finetune_rmt_ar-value_cur.sh)입니다.
+논문의 전체200쌍·전체 학습 예산 재현과 구분한 짧은 검증입니다.
+당시 생성된 backbone JSON이 없어 세부 설정은 저자 레포의 후대 config generator를 사용했습니다.
+원본 backbone/wrapper에서 생성한 작은 fixture로 logits·memory·gradient·greedy 생성을 대조합니다.
+이 검증이 GPU 수렴의 증거는 아닙니다. 출처·버전은 `third_party/NOTICE.md`에 기록합니다.
+
+## 이전 Colab T4: 2022 Copy 조건 검증
 
 [notebooks/colab_rmt_paper_copy.ipynb](notebooks/colab_rmt_paper_copy.ipynb)를 실행하세요.
 설정은 [configs/rmt_paper_copy.yaml](configs/rmt_paper_copy.yaml)입니다.

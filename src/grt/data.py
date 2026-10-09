@@ -39,9 +39,10 @@ def generate_sample(task, split, sample_id, segments, data_seed=20260916) -> Bat
     return {"input_ids": ids, "attention_mask": torch.ones(length, dtype=torch.bool), "labels": labels}
 
 class SyntheticDataset(Dataset):
-    def __init__(self, cfg, split, segments, samples, start_id=0):
+    def __init__(self, cfg, split, segments, samples, start_id=0, batch_size=1):
         self.cfg, self.split, self.segments = cfg, split, segments
         self.samples, self.start_id = samples, start_id
+        self.batch_size = batch_size
 
     def __len__(self):
         return self.samples
@@ -50,6 +51,17 @@ class SyntheticDataset(Dataset):
         if index < 0 or index >= self.samples:
             raise IndexError(index)
         sample_id = self.start_id + index
+        if self.cfg.protocol == "paper_ar":
+            pairs = self.segments - 1
+            if self.split == "train" and self.cfg.vary_n_pairs:
+                # One length per microbatch; validation always uses the stated length.
+                length_rng = generator(self.cfg.data_seed, "remember", self.split,
+                                       sample_id // self.batch_size, f"length:{pairs}")
+                pairs = torch.randint(1, pairs + 1, (), generator=length_rng).item()
+            if self.split == "train":
+                sample_id %= self.cfg.train_samples
+            return generate_remember(self.split, sample_id, pairs, self.cfg.key_size,
+                                     self.cfg.value_size, self.cfg.data_seed)
         if self.cfg.protocol == "paper_copy":
             if self.segments != 3:
                 raise ValueError("paper_copy requires 3 segments")
@@ -66,13 +78,41 @@ def generate_paper_copy(split, sample_id, data_seed=20260916) -> Batch:
     labels[:24] = -100
     return {"input_ids": ids, "attention_mask": torch.ones(72, dtype=torch.bool), "labels": labels}
 
+
+def generate_remember(split, sample_id, pairs, key_size=1, value_size=1, data_seed=20260916):
+    """ARMT Appendix E/I: unique facts followed by a separate query segment."""
+    if pairs <= 0 or key_size <= 0 or value_size <= 0 or pairs > 16 ** key_size:
+        raise ValueError("Remember requires positive sizes and enough unique keys")
+    rng = generator(data_seed, "remember", split, sample_id, f"pairs:{pairs}:key:{key_size}:value:{value_size}")
+    # Rejection sampling avoids allocating all 16**key_size possible keys.
+    selected = []
+    seen = set()
+    while len(selected) < pairs:
+        key = torch.randint(0, 16, (key_size,), generator=rng)
+        identity = tuple(key.tolist())
+        if identity not in seen:
+            seen.add(identity)
+            selected.append(key)
+    keys = torch.stack(selected)
+    values = torch.randint(0, 16, (pairs, value_size), generator=rng)
+    target = torch.randint(pairs, (), generator=rng).item()
+    sep, gen, eos = torch.tensor([100]), torch.tensor([101]), torch.tensor([102])
+    facts = [torch.cat([key, sep, value, eos]) for key, value in zip(keys, values)]
+    query = torch.cat([keys[target], gen, values[target], eos])
+    ids = torch.cat([*facts, query])
+    labels = torch.full_like(ids, -100)
+    # Labels are already next-token aligned; GEN predicts the first value.
+    answer_start = ids.numel() - value_size - 1
+    labels[answer_start-1:-1] = ids[answer_start:]
+    return {"input_ids": ids, "attention_mask": torch.ones_like(ids, dtype=torch.bool), "labels": labels}
+
 def collate(samples) -> Batch:
     if not samples or len({s["input_ids"].shape for s in samples}) != 1:
         raise ValueError("A batch must contain nonempty samples of one length")
     return {key: torch.stack([s[key] for s in samples]) for key in samples[0]}
 
 def make_loader(cfg, split, segments, samples, batch_size, start_id=0):
-    return DataLoader(SyntheticDataset(cfg, split, segments, samples, start_id),
+    return DataLoader(SyntheticDataset(cfg, split, segments, samples, start_id, batch_size),
                       batch_size=batch_size, shuffle=False, num_workers=cfg.num_workers,
                       collate_fn=collate, generator=torch.Generator().manual_seed(cfg.data_seed))
 

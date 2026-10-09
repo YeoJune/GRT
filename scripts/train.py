@@ -46,6 +46,12 @@ def main(argv=None):
     if device.type == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA requested but unavailable")
     check_precision(device, cfg.training.mixed_precision)
+    if cfg.training.curriculum:
+        if state is not None or args.stop_after is not None or args.max_steps is not None:
+            parser.error("Curriculum resumes with --config and the same --output-dir; update budgets are configured per stage")
+        from grt.curriculum import run_curriculum
+        run_curriculum(cfg, device)
+        return
     directory = Path(cfg.run.output_dir)
     if state is None and directory.exists() and any(directory.iterdir()):
         parser.error("Run directory is nonempty; use --resume or a new --output-dir")

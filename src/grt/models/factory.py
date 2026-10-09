@@ -6,6 +6,9 @@ def create_model(cfg):
         from .grt import GRTModel
         return GRTModel(cfg)
     if cfg.name == "rmt":
+        if cfg.rmt_backbone == "gpt_neox":
+            from .rmt_neox import NeoXRMTModel
+            return NeoXRMTModel(cfg)
         if cfg.rmt_backbone == "relative_postln":
             from .rmt_relative import RelativeRMTModel
             return RelativeRMTModel(cfg)

@@ -56,6 +56,15 @@ class DataConfig:
     num_workers: int = 0
     protocol: str = "recovery"
     train_samples: int | None = None
+    key_size: int = 1
+    value_size: int = 1
+    vary_n_pairs: bool = False
+
+@dataclass
+class CurriculumStage:
+    num_pairs: int = 1
+    key_size: int = 1
+    max_steps: int = 1000
 
 @dataclass
 class TrainingConfig:
@@ -71,10 +80,15 @@ class TrainingConfig:
     optimizer: str = "adamw"
     adam_beta2: float = 0.95
     scheduler: str = "cosine"
+    scheduler_steps: int | None = None
     plateau_patience: int = 8
     plateau_every_steps: int | None = None
     min_lr: float = 1e-6
     stop_on_convergence: bool = False
+    curriculum: list[CurriculumStage] = field(default_factory=list)
+    max_seconds: float | None = None
+    convergence_exact_match: float = 0.99
+    grad_clip_type: str = "norm"
 
 @dataclass
 class EvaluationConfig:
@@ -137,7 +151,11 @@ def build_config(cls, raw, path="config"):
     for key, value in raw.items():
         hint = hints[key]
         dc = hint if is_dataclass(hint) else next((a for a in get_args(hint) if is_dataclass(a)), None)
-        if dc and value is not None:
+        if get_origin(hint) is list and is_dataclass(get_args(hint)[0]):
+            if not isinstance(value, list):
+                raise ValueError(f"{path}.{key} must be a list")
+            values[key] = [build_config(get_args(hint)[0], item, f"{path}.{key}") for item in value]
+        elif dc and value is not None:
             values[key] = build_config(dc, value, f"{path}.{key}")
         elif _check_type(value, hint):
             values[key] = value
@@ -155,20 +173,22 @@ def validate_model(m):
     build_config(ModelConfig, asdict(m))
     if m.name not in ("grt", "rmt"):
         raise ValueError("model.name must be grt or rmt")
-    if m.size not in ("small", "large") or not m.tie_word_embeddings:
+    if m.size not in ("small", "large") or (not m.tie_word_embeddings and m.rmt_backbone != "gpt_neox"):
         raise ValueError("Use small/large and tied word embeddings")
     for value in (m.vocab_size, m.segment_len, m.num_registers, m.d_model, m.alu.nhead, m.alu.num_layers, m.alu.d_ff):
         if type(value) is not int or value <= 0:
             raise ValueError("Model dimensions must be positive integers")
     if m.d_model % m.alu.nhead or not 0 <= m.alu.dropout <= 1 or m.alu.activation not in ("gelu", "relu"):
         raise ValueError("Invalid ALU heads, dropout or activation")
-    if m.rmt_backbone not in ("bidirectional", "relative_postln"):
+    if m.rmt_backbone not in ("bidirectional", "relative_postln", "gpt_neox"):
         raise ValueError("Invalid rmt_backbone")
     if m.rmt_backbone == "relative_postln":
         if m.name != "rmt" or m.head_dim is None or m.head_dim <= 0 or m.d_model % 2 or m.alu.activation != "relu":
             raise ValueError("relative_postln requires RMT, positive head_dim, even d_model and relu")
     elif m.head_dim is not None or m.alu.activation != "gelu":
         raise ValueError("The recovery backbone requires gelu and no head_dim override")
+    if m.rmt_backbone == "gpt_neox" and (m.name != "rmt" or (m.d_model // m.alu.nhead) % 8):
+        raise ValueError("GPT-NeoX RMT requires a head dimension divisible by 8 for rotary_pct=0.25")
     if m.name == "rmt" and (m.router is not None or m.register is not None):
         raise ValueError("RMT does not accept GRT router/register settings")
     if m.name == "grt":
@@ -183,9 +203,9 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
     build_config(GRTConfig, asdict(cfg))
     validate_model(cfg.model)
     d, t = cfg.data, cfg.training
-    if d.task not in ("copy", "reverse", "passkey"):
+    if d.task not in ("copy", "reverse", "passkey", "remember"):
         raise ValueError("data.task must be copy, reverse or passkey")
-    if d.protocol not in ("recovery", "paper_copy"):
+    if d.protocol not in ("recovery", "paper_copy", "paper_ar"):
         raise ValueError("Unknown data.protocol")
     if d.protocol == "paper_copy":
         if d.task != "copy" or d.target_len != 24 or d.num_facts is not None:
@@ -199,6 +219,20 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
             raise ValueError("paper_copy currently evaluates only the published 3-segment length")
         if d.train_samples is None or d.train_samples <= 0 or cfg.evaluation.autoregressive_samples <= 0:
             raise ValueError("paper_copy requires a finite train set and autoregressive evaluation")
+    elif d.protocol == "paper_ar":
+        m = cfg.model
+        if d.task != "remember" or m.name != "rmt" or m.rmt_backbone != "gpt_neox":
+            raise ValueError("paper_ar stage 1 requires Remember and GPT-NeoX RMT")
+        if d.key_size <= 0 or d.value_size <= 0 or m.segment_len != d.key_size + d.value_size + 2:
+            raise ValueError("paper_ar segment length must be key_size + value_size + 2")
+        if m.vocab_size != 128 or m.tie_word_embeddings or d.target_len is not None or d.num_facts is not None:
+            raise ValueError("paper_ar uses V128, untied embeddings and key/value lengths")
+        if d.train_samples is None or d.train_samples <= 0 or cfg.evaluation.autoregressive_samples <= 0:
+            raise ValueError("paper_ar requires finite data and generation evaluation")
+        if max(d.train_segments, *d.eval_segments) - 1 > 16 ** d.key_size:
+            raise ValueError("Remember requires unique keys; increase key_size")
+        if any(s.num_pairs <= 0 or s.key_size <= 0 or s.num_pairs > 16 ** s.key_size or s.max_steps <= 0 for s in t.curriculum):
+            raise ValueError("Invalid Remember curriculum stage")
     elif d.task == "passkey":
         if d.target_len is not None or d.num_facts != 4:
             raise ValueError("passkey requires num_facts=4 and no target_len")
@@ -223,12 +257,20 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
         raise ValueError("Invalid training/data controls")
     if t.mixed_precision not in ("fp32", "bf16", "fp16"):
         raise ValueError("mixed_precision must be fp32/bf16/fp16")
-    if t.optimizer not in ("adam", "adamw") or not 0 < t.adam_beta2 < 1 or t.scheduler not in ("cosine", "plateau"):
+    if t.optimizer not in ("adam", "adamw") or not 0 < t.adam_beta2 < 1 or t.scheduler not in ("cosine", "plateau", "linear"):
         raise ValueError("Invalid optimizer/scheduler controls")
     if t.plateau_patience < 0 or t.min_lr <= 0 or (t.scheduler == "plateau" and t.min_lr > t.lr) or cfg.evaluation.autoregressive_samples < 0:
         raise ValueError("Invalid plateau/evaluation controls")
     if d.protocol == "recovery" and (d.train_samples is not None or cfg.evaluation.autoregressive_samples or t.stop_on_convergence):
-        raise ValueError("Finite training, generation evaluation and early stopping belong to paper_copy")
+        raise ValueError("Finite training, generation evaluation and early stopping require a paper protocol")
+    if d.protocol != "paper_ar" and (t.curriculum or d.vary_n_pairs or d.task == "remember"):
+        raise ValueError("Remember curriculum belongs to paper_ar")
+    if t.grad_clip_type not in ("norm", "value") or not 0 < t.convergence_exact_match <= 1:
+        raise ValueError("Invalid gradient clipping or convergence threshold")
+    if t.max_seconds is not None and t.max_seconds <= 0:
+        raise ValueError("max_seconds must be positive")
+    if t.scheduler_steps is not None and t.scheduler_steps <= 0:
+        raise ValueError("scheduler_steps must be positive")
     if t.scheduler == "plateau" and t.warmup_steps:
         raise ValueError("plateau currently requires warmup_steps=0")
     if t.plateau_every_steps is not None and (t.plateau_every_steps <= 0 or t.plateau_every_steps % cfg.evaluation.every_steps):
