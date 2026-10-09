@@ -17,10 +17,13 @@ vendoring of the upstream repository.
 `RodkinIvan/associative-recurrent-memory-transformer`, commit
 `24cbb9aed62a5748c4045fd928f7f59899f03b24`,
 `modeling_rmt/language_modeling.py` (Apache-2.0; `ARMT-LICENSE`).
-GPT-NeoX is provided by Hugging Face Transformers 4.44.2 (Apache-2.0).
+GPT-NeoX is provided by Hugging Face Transformers 4.45.2 (Apache-2.0).
+Its tokenizers 0.20.x dependency provides Python 3.13 wheels used by Colab.
 The reference repository's backbone was copied from Transformers 4.31.0.
 The golden test fixture is generated from that pinned author backbone and wrapper;
 its regeneration script removes only an unused optional adapter import.
+The committed fixture was generated using Transformers 4.44.2; its logits,
+memory states, gradients and generated tokens are also checked against 4.45.2.
 
 The D128/L4/H4/FF128/V128 backbone configuration follows the repository's later
 `base_models/gptconfigs/create_config.py` at commit `5297db7`; the original 2024

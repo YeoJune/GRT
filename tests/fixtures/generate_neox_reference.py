@@ -2,7 +2,8 @@
 
 python tests/fixtures/generate_neox_reference.py /path/to/author-repo
 Checkout 24cbb9aed62a5748c4045fd928f7f59899f03b24 first.
-Requires transformers==4.44.2. No training or network downloads.
+Requires transformers==4.45.2. No training or network downloads.
+The committed fixture was generated with 4.44.2 and is retained for parity checks.
 """
 import ast
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import types
 from pathlib import Path
 import torch
+import transformers
 from transformers import GPTNeoXConfig
 
 COMMIT = "24cbb9aed62a5748c4045fd928f7f59899f03b24"
@@ -61,7 +63,7 @@ def main(repo):
         backbone.config.use_cache = True
         generated = wrapper.generate(ids[:, :-2], attention_mask=torch.ones_like(ids[:, :-2]),
                                      max_new_tokens=2, eos_token_id=None, pad_token_id=0, use_cache=True)
-    fixture = {"reference_commit": COMMIT, "transformers": "4.44.2", "state": state,
+    fixture = {"reference_commit": COMMIT, "transformers": transformers.__version__, "state": state,
                "input_ids": ids, "logits": output.logits.detach(), "loss": output.loss.detach(),
                "grads": grads, "memories": torch.stack(memories), "generated": generated}
     path = Path(__file__).with_name("neox_rmt_reference.pt")
