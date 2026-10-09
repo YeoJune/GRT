@@ -40,6 +40,8 @@ class ModelConfig:
     alu: ALUConfig = field(default_factory=ALUConfig)
     router: RouterConfig | None = None
     register: RegisterConfig | None = None
+    rmt_backbone: str = "bidirectional"
+    head_dim: int | None = None
 
 @dataclass
 class DataConfig:
@@ -52,6 +54,8 @@ class DataConfig:
     validation_samples: int = 1024
     test_samples: int = 4096
     num_workers: int = 0
+    protocol: str = "recovery"
+    train_samples: int | None = None
 
 @dataclass
 class TrainingConfig:
@@ -64,6 +68,13 @@ class TrainingConfig:
     warmup_steps: int = 1000
     grad_clip: float = 1.0
     mixed_precision: str = "fp32"
+    optimizer: str = "adamw"
+    adam_beta2: float = 0.95
+    scheduler: str = "cosine"
+    plateau_patience: int = 8
+    plateau_every_steps: int | None = None
+    min_lr: float = 1e-6
+    stop_on_convergence: bool = False
 
 @dataclass
 class EvaluationConfig:
@@ -71,6 +82,7 @@ class EvaluationConfig:
     every_steps: int = 500
     warmup: int = 10
     iterations: int = 50
+    autoregressive_samples: int = 0
 
 @dataclass
 class CheckpointConfig:
@@ -148,8 +160,15 @@ def validate_model(m):
     for value in (m.vocab_size, m.segment_len, m.num_registers, m.d_model, m.alu.nhead, m.alu.num_layers, m.alu.d_ff):
         if type(value) is not int or value <= 0:
             raise ValueError("Model dimensions must be positive integers")
-    if m.d_model % m.alu.nhead or not 0 <= m.alu.dropout <= 1 or m.alu.activation != "gelu":
+    if m.d_model % m.alu.nhead or not 0 <= m.alu.dropout <= 1 or m.alu.activation not in ("gelu", "relu"):
         raise ValueError("Invalid ALU heads, dropout or activation")
+    if m.rmt_backbone not in ("bidirectional", "relative_postln"):
+        raise ValueError("Invalid rmt_backbone")
+    if m.rmt_backbone == "relative_postln":
+        if m.name != "rmt" or m.head_dim is None or m.head_dim <= 0 or m.d_model % 2 or m.alu.activation != "relu":
+            raise ValueError("relative_postln requires RMT, positive head_dim, even d_model and relu")
+    elif m.head_dim is not None or m.alu.activation != "gelu":
+        raise ValueError("The recovery backbone requires gelu and no head_dim override")
     if m.name == "rmt" and (m.router is not None or m.register is not None):
         raise ValueError("RMT does not accept GRT router/register settings")
     if m.name == "grt":
@@ -166,7 +185,21 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
     d, t = cfg.data, cfg.training
     if d.task not in ("copy", "reverse", "passkey"):
         raise ValueError("data.task must be copy, reverse or passkey")
-    if d.task == "passkey":
+    if d.protocol not in ("recovery", "paper_copy"):
+        raise ValueError("Unknown data.protocol")
+    if d.protocol == "paper_copy":
+        if d.task != "copy" or d.target_len != 24 or d.num_facts is not None:
+            raise ValueError("paper_copy requires copy, target_len=24 and no num_facts")
+        if cfg.model.name != "rmt" or cfg.model.rmt_backbone != "relative_postln":
+            raise ValueError("paper_copy stage 1 requires the relative_postln RMT; GRT is not implemented yet")
+        m = cfg.model
+        if (m.vocab_size, m.segment_len, m.num_registers, m.d_model, m.alu.num_layers, m.alu.nhead, m.head_dim, m.alu.d_ff) != (12, 24, 24, 128, 4, 4, 64, 256):
+            raise ValueError("paper_copy requires the published short Copy model dimensions")
+        if d.train_segments != 3 or d.eval_segments != [3]:
+            raise ValueError("paper_copy currently evaluates only the published 3-segment length")
+        if d.train_samples is None or d.train_samples <= 0 or cfg.evaluation.autoregressive_samples <= 0:
+            raise ValueError("paper_copy requires a finite train set and autoregressive evaluation")
+    elif d.task == "passkey":
         if d.target_len is not None or d.num_facts != 4:
             raise ValueError("passkey requires num_facts=4 and no target_len")
         expected = (5, [5, 15, 30])
@@ -174,8 +207,10 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
         if d.num_facts is not None or d.target_len != 20:
             raise ValueError("copy/reverse requires target_len=20 and no num_facts")
         expected = (4, [4, 10, 20])
-    if benchmark:
+    if benchmark and d.protocol == "recovery":
         m = cfg.model
+        if m.rmt_backbone != "bidirectional":
+            raise ValueError("The recovery benchmark requires its bidirectional backbone")
         dims = (256, 4, 4, 1024) if m.size == "small" else (512, 8, 8, 2048)
         if (m.vocab_size, m.segment_len, m.num_registers) != (1024, 128, 32) or (m.d_model, m.alu.num_layers, m.alu.nhead, m.alu.d_ff) != dims:
             raise ValueError("Model dimensions differ from the standard benchmark")
@@ -188,6 +223,16 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
         raise ValueError("Invalid training/data controls")
     if t.mixed_precision not in ("fp32", "bf16", "fp16"):
         raise ValueError("mixed_precision must be fp32/bf16/fp16")
+    if t.optimizer not in ("adam", "adamw") or not 0 < t.adam_beta2 < 1 or t.scheduler not in ("cosine", "plateau"):
+        raise ValueError("Invalid optimizer/scheduler controls")
+    if t.plateau_patience < 0 or t.min_lr <= 0 or (t.scheduler == "plateau" and t.min_lr > t.lr) or cfg.evaluation.autoregressive_samples < 0:
+        raise ValueError("Invalid plateau/evaluation controls")
+    if d.protocol == "recovery" and (d.train_samples is not None or cfg.evaluation.autoregressive_samples or t.stop_on_convergence):
+        raise ValueError("Finite training, generation evaluation and early stopping belong to paper_copy")
+    if t.scheduler == "plateau" and t.warmup_steps:
+        raise ValueError("plateau currently requires warmup_steps=0")
+    if t.plateau_every_steps is not None and (t.plateau_every_steps <= 0 or t.plateau_every_steps % cfg.evaluation.every_steps):
+        raise ValueError("plateau_every_steps must be a positive multiple of evaluation.every_steps")
     if require_output and not cfg.run.output_dir:
         raise ValueError("run.output_dir or --output-dir is required")
     return cfg

@@ -6,7 +6,7 @@ GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval(`passkey`) 합성 메�
 
 | 경로 | 역할 |
 |---|---|
-| `src/grt/models/` | 공통 `interface.py`·`factory.py`, GRT의 `grt.py`·`router.py`·`alu.py`, 독립 `rmt.py` |
+| `src/grt/models/` | 공통 `interface.py`·`factory.py`, GRT의 `grt.py`·`router.py`·`alu.py`, 기존 `rmt.py`와 공개 Copy용 `rmt_relative.py` |
 | `src/grt/data.py`, `config.py`, `metrics.py` | 결정적 데이터 생성, YAML 병합·검증, masked CE·정확도 집계 |
 | `src/grt/trainer.py`, `evaluator.py`, `checkpoint.py`, `logger.py` | 공통 학습·평가, 상태/RNG 복원, 실행 기록 |
 | `src/grt/rtla.py`, `plots.py` | GRT 전용 trace 수집과 NPZ·PNG 분석 출력 |
@@ -22,7 +22,7 @@ GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval(`passkey`) 합성 메�
 
 - 작업 전 관련 코드·설정, `README.md`, `documents/`의 관련 설계·실험 기록을 확인한다. 문서의 적용 범위와 현재 요청을 함께 파악하고, 구현과 문서의 불일치는 명시한다.
 - 현재 두 모델은 공통 logits-only 인터페이스와 학습·평가 코드를 사용하되 모델 구현은 독립적이다. loss 계산은 모델 외부에, GRT 분석은 RTLA에 둔다.
-- 현재 과제는 양방향 세그먼트 attention과 세그먼트 간 메모리 전달로 마지막 세그먼트의 정답을 병렬 복원한다. 데이터 생성·loss mask·상태 전달을 변경할 때 정답 누출과 재현성에 주의한다.
+- 표준 `recovery` 과제는 양방향 세그먼트 attention으로 마지막 정답을 병렬 복원한다. 별도 `paper_copy` 프로필은 causal 상대 위치·Post-LN RMT로 공개 Copy의 자기회귀 생성 조건을 검증한다. 이 프로필의 GRT 적용은 RMT 결과 확인 후 진행한다. 데이터 생성·loss mask·상태 전달을 변경할 때 정답 누출과 재현성에 주의한다.
 - 설정은 `base → 모델 → 과제 → override` 순으로 병합하고 목록은 교체한다. 실험의 실제 조건은 `resolved_config.yaml`과 실행 metadata로 확인한다. 설정을 바꾼 실험은 기존 결과를 덮어쓰지 않고 별도 run으로 기록한다.
 - 모델 비교에서는 데이터·학습 예산·평가 조건의 차이를 밝힌다. 짧은 실행 점검, 기본 길이 수렴, 길이 확장 성능을 구분하며 gate 분포만으로 메모리의 의미적 역할을 단정하지 않는다.
 

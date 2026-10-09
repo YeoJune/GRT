@@ -28,6 +28,28 @@ def evaluate(model, loader, precision="fp32"):
             totals.update(output.logits, batch["labels"])
     return totals.compute()
 
+def evaluate_copy_generation(model, loader, precision="fp32"):
+    """Free-running Copy accuracy, with no answer-prefix teacher forcing."""
+    device = next(model.parameters()).device
+    correct = exact = samples = tokens = first_correct = second_correct = 0
+    with evaluation_context(model):
+        for batch in loader:
+            batch = move_batch(batch, device)
+            n = model.cfg.segment_len
+            with autocast_context(device, precision):
+                prediction = model.generate_copy(batch["input_ids"][:, :n])
+            target = batch["labels"][:, n:]
+            matches = prediction == target
+            correct += matches.sum().item()
+            first_correct += matches[:, :n].sum().item()
+            second_correct += matches[:, n:].sum().item()
+            exact += matches.all(dim=1).sum().item()
+            samples += matches.shape[0]
+            tokens += matches.numel()
+    return {"token_accuracy": correct/tokens, "exact_match": exact/samples,
+            "first_copy_accuracy": first_correct/(tokens/2),
+            "second_copy_accuracy": second_correct/(tokens/2), "samples": samples}
+
 def measure_performance(model, batch, precision="fp32", warmup=10, iterations=50):
     if warmup < 0 or iterations <= 0:
         raise ValueError("Invalid measurement counts")
@@ -61,10 +83,16 @@ def evaluate_lengths(model, cfg, progress=None):
         performance = measure_performance(model, next(iter(loader)), cfg.training.mixed_precision,
                                            cfg.evaluation.warmup, cfg.evaluation.iterations)
         row = {"task": cfg.data.task, "model": cfg.model.name, "size": cfg.model.size,
+               "protocol": cfg.data.protocol,
                "seed": cfg.training.model_seed, "T": segments, "L": segments*cfg.model.segment_len,
                "total_parameters": total, "trainable_parameters": trainable,
                "internal_segment_length": model.internal_segment_length,
                **metrics, **performance}
+        if cfg.data.protocol == "paper_copy":
+            generation_loader = make_loader(cfg.data, "test", segments, cfg.evaluation.autoregressive_samples,
+                                            cfg.evaluation.batch_size)
+            row.update({f"autoregressive/{k}": v for k, v in
+                        evaluate_copy_generation(model, generation_loader, cfg.training.mixed_precision).items()})
         if progress:
             row.update({k: progress.get(k) for k in ("first_target_step", "first_target_seconds", "global_step", "best_validation_loss", "training_seconds")})
         rows.append(row)

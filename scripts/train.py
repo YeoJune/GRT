@@ -66,10 +66,11 @@ def main(argv=None):
         if state is not None:
             trainer.resume(state)
         progress = trainer.train()
-        best_state = load_checkpoint(directory / "best.pt")
+        selected = "converged.pt" if progress["converged"] else "best.pt"
+        best_state = load_checkpoint(directory / selected)
         best_model, _ = restore_model(best_state, device)
         rows = evaluate_lengths(best_model, cfg, progress)
-        write_json(directory / "evaluation.json", {"checkpoint": "best.pt", "checkpoint_step": best_state["global_step"], "results": rows})
+        write_json(directory / "evaluation.json", {"checkpoint": selected, "checkpoint_step": best_state["global_step"], "results": rows})
         print(f"Completed {progress['global_step']} optimizer updates; results: {directory}")
     finally:
         logger.finish()

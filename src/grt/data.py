@@ -49,7 +49,22 @@ class SyntheticDataset(Dataset):
     def __getitem__(self, index):
         if index < 0 or index >= self.samples:
             raise IndexError(index)
-        return generate_sample(self.cfg.task, self.split, self.start_id + index, self.segments, self.cfg.data_seed)
+        sample_id = self.start_id + index
+        if self.cfg.protocol == "paper_copy":
+            if self.segments != 3:
+                raise ValueError("paper_copy requires 3 segments")
+            if self.split == "train":
+                sample_id %= self.cfg.train_samples
+            return generate_paper_copy(self.split, sample_id, self.cfg.data_seed)
+        return generate_sample(self.cfg.task, self.split, sample_id, self.segments, self.cfg.data_seed)
+
+def generate_paper_copy(split, sample_id, data_seed=20260916) -> Batch:
+    """Published short Copy: X + [start] + X + X, shifted next-token labels."""
+    source = torch.randint(2, 12, (24,), generator=generator(data_seed, "paper_copy", split, sample_id, "source"))
+    sequence = torch.cat([source, torch.tensor([1]), source, source])
+    ids, labels = sequence[:-1].clone(), sequence[1:].clone()
+    labels[:24] = -100
+    return {"input_ids": ids, "attention_mask": torch.ones(72, dtype=torch.bool), "labels": labels}
 
 def collate(samples) -> Batch:
     if not samples or len({s["input_ids"].shape for s in samples}) != 1:

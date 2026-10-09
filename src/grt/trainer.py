@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from grt.checkpoint import save_checkpoint, restore_rng, evaluation_context
 from grt.data import make_loader, move_batch
-from grt.evaluator import evaluate, autocast_context, check_precision
+from grt.evaluator import evaluate, evaluate_copy_generation, autocast_context, check_precision
 from grt.metrics import masked_ce
 from grt.logger import write_json
 
@@ -28,7 +28,8 @@ class Trainer:
         check_precision(self.device, cfg.training.mixed_precision)
         self.logger, self.on_evaluate = logger, on_evaluate
         t = cfg.training
-        self.optimizer = torch.optim.AdamW(optimizer_groups(model, t.weight_decay), lr=t.lr, betas=(0.9, 0.95))
+        optimizer_cls = torch.optim.Adam if t.optimizer == "adam" else torch.optim.AdamW
+        self.optimizer = optimizer_cls(optimizer_groups(model, t.weight_decay), lr=t.lr, betas=(0.9, t.adam_beta2))
         def schedule(step):
             if step >= t.max_steps:
                 return 0.0
@@ -36,7 +37,9 @@ class Trainer:
                 return (step + 1) / max(1, t.warmup_steps)
             progress = min(1.0, max(0.0, (step - t.warmup_steps) / max(1, t.max_steps - t.warmup_steps)))
             return 0.5 * (1 + math.cos(math.pi * progress))
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, schedule)
+        self.scheduler = (torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, factor=0.5, patience=t.plateau_patience, min_lr=t.min_lr)
+            if t.scheduler == "plateau" else torch.optim.lr_scheduler.LambdaLR(self.optimizer, schedule))
         if hasattr(torch.amp, "GradScaler"):
             self.scaler = torch.amp.GradScaler("cuda", enabled=t.mixed_precision == "fp16")
         else:  # PyTorch 2.2 compatibility; newer versions use the current API.
@@ -47,12 +50,13 @@ class Trainer:
         self.training_seconds = 0.0
         self.first_target_step = None
         self.first_target_seconds = None
+        self.converged = False
         self.output_dir = Path(cfg.run.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def progress(self):
         return {key: getattr(self, key) for key in ("global_step", "next_train_sample_id", "best_validation_loss",
-                "training_seconds", "first_target_step", "first_target_seconds")}
+                "training_seconds", "first_target_step", "first_target_seconds", "converged")}
 
     def resume(self, state):
         self.model.load_state_dict(state["model"])
@@ -60,7 +64,7 @@ class Trainer:
         self.scheduler.load_state_dict(state["scheduler"])
         self.scaler.load_state_dict(state["scaler"])
         for key in self.progress():
-            setattr(self, key, state[key])
+            setattr(self, key, state.get(key, getattr(self, key)))
         restore_rng(state["rng"])
 
     def save(self, name):
@@ -73,12 +77,25 @@ class Trainer:
         metrics = evaluate(self.model, loader, self.cfg.training.mixed_precision)
         if not math.isfinite(metrics["loss"]):
             self.fail("nonfinite validation loss")
+        payload = {f"val/{k}": v for k, v in metrics.items()}
+        if d.protocol == "paper_copy":
+            generation_loader = make_loader(d, "validation", d.train_segments,
+                self.cfg.evaluation.autoregressive_samples, self.cfg.evaluation.batch_size)
+            generation = evaluate_copy_generation(self.model, generation_loader, self.cfg.training.mixed_precision)
+            payload.update({f"val/autoregressive/{k}": v for k, v in generation.items()})
+            self.converged = (metrics["loss"] <= 0.05 and metrics["token_accuracy"] >= 0.99
+                              and generation["token_accuracy"] >= 0.99 and generation["exact_match"] >= 0.95)
+        interval = self.cfg.training.plateau_every_steps or self.cfg.evaluation.every_steps
+        if self.cfg.training.scheduler == "plateau" and self.global_step % interval == 0:
+            self.scheduler.step(metrics["loss"])
         if metrics["loss"] <= 0.05 and self.first_target_step is None:
             self.first_target_step, self.first_target_seconds = self.global_step, self.training_seconds
         if metrics["loss"] < self.best_validation_loss:
             self.best_validation_loss = metrics["loss"]
             self.save("best.pt")
-        return {f"val/{k}": v for k, v in metrics.items()}
+        if self.converged:
+            self.save("converged.pt")
+        return payload
 
     def fail(self, reason, **details):
         write_json(self.output_dir / "failure.json", {"reason": reason, "global_step": self.global_step,
@@ -93,7 +110,7 @@ class Trainer:
         count = t.batch_size * t.grad_accum_steps
         train_batches = iter(make_loader(d, "train", d.train_segments,
                              max(0, stop-self.global_step)*count, t.batch_size, self.next_train_sample_id))
-        while self.global_step < stop:
+        while self.global_step < stop and not (t.stop_on_convergence and self.converged):
             started = time.perf_counter()
             # Materialize only one effective batch so the denominator is exact.
             batches = [move_batch(next(train_batches), self.device) for _ in range(t.grad_accum_steps)]
@@ -126,7 +143,8 @@ class Trainer:
                     self.logger.log(self.global_step, {"train/overflow_skip": True, "train/scaler": self.scaler.get_scale()})
                 # An overflow is recorded and training stops rather than silently retrying.
                 self.fail("fp16 overflow skipped optimizer update", scaler=self.scaler.get_scale())
-            self.scheduler.step()
+            if t.scheduler == "cosine":
+                self.scheduler.step()
             self.global_step += 1
             payload = {"train/loss": loss_sum, "train/lr": lr, "train/grad_norm": grad.item(),
                        "train/next_sample_id": self.next_train_sample_id, "train/seconds": self.training_seconds}

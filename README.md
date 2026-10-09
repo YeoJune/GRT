@@ -3,6 +3,7 @@
 [2026-09-16 명세](documents/20260916_spec.md)에 따른 합성 메모리 벤치마크입니다.
 GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval (`passkey`)에서 비교합니다.
 각 모델은 양방향 세그먼트 attention으로 마지막 세그먼트의 정답 위치를 병렬 복원합니다.
+별도 `paper_copy` 프로필은 원본 RMT의 causal Copy 조건을 검증합니다.
 
 ## 설치
 
@@ -33,7 +34,28 @@ Colab은 런타임 유형에서 GPU를 선택하세요. W&B 계정은 필요하�
 결과와 `pytest_output.txt`, `pytest.xml`을 `runs/notebook_<timestamp>/`에 저장하고
 마지막 셀에서 ZIP을 만듭니다. 실패하면 해당 로그를 공유하세요.
 
-## Colab T4: Copy 초기 수렴 비교
+## Colab T4: 공개 Copy 조건의 RMT 검증 (1단계)
+
+[notebooks/colab_rmt_paper_copy.ipynb](notebooks/colab_rmt_paper_copy.ipynb)를 실행하세요.
+설정은 [configs/rmt_paper_copy.yaml](configs/rmt_paper_copy.yaml)입니다.
+V12·source 24개·답 48개·N=M24, 4층·D128·FF256의 causal 상대 위치 RMT를
+batch32·LR1e-4·FP32로 학습합니다. Teacher forcing과 자기회귀 정확도를 함께 확인하며,
+GRT 구현과 비교는 RMT 수렴 결과를 확인한 뒤 진행합니다.
+
+100K train source를 반복하며 validation1024/test2048개, 자기회귀 평가는 각각64개입니다.
+최대400K update이며 validation CE≤.05·teacher-forced 정확도≥99%·자기회귀 정확도≥99%·
+자기회귀 exact match≥95%를 모두 만족하면 종료합니다. 학습 로그는100 update마다,
+검증·저장은1K마다 수행하고 LR 감소 판단은12K 간격을 유지합니다.
+노트북의 `summary.json`, `convergence.png`, `metrics.jsonl`, `evaluation.json`을 공유하세요.
+
+```bash
+python -u scripts/train.py --config configs/rmt_paper_copy.yaml --output-dir runs/rmt-paper-copy --device cuda
+python -u scripts/train.py --resume runs/rmt-paper-copy/last.pt --device cuda
+```
+
+## 기존 Colab T4: 병렬 복원 Copy pilot
+
+아래 프로필은 공개 Copy와 다른 기존 병렬 복원 과제입니다.
 
 [notebooks/colab_t4_copy.ipynb](notebooks/colab_t4_copy.ipynb)를 T4 런타임에서 실행하세요.
 공통 override는 [configs/colab_t4_copy.yaml](configs/colab_t4_copy.yaml)입니다.
@@ -92,7 +114,7 @@ python scripts/analyze.py --checkpoint runs/grt-small-copy/best.pt --split test 
 `copy.yaml`를 `reverse.yaml` / `passkey.yaml`로 교체하여 과제를 선택합니다.
 RMT large도 `configs/rmt.yaml` 뒤에 `configs/large.yaml`을 적용합니다.
 설정은 왼쪽에서 오른쪽으로 병합하며 목록은 교체합니다. 알 수 없는 키·타입과
-표준 규격을 벗어난 설정은 오류입니다. RMT에 GRT router/register 설정을 넣을 수 없습니다.
+각 프로필의 규격을 벗어난 설정은 오류입니다. RMT에 GRT router/register 설정을 넣을 수 없습니다.
 
 학습은 `--max-steps`, `--batch-size`, `--grad-accum-steps`, `--mixed-precision`,
 `--device auto|cpu|cuda`를 지원합니다. CLI 변경은 resolved config에 저장합니다.
@@ -103,7 +125,8 @@ PyTorch checkpoint는 pickle을 포함하므로 직접 생성한 신뢰할 수 �
 
 정상 종료 시 validation과 `last.pt`를 저장하고, validation CE로 선택한 `best.pt`를
 기본 길이와 두 확장 길이에서 평가합니다. 기본 표본은 validation 1024, 길이별 test 4096입니다.
-학습 목표 CE≤0.05는 최초 도달 시점을 기록하며 자동 조기 종료하지 않습니다.
+기존 recovery 프로필의 학습 목표 CE≤0.05는 최초 도달 시점을 기록하며 자동 조기 종료하지 않습니다.
+paper_copy는 validation CE·teacher forcing·자기회귀 정확도 기준을 함께 만족하면 조기 종료합니다.
 FP32가 기본이며 이 구현의 FP16/BF16 실행은 지원하는 CUDA 장치를 요구합니다.
 FP16 overflow는 optimizer/scheduler step을 진행하지 않고 로그·진단을 남긴 뒤 중단합니다.
 

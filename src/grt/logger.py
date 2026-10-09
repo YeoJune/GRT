@@ -55,6 +55,12 @@ class Logger:
             print(f"step={step} val_loss={payload['val/loss']:.5f} "
                   f"token_accuracy={payload['val/token_accuracy']:.3%} "
                   f"exact_match={payload['val/exact_match']:.3%}", flush=True)
+            if "val/autoregressive/token_accuracy" in payload:
+                print(f"  autoregressive_accuracy={payload['val/autoregressive/token_accuracy']:.3%} "
+                      f"autoregressive_exact_match={payload['val/autoregressive/exact_match']:.3%}", flush=True)
+        elif "train/loss" in payload and (step == 1 or step % 100 == 0):
+            print(f"step={step} train_loss={payload['train/loss']:.5f} "
+                  f"lr={payload['train/lr']:.3g} grad_norm={payload['train/grad_norm']:.3g}", flush=True)
 
     def queue_trace(self, step, arrays, panel):
         self.pending_media.setdefault(step, {}).update(self.trace_payload(arrays, panel))
