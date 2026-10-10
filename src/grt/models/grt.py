@@ -22,7 +22,9 @@ class GRTModel(nn.Module):
         self.cfg = cfg
         self.embedding = nn.Embedding(cfg.vocab_size, cfg.d_model)
         nn.init.normal_(self.embedding.weight, std=0.02)
-        self.pos_emb = nn.Parameter(torch.empty(1, cfg.segment_len, cfg.d_model))
+        self.pos_emb = nn.Parameter(
+            torch.empty(1, cfg.position_capacity or cfg.segment_len, cfg.d_model)
+        )
         nn.init.normal_(self.pos_emb, std=0.02)
         self.s0 = nn.Parameter(torch.zeros(1, cfg.num_registers, cfg.d_model))
         self.router = GlobalRouterUnit(
@@ -77,6 +79,11 @@ class GRTModel(nn.Module):
         all_logits = []
         segments = list(input_ids.split(self.cfg.segment_len, 1))
         offset = 0
+        supervised_positions = (
+            labels_mask.any(0).tolist()
+            if labels is not None and labels_mask is not None
+            else None
+        )
         for index, ids in enumerate(segments):
             before = state
             # Only a completed segment whose successor exists commits a memory update.
@@ -89,10 +96,10 @@ class GRTModel(nn.Module):
                 logits = self.embedding.weight.new_zeros(
                     (ids.shape[0], ids.shape[1], self.cfg.vocab_size)
                 )
-            if labels is None or labels_mask is None:
-                needed = torch.ones(ids.shape[1], dtype=torch.bool, device=ids.device)
+            if supervised_positions is None:
+                needed = [True] * ids.shape[1]
             else:
-                needed = labels_mask[:, offset : offset + ids.shape[1]].any(0).clone()
+                needed = supervised_positions[offset : offset + ids.shape[1]]
                 if index == len(segments) - 1:
                     needed[-1] = False
             # Pooling and ALU both receive only the available prefix. No target can leak

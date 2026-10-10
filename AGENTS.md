@@ -9,12 +9,12 @@
 | `src/grt/models/` | 모델 factory, 원본 RMT 구성, GRT router·ALU·write-back |
 | `src/grt/vendor/armt/` | 원본 backbone·wrapper·데이터, 출처와 hash |
 | `src/grt/config.py`, `data.py`, `metrics.py` | 설정, 교체 가능한 데이터 adapter, predictor-mask CE |
-| `src/grt/trainer.py`, `evaluator.py` | 공통 학습·curriculum·실제 생성 평가 |
+| `src/grt/trainer.py`, `evaluator.py`, `distributed.py`, `benchmark.py` | 공통 학습·평가, torchrun 분산 실행·사전 측정 |
 | `src/grt/checkpoint.py`, `logger.py` | 상태/RNG 복원, JSON/JSONL/TXT, 선택적 W&B |
 | `src/grt/rtla.py`, `plots.py` | GRT fact update trace와 분석 |
 | `scripts/` | `train.py`, `evaluate.py`, `analyze.py`, 작은 CPU 검사 `check_rmt.py` |
-| `configs/` | `base.yaml` → 모델(`rmt/grt`) → 환경(`t4/cpu`) |
-| `notebooks/` | `template.ipynb`와 최신 `colab.ipynb` 두 개만 유지 |
+| `configs/` | `base.yaml` → 모델(`rmt/grt`) → 환경(`t4/kaggle/cpu`) |
+| `notebooks/` | `template.ipynb`와 최신 `kaggle.ipynb` 두 개만 유지 |
 | `docs/` | 날짜가 붙은 설계 기준, `archive/`의 이전 기록, 문서 목록 |
 | `tests/`, `runs/` | CPU 검사, 실행별 결과·checkpoint |
 
@@ -33,9 +33,9 @@
 ## 협업과 검증
 
 1. 사용자 요청을 바탕으로 구현과 필요한 간단한 CPU 검증을 완료한다.
-2. 변경·검증 결과·미검증 항목과 간결한 Colab 실험 방법을 보고한다.
+2. 변경·검증 결과·미검증 항목과 간결한 Colab/Kaggle 실험 방법을 보고한다.
 3. 사용자의 명시적인 승인 후 커밋하고, push는 지시가 있을 때 수행한다.
-4. GPU·장시간 실험은 사용자가 Colab에서 실행한다. 에이전트는 작은 CPU 기능·gradient·학습/재개 검사를 할 수 있다.
+4. GPU·장시간 실험은 사용자가 Colab/Kaggle에서 실행한다. 에이전트는 작은 CPU 기능·gradient·학습/재개 검사를 할 수 있다.
 5. 사용자가 전달한 결과를 commit·설정·하드웨어와 함께 분석한다. 관측 사실과 가설, CPU 기능 검사와 GPU 수렴을 구분한다.
 
 Colab 안내는 사용할 노트북/명령, 주요 설정, 공유할 결과만 간결하게 제시한다.

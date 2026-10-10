@@ -21,7 +21,9 @@ python scripts/evaluate.py --checkpoint runs/rmt_t4/stage_02_pairs2_key1/best.pt
 
 같은 설정·출력 경로로 재실행하면 `last.pt`에서 재개한다. 설정이 바뀌면 새 경로를 사용한다. Colab은 [최신 노트북](notebooks/colab.ipynb)의 `MODEL`, `RUN_DIR`만 선택해 실행하면 된다. [템플릿](notebooks/template.ipynb)은 새 실험용이며 기본은 CPU 검사다.
 
-현재 T4 설정은 D128 / 4층 / FF128 / memory32 / FP32, batch2048, 1쌍 최대500 → 2쌍 최대2500 update다. 데이터는 train100만 / validation1천 / test1만이며 고정 길이 생성 exact match99%에서 단계 전환한다. 논문 전체 capacity 실험 재현이 아닌 1→2쌍 기능 검사다. GRT의 GPU 메모리·처리량·수렴은 별도 실험에서 확인한다.
+단일 T4용 `configs/t4.yaml`은 D128 / 4층 / FF128 / memory32 / FP32, batch2048, 1쌍 최대500 → 2쌍 최대2500 update다. 데이터는 train100만 / validation1천 / test1만이며 고정 길이 생성 exact match99%에서 단계 전환한다. 논문 전체 capacity 실험 재현이 아닌 1→2쌍 기능 검사다. GRT의 GPU 메모리·처리량·수렴은 별도 실험에서 확인한다.
+
+Kaggle 설정은 원본 global batch512와 1→2→3→5→10→20→40쌍 후보 중 시간 안에 원본 업데이트 예산을 완료할 공통 범위를 사전 측정으로 선택한다(기본 예상20쌍). 실제 forward/backward 사전 측정으로 GPU별 microbatch를 조정하고 accumulation으로 global batch를 유지한다. 두 모델 합계15시간, 모델별 학습6.5시간·측정/최종 평가 포함7시간 상한이며 완료 범위와 중단 사유를 기록한다. 세부 조건과 원본 대비 차이는 [실험 기록](docs/20261010_kaggle.md)에 있다.
 
 ## 결과와 모니터링
 

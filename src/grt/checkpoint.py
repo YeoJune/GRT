@@ -19,19 +19,37 @@ def seed_all(seed):
 
 
 def capture_rng():
-    return {
+    local_cuda = (
+        torch.cuda.is_available()
+        and torch.distributed.is_initialized()
+        and torch.distributed.get_world_size() > 1
+    )
+    state = {
         "python": random.getstate(),
         "numpy": np.random.get_state(),
         "torch": torch.get_rng_state(),
-        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+        "cuda": (
+            [torch.cuda.get_rng_state()]
+            if local_cuda
+            else torch.cuda.get_rng_state_all()
+        )
+        if torch.cuda.is_available()
+        else [],
     }
+    if local_cuda:
+        state["cuda_device"] = torch.cuda.current_device()
+    return state
 
 
 def restore_rng(state):
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
     torch.set_rng_state(state["torch"].cpu())
-    if state["cuda"]:
+    if state["cuda"] and "cuda_device" in state:
+        if not torch.cuda.is_available():
+            raise ValueError("CUDA RNG device mismatch")
+        torch.cuda.set_rng_state(state["cuda"][0], torch.cuda.current_device())
+    elif state["cuda"]:
         if (
             not torch.cuda.is_available()
             or len(state["cuda"]) != torch.cuda.device_count()

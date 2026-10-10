@@ -207,7 +207,7 @@ def test_colab_native_preset_and_code_cells(tmp_path):
         cfg.data.test_samples,
     ) == (1000000, 1000, 10000)
     notebooks = sorted(Path("notebooks").glob("*.ipynb"))
-    assert [p.name for p in notebooks] == ["colab.ipynb", "template.ipynb"]
+    assert [p.name for p in notebooks] == ["kaggle.ipynb", "template.ipynb"]
     for path in notebooks:
         for cell in json.loads(path.read_text())["cells"]:
             if cell["cell_type"] == "code":

@@ -104,7 +104,7 @@ def make_dataset(cfg, split, pairs):
     return get_adapter(cfg.data.name).dataset(cfg, split, pairs)
 
 
-def make_loader(cfg, dataset, training=False, vary=None):
+def make_loader(cfg, dataset, training=False, vary=None, world_size=1):
     if vary is None:
         vary = cfg.data.vary_n_pairs
     batch = (
@@ -114,7 +114,7 @@ def make_loader(cfg, dataset, training=False, vary=None):
     )
     return DataLoader(
         dataset,
-        batch_size=batch,
+        batch_size=batch * world_size,
         collate_fn=get_adapter(cfg.data.name).collator(cfg, vary),
         num_workers=0,
         generator=torch.Generator().manual_seed(cfg.training.model_seed),

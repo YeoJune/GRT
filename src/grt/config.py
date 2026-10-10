@@ -41,6 +41,7 @@ class ModelConfig:
     num_registers: int = 32
     d_model: int = 128
     tie_word_embeddings: bool = False
+    position_capacity: int | None = None
     alu: ALUConfig = field(default_factory=ALUConfig)
     router: RouterConfig | None = None
     register: RegisterConfig | None = None
@@ -65,6 +66,8 @@ class CurriculumStage:
     num_pairs: int = 1
     key_size: int = 1
     max_steps: int = 2000
+    batch_size: int | None = None
+    grad_accum_steps: int | None = None
 
 
 @dataclass
@@ -72,6 +75,7 @@ class TrainingConfig:
     model_seed: int = 54
     batch_size: int = 512
     grad_accum_steps: int = 1
+    global_batch_size: int | None = None
     max_steps: int = 2000
     lr: float = 0.0003
     weight_decay: float = 0.001
@@ -88,6 +92,8 @@ class TrainingConfig:
 class EvaluationConfig:
     batch_size: int = 512
     every_steps: int = 250
+    pair_counts: list[int] = field(default_factory=list)
+    generalization_samples: int = 1000
 
 
 @dataclass
@@ -200,6 +206,7 @@ def validate_model(m):
     if m.name == "rmt":
         if (
             m.tie_word_embeddings
+            or m.position_capacity is not None
             or m.router
             or m.register
             or (m.d_model // m.alu.nhead) % 8
@@ -208,6 +215,8 @@ def validate_model(m):
                 "Author RMT requires untied embeddings, rotary head dimension divisible by 8 and no router"
             )
     else:
+        if m.position_capacity is not None and m.position_capacity < m.segment_len:
+            raise ValueError("position_capacity must cover segment_len")
         m.router = m.router or RouterConfig()
         m.register = m.register or RegisterConfig()
         if (
@@ -241,6 +250,8 @@ def validate_config(cfg, require_output=True):
     )
     if any(type(v) is not int or v <= 0 for v in counts):
         raise ValueError("Counts must be positive integers")
+    if t.global_batch_size is not None and t.global_batch_size <= 0:
+        raise ValueError("global_batch_size must be positive")
     if (
         t.lr <= 0
         or t.weight_decay < 0
@@ -255,6 +266,15 @@ def validate_config(cfg, require_output=True):
         )
     if t.max_seconds is not None and t.max_seconds <= 0:
         raise ValueError("max_seconds must be positive")
+    for stage in t.curriculum:
+        if any(
+            v is not None and v <= 0 for v in (stage.batch_size, stage.grad_accum_steps)
+        ):
+            raise ValueError("Stage batch settings must be positive")
+    if cfg.evaluation.generalization_samples <= 0 or any(
+        p <= 0 for p in cfg.evaluation.pair_counts
+    ):
+        raise ValueError("Evaluation lengths/sample count must be positive")
     if cfg.wandb.mode not in ("online", "offline"):
         raise ValueError("Invalid wandb.mode")
     if require_output and not cfg.run.output_dir:

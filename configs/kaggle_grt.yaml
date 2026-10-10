@@ -1,0 +1,2 @@
+# Keep a single learned position tensor through the key1→key2 curriculum.
+model: {position_capacity: 5}
