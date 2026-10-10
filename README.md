@@ -29,7 +29,7 @@ Kaggle 설정은 원본 global batch512와 1→2→3→5→10→20→40쌍 후�
 
 실행 루트의 `summary.json/.txt`, `evaluation.json/.txt`, `convergence.png`(노트북 생성)와 각 stage의 `metrics.jsonl`, `metrics.txt`, `resolved_config.yaml`, `metadata.json`, `last.pt`, `best.pt`를 확인한다. CE는 value+EOS의 teacher forcing, exact match는 실제 생성 지표다. `train/loss`는 해당 update의 배치 값이다.
 
-W&B 기본값은 `false`다. 사용할 때 `pip install -e '.[wandb]'` 후 `wandb.enabled: true`로 설정하거나 노트북의 `WANDB=True`를 선택한다. 한 curriculum을 하나의 run으로 기록하며 재개 시 저장된 run ID를 사용한다. 로그인 키는 환경에서 제공한다. 연결에 실패해도 로컬 로그를 유지한다.
+공통 설정의 W&B 기본값은 `false`이며 Kaggle 설정·노트북은 `true`로 활성화한다. 사용할 때 `pip install -e '.[wandb]'` 후 `wandb.enabled: true`로 설정하거나 노트북의 `WANDB=True`를 선택한다. 한 curriculum을 하나의 run으로 기록하며 재개 시 저장된 run ID를 사용한다. 로그인 키는 환경에서 제공한다. 연결에 실패해도 로컬 로그를 유지한다.
 
 GRT trace는 `rtla.enabled: true`로 학습 중 수집하거나 아래 명령으로 확인한다.
 

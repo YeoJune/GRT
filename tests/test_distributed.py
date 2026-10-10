@@ -186,7 +186,7 @@ def test_kaggle_presets_keep_original_global_batch_and_budget(tmp_path):
         assert (
             cfg.training.global_batch_size == 512 and cfg.training.max_seconds == 23400
         )
-        assert not cfg.wandb.enabled and not cfg.training.stop_on_convergence
+        assert cfg.wandb.enabled and not cfg.training.stop_on_convergence
 
 
 def test_notebook_watchdog_terminates_child_group_and_accounts_time(tmp_path):
