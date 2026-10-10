@@ -86,6 +86,11 @@ def test_reference_run_transfers_stage_weights_and_completed_resume_is_unchanged
     assert all(torch.equal(v,after['model'][k]) for k,v in before['model'].items())
     assert [r['step'] for r in again]==[2,2]
     assert json.loads((tmp_path/'evaluation.json').read_text())['num_pairs']==2
+    for name in ('summary','evaluation'):
+        assert (tmp_path/f'{name}.txt').read_text()==(tmp_path/f'{name}.json').read_text()
+    text=(tmp_path/'stage_02_pairs2_key1'/'metrics.txt').read_text()
+    assert text.count('Step 1\n')==1 and text.count('Step 2\n')==1
+    assert 'Fixed-length validation:' in text and 'peak VRAM=' in text
 
 
 def test_incomplete_native_resume_replays_same_updates(tmp_path):
@@ -118,9 +123,12 @@ def test_colab_native_preset_and_code_cells(tmp_path):
     cfg=load_config(['configs/rmt_author_reference.yaml','configs/rmt_author_t4.yaml'],output_dir=tmp_path)
     assert cfg.model.rmt_backbone=='author_neox'
     assert cfg.data.remember_sampling=='random'
-    assert cfg.training.batch_size*cfg.training.grad_accum_steps==1024
+    assert cfg.training.batch_size*cfg.training.grad_accum_steps==2048
     assert cfg.training.stop_on_convergence and cfg.training.max_seconds is None
-    assert [s.max_steps for s in cfg.training.curriculum]==[600,2400]
+    assert [s.num_pairs for s in cfg.training.curriculum]==[1,2]
+    assert [s.max_steps for s in cfg.training.curriculum]==[500,2500]
+    assert [s.max_steps*2048 for s in cfg.training.curriculum]==[2000*512,10000*512]
+    assert (cfg.data.train_samples,cfg.data.validation_samples,cfg.data.test_samples)==(1000000,1000,10000)
     notebook=json.loads(Path('notebooks/colab_rmt_paper_remember.ipynb').read_text())
     for cell in notebook['cells']:
         if cell['cell_type']=='code':compile(''.join(cell['source']),'colab','exec')

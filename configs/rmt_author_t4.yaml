@@ -1,23 +1,19 @@
-# Short native-author pilot, not the full published update budget.
-# Existing 2-pair B512 peak: 2.49 GiB -> B1024 approximately 4.98 GiB.
-# Native throughput/VRAM is unmeasured: record it, retain ample T4 headroom.
-# Effective batch 1024 (author: 512); LR/model/task/loss remain unchanged.
-data:
-  train_samples: 65536
-  validation_samples: 512
-  test_samples: 1024
+# First two author curriculum stages with the same nominal sample budget.
+# Native B1024 measured peak 4.83 GiB -> B2048 approximately 9.65 GiB.
+# Inherit author train/validation/test counts: 1000000/1000/10000.
+# Effective batch 2048 (author: 512); update/scheduler budgets divided by four.
 training:
-  batch_size: 1024
+  batch_size: 2048
   grad_accum_steps: 1
   stop_on_convergence: true
   convergence_exact_match: 0.99
   max_seconds: null
   curriculum:
-    - {num_pairs: 1, key_size: 1, max_steps: 600}
-    - {num_pairs: 2, key_size: 1, max_steps: 2400}
+    - {num_pairs: 1, key_size: 1, max_steps: 500}
+    - {num_pairs: 2, key_size: 1, max_steps: 2500}
 evaluation:
   batch_size: 512
   every_steps: 100
-  autoregressive_samples: 512
+  autoregressive_samples: 1000
 checkpoint:
   every_steps: 100

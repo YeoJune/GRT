@@ -20,6 +20,21 @@ from grt.reference.data import ARDataset, make_collator
 
 COMMIT = "24cbb9aed62a5748c4045fd928f7f59899f03b24"
 
+def write_result_files(root,name,result):
+    """Keep JSON and an indented TXT copy readable in the Drive preview."""
+    content=json.dumps(result,indent=2,ensure_ascii=False)+'\n'
+    for suffix in ('json','txt'):
+        (root/f'{name}.{suffix}').write_text(content,encoding='utf-8')
+
+def append_text_metrics(stage_dir,row):
+    validation=row['validation'];fixed=validation['fixed_length']
+    content=(f"Step {row['step']}\n"
+        f"  Train: loss={row['train/loss']:.6f}, lr={row['train/lr']:.8g}\n"
+        f"  Random-length validation: loss={validation['loss']:.6f}, exact_match={validation['exact_match']:.2%}\n"
+        f"  Fixed-length validation:  loss={fixed['loss']:.6f}, exact_match={fixed['exact_match']:.2%}\n"
+        f"  Training time={row['train/seconds']:.2f}s, peak VRAM={row['train/peak_gpu_memory_bytes']/2**30:.2f} GiB\n\n")
+    with (stage_dir/'metrics.txt').open('a',encoding='utf-8') as f:f.write(content)
+
 def make_model(cfg):
     m=cfg.model
     config=GPTNeoXConfig(vocab_size=m.vocab_size,hidden_size=m.d_model,
@@ -169,6 +184,7 @@ def run(cfg,device):
                     'train/seconds':training_seconds,'train/peak_gpu_memory_bytes':peak_memory,
                     'validation':last_validation}
                 with (stage_dir/'metrics.jsonl').open('a') as f:f.write(json.dumps(row)+'\n')
+                append_text_metrics(stage_dir,row)
                 print(f'Author RMT {stage.num_pairs} pairs step {step}: loss={loss_total:.4f}, fixed EM={fixed["exact_match"]:.3f}',flush=True)
                 save(path,done)
         if last_validation is None:
@@ -186,12 +202,12 @@ def run(cfg,device):
             'validation':last_validation})
         status='completed' if done and index==len(stages)-1 else 'interrupted'
         if current.training.stop_on_convergence and done and not converged:status='stage_not_converged'
-        (root/'summary.json').write_text(json.dumps({'reference_commit':COMMIT,'status':status,'stages':results,
-            'wall_seconds':prior_wall+time.perf_counter()-started},indent=2))
+        write_result_files(root,'summary',{'reference_commit':COMMIT,'status':status,'stages':results,
+            'wall_seconds':prior_wall+time.perf_counter()-started})
         if not done or (current.training.stop_on_convergence and not converged):break
     model.load_state_dict(previous)
     test=make_dataset(current,'test',stage.num_pairs)
     evaluation=evaluate(model,current,test,device,vary=False)
-    (root/'evaluation.json').write_text(json.dumps({'checkpoint':str(stage_dir/'best.pt'),
-        'checkpoint_step':selected['step'],'num_pairs':stage.num_pairs,**evaluation},indent=2))
+    write_result_files(root,'evaluation',{'checkpoint':str(stage_dir/'best.pt'),
+        'checkpoint_step':selected['step'],'num_pairs':stage.num_pairs,**evaluation})
     return results

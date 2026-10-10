@@ -57,7 +57,7 @@ python -m pytest -q tests/test_author_reference.py
 짧은 Colab 실험은 아래 T4 override를 사용합니다.
 native runner는 원본 길이 샘플링 검증과 고정 최대 길이 검증을 함께 기록합니다.
 GPU 실행 시 batch512 × accumulation1은 기존2쌍 실측 약2.49GiB를 기준으로 한 원본 effective batch이며,
-새 native 경로의 GPU 처리량·VRAM은 아직 실측하지 않았습니다.
+native 경로의 T4 B1024 실측은2쌍 평균0.529초/update, peak4.83GiB였습니다.
 
 별도의 짧은 수렴 진단은 다음 명령입니다. 원본 생성기로 만든32개 문맥을 학습하고,
 각 문맥의 두 키를 모두 질의한64개 답을 실제 생성해 확인합니다.
@@ -74,23 +74,26 @@ python scripts/check_rmt_reference_cpu.py --size reference --max-steps 1000 --ou
 이 검사에서는 원본 크기 모델이600 update 후5/8 정답에 머물렀습니다. 모든 작은 과제가 수렴했다고 주장하지 않습니다.
 현재 확인한 것은 원본 데이터·모듈·loss 경로의 작은 학습 집합 내 수렴이며, 전체 데이터 일반화는 미검증입니다.
 
-## Colab T4: 원본 RMT pilot
+## Colab T4: 원본 RMT의 1 → 2쌍 검사
 
 수정본을 pull한 뒤 [colab_rmt_paper_remember.ipynb](notebooks/colab_rmt_paper_remember.ipynb)를 실행합니다.
 `rmt_author_reference.yaml` + `rmt_author_t4.yaml`을 기존 `scripts/train.py`로 실행하며,
-Drive의 새 `rmt_author_t4_seed54` 경로에 저장합니다. 같은 설정·경로로 실행하면 `last.pt`에서 재개합니다.
+Drive의 새 `rmt_author_t4_b2048_samples_seed54` 경로에 저장합니다. 같은 설정·경로로 실행하면 자동 재개합니다.
 
-1쌍 최대600 → 2쌍 최대2,400 update, 생성 exact match≥99%일 때만 다음 단계로 진행합니다.
-학습65,536 / validation512 / test1,024개로 원본 random 데이터 생성·질의 샘플링을 유지합니다.
-고정 최대 길이 생성 정확도로 best checkpoint를 선택하며, 원본 방식의 무작위 길이 검증도 기록합니다.
-원본 대비 데이터 수·update 예산·배치와 이에 따른 scheduler 길이가 달라지는 pilot입니다.
+microbatch2,048 × accumulation1, 1쌍 최대500 → 2쌍 최대2,500 update입니다.
+원본 B512의2,000/10,000 update와 같은 명목 샘플 노출 예산이며,
+train1,000,000 / validation1,000 / test10,000의 원본 random 데이터 규모를 사용합니다.
+epoch 마지막의 작은 배치와 조기 종료로 실제 노출량은 최대 예산보다 적을 수 있습니다.
+생성 exact match≥99%일 때 다음 단계로 진행하고, 고정 길이 정확도로 best를 선택합니다.
+원본의 무작위 길이 검증도 기록합니다. 배치와 update/scheduler 길이는 원본과 다릅니다.
 
-microbatch1,024 × accumulation1은 원본 effective batch512의 두 배입니다. LR3e-4는 유지합니다.
-기존2쌍 B512 실측2.49GiB를 환산하면 약5GiB이며, 이전 B1024 update0.67초 기준
-최대 학습 약34분에 검증·설치 시간이 추가됩니다. 새 native 경로의 속도·VRAM은 미측정이며 로그에 기록합니다.
-예산 내 수렴을 보장하지 않습니다. 공유 결과는 `summary.json`, `evaluation.json`, `convergence.png`와
+native T4 B1024 실측0.529초/update, peak4.83GiB를 기준으로 B2048 peak는 약9.65GiB,
+같은 처리량이면 최대 학습 약51분이며 평가·저장 시간이 추가됩니다. B2048 속도·VRAM은 추정입니다.
+LR3e-4는 유지하며 warmup/scheduler horizon도 update 예산에 맞춰 조정합니다.
+
+Drive에서 각 stage의 `metrics.txt`로 진행을 확인하고, 최종 `summary.txt`, `evaluation.txt`를 읽습니다.
+분석용 JSON/JSONL도 함께 저장합니다. 공유 결과는 `summary.json`, `evaluation.json`, `convergence.png`와
 각 stage의 `metrics.jsonl`, `resolved_config.yaml`, `metadata.json`입니다.
-
 
 ## 이전 Colab T4: Remember 기능 점검
 
