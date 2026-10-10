@@ -1,0 +1,9 @@
+# B1024 measured peak4.83GiB -> B2048 estimate9.65GiB. Preserve nominal sample budget.
+training:
+  batch_size: 2048
+  grad_accum_steps: 1
+  stop_on_convergence: true
+  curriculum:
+    - {num_pairs: 1, key_size: 1, max_steps: 500}
+    - {num_pairs: 2, key_size: 1, max_steps: 2500}
+evaluation: {batch_size: 512, every_steps: 100}

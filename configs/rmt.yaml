@@ -1,2 +1,1 @@
-model:
-  name: rmt
+model: {name: rmt, tie_word_embeddings: false}

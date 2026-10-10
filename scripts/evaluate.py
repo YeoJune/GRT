@@ -1,37 +1,56 @@
+"""Evaluate a current or native author_rmt/1 checkpoint on the common dataset."""
+
 import argparse
 from pathlib import Path
 import sys
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import torch
 from grt.checkpoint import load_checkpoint, restore_model
 from grt.config import validate_config
-from grt.evaluator import evaluate_lengths
-from grt.logger import write_json
+from grt.data import make_dataset
+from grt.evaluator import evaluate
+from grt.logger import write_result_files
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="Evaluate all checkpoint-configured test lengths")
-    parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--output")
-    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
-    args = parser.parse_args(argv)
-    device = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
-    state = load_checkpoint(args.checkpoint)
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--checkpoint", required=True)
+    p.add_argument("--output-dir")
+    p.add_argument("--device", choices=["cpu", "cuda", "auto"], default="auto")
+    p.add_argument(
+        "--samples", type=int, help="Explicit smaller test subset for a CPU check"
+    )
+    p.add_argument("--batch-size", type=int)
+    a = p.parse_args()
+    device = (
+        ("cuda" if torch.cuda.is_available() else "cpu")
+        if a.device == "auto"
+        else a.device
+    )
+    state = load_checkpoint(a.checkpoint)
     model, cfg = restore_model(state, device)
-    validate_config(cfg)
-    progress = state
-    last_path = Path(args.checkpoint).parent / "last.pt"
-    if last_path.exists():
-        last = load_checkpoint(last_path)
-        saved_config = {k: v for k, v in state["config"].items() if k != "run"}
-        last_config = {k: v for k, v in last["config"].items() if k != "run"}
-        if saved_config == last_config and last["global_step"] >= state["global_step"]:
-            progress = last
-    results = evaluate_lengths(model, cfg, progress)
-    output = Path(args.output) if args.output else Path(args.checkpoint).parent / "evaluation.json"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    write_json(output, {"checkpoint": str(Path(args.checkpoint).resolve()),
-                        "checkpoint_step": state["global_step"], "results": results})
-    print(f"Evaluation saved: {output}")
+    if a.samples is not None:
+        cfg.data.test_samples = a.samples
+    if a.batch_size is not None:
+        cfg.evaluation.batch_size = a.batch_size
+    validate_config(cfg, require_output=False)
+    pairs = cfg.data.train_segments - 1
+    result = evaluate(model, cfg, make_dataset(cfg, "test", pairs), device, vary=False)
+    root = Path(a.output_dir) if a.output_dir else Path(a.checkpoint).parent
+    root.mkdir(parents=True, exist_ok=True)
+    write_result_files(
+        root,
+        "evaluation",
+        {
+            "checkpoint": str(Path(a.checkpoint).resolve()),
+            "checkpoint_step": state["step"],
+            "num_pairs": pairs,
+            **result,
+        },
+    )
+    print(result)
+
 
 if __name__ == "__main__":
     main()

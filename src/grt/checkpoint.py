@@ -1,14 +1,14 @@
-"""Versioned, atomic checkpoints and RNG-preserving analysis contexts."""
+"""Checkpoint/RNG utilities and explicit read-only import of native author_rmt/1."""
+
 from contextlib import contextmanager
-from dataclasses import asdict
 from pathlib import Path
-import os
 import random
 import numpy as np
 import torch
-from grt.config import SPEC_VERSION, GRTConfig, build_config
+from grt.config import Config, build_config, legacy_config
 
-SCHEMA_VERSION = 1
+CHECKPOINT_FORMAT = "memory_experiment/2"
+
 
 def seed_all(seed):
     random.seed(seed)
@@ -17,19 +17,28 @@ def seed_all(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+
 def capture_rng():
-    return {"python": random.getstate(), "numpy": np.random.get_state(),
-            "torch": torch.get_rng_state(),
-            "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []}
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+    }
+
 
 def restore_rng(state):
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
     torch.set_rng_state(state["torch"].cpu())
     if state["cuda"]:
-        if not torch.cuda.is_available() or len(state["cuda"]) != torch.cuda.device_count():
-            raise ValueError("Checkpoint CUDA RNG devices do not match this environment")
+        if (
+            not torch.cuda.is_available()
+            or len(state["cuda"]) != torch.cuda.device_count()
+        ):
+            raise ValueError("CUDA RNG device mismatch")
         torch.cuda.set_rng_state_all(state["cuda"])
+
 
 @contextmanager
 def preserve_rng():
@@ -39,43 +48,46 @@ def preserve_rng():
     finally:
         restore_rng(state)
 
+
 @contextmanager
 def evaluation_context(model):
-    modes = [(module, module.training) for module in model.modules()]
-    with preserve_rng():
+    modes = [(m, m.training) for m in model.modules()]
+    with preserve_rng(), torch.no_grad():
         try:
             model.eval()
-            with torch.no_grad():
-                yield
+            yield
         finally:
-            for module, mode in modes:
-                module.training = mode
+            for m, mode in modes:
+                m.training = mode
 
-def save_checkpoint(path, model, cfg, optimizer, scheduler, scaler, progress):
+
+def atomic_save(state, path):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    state = {"schema_version": SCHEMA_VERSION, "spec_version": SPEC_VERSION,
-             "config": asdict(cfg), "model_config": asdict(cfg.model),
-             "model": model.state_dict(), "optimizer": optimizer.state_dict(),
-             "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(),
-             "rng": capture_rng(), **progress}
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = path.with_suffix(".tmp")
     try:
         torch.save(state, temporary)
-        os.replace(temporary, path)
+        temporary.replace(path)
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary.exists():
+            temporary.unlink()
+
 
 def load_checkpoint(path):
-    # Our checkpoints contain Python/NumPy RNG state. Load only trusted local runs.
+    # Locally produced experiment files also contain Python/NumPy RNG state.
     state = torch.load(path, map_location="cpu", weights_only=False)
-    if state.get("schema_version") != SCHEMA_VERSION or state.get("spec_version") != SPEC_VERSION:
-        raise ValueError("Unsupported legacy checkpoint; explicit migration is required")
+    if state.get("format") not in (CHECKPOINT_FORMAT, "author_rmt/1"):
+        raise ValueError("Unsupported checkpoint format")
     return state
 
+
 def restore_model(state, device="cpu"):
+    cfg = (
+        legacy_config(state["config"])
+        if state["format"] == "author_rmt/1"
+        else build_config(Config, state["config"])
+    )
     from grt.models.factory import create_model
-    cfg = build_config(GRTConfig, state["config"])
-    model = create_model(cfg.model).to(device)
-    model.load_state_dict(state["model"])
+
+    model = create_model(cfg).to(device)
+    model.load_state_dict(state["model"], strict=True)
     return model, cfg

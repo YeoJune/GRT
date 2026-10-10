@@ -1,98 +1,133 @@
+"""Local result files and optional W&B; logging must not consume model RNG."""
+
+from dataclasses import asdict
+from pathlib import Path
 import json
 import platform
 import subprocess
 import warnings
-from dataclasses import asdict
-from pathlib import Path
+from uuid import uuid4
 import torch
-from grt.config import SPEC_VERSION
+import transformers
+from grt.checkpoint import preserve_rng
+from grt.config import EXPERIMENT_VERSION
+
 
 def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    Path(path).write_text(
+        json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_result_files(root, name, result):
+    for suffix in ("json", "txt"):
+        write_json(Path(root) / f"{name}.{suffix}", result)
+
+
+def append_metrics(stage_dir, row):
+    with (stage_dir / "metrics.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, allow_nan=False) + "\n")
+    v = row["validation"]
+    fixed = v["fixed_length"]
+    text = (
+        f"Step {row['step']}\n  Train: loss={row['train/loss']:.6f}, lr={row['train/lr']:.8g}\n"
+        f"  Random-length validation: loss={v['loss']:.6f}, exact_match={v['exact_match']:.2%}\n"
+        f"  Fixed-length validation:  loss={fixed['loss']:.6f}, exact_match={fixed['exact_match']:.2%}\n"
+        f"  Training time={row['train/seconds']:.2f}s, peak VRAM={row['train/peak_gpu_memory_bytes'] / 2**30:.2f} GiB\n\n"
+    )
+    with (stage_dir / "metrics.txt").open("a", encoding="utf-8") as f:
+        f.write(text)
+
 
 def metadata(model, cfg):
     try:
-        result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-        commit, git_error = result.stdout.strip(), None
-    except (OSError, subprocess.CalledProcessError) as error:
-        commit, git_error = None, str(error)
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit = None
     device = next(model.parameters()).device
-    return {"spec_version": SPEC_VERSION, "git_commit": commit, "git_error": git_error,
-            "python": platform.python_version(), "torch": str(torch.__version__),
-            "cuda": torch.version.cuda, "device": str(device),
-            "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
-            "total_parameters": sum(p.numel() for p in model.parameters()),
-            "trainable_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad),
-            "dtype": cfg.training.mixed_precision, "model_seed": cfg.training.model_seed,
-            "data_seed": cfg.data.data_seed, "rtla_supported": cfg.model.name == "grt",
-            "cuda_determinism": "Backend determinism is not guaranteed" if device.type == "cuda" else None}
+    return {
+        "experiment_version": EXPERIMENT_VERSION,
+        "git_commit": commit,
+        "python": platform.python_version(),
+        "torch": str(torch.__version__),
+        "transformers": transformers.__version__,
+        "cuda": torch.version.cuda,
+        "device": str(device),
+        "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+        "total_parameters": sum(p.numel() for p in model.parameters()),
+        "trainable_parameters": sum(
+            p.numel() for p in model.parameters() if p.requires_grad
+        ),
+        "dtype": cfg.training.mixed_precision,
+        "model_seed": cfg.training.model_seed,
+        "data_seed": cfg.data.data_seed,
+        "sampling_rng": "author collator uses model-seeded global torch RNG; identical distribution, not guaranteed identical batch sequence across architectures",
+    }
 
-class Logger:
-    def __init__(self, output_dir, cfg):
-        self.path = Path(output_dir) / "metrics.jsonl"
-        self.wandb = None
+
+class Monitor:
+    def __init__(self, root, cfg):
+        self.root = Path(root)
         self.run = None
-        self.pending_media = {}
-        self.warning_path = Path(output_dir) / "warnings.jsonl"
-        if cfg.wandb.enabled:
-            try:
+        self.enabled = cfg.wandb.enabled
+        if not self.enabled:
+            return
+        try:
+            with preserve_rng():
                 import wandb
-                self.wandb = wandb
-                self.run = wandb.init(project=cfg.wandb.project, name=cfg.wandb.run_name, config=asdict(cfg))
-            except Exception as error:
-                self.warn(f"W&B initialization failed: {error}")
+
+                path = self.root / "wandb_run.json"
+                identity = (
+                    json.loads(path.read_text())
+                    if path.exists()
+                    else {"id": uuid4().hex[:8]}
+                )
+                write_json(path, identity)
+                self.run = wandb.init(
+                    project=cfg.wandb.project,
+                    name=cfg.wandb.run_name,
+                    id=identity["id"],
+                    resume="allow",
+                    mode=cfg.wandb.mode,
+                    config=asdict(cfg),
+                    dir=str(self.root),
+                )
+        except Exception as error:
+            self.warn(
+                f"W&B initialization failed; local results remain enabled: {error}"
+            )
 
     def warn(self, message):
         warnings.warn(message, RuntimeWarning)
-        with self.warning_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"warning": message}, ensure_ascii=False) + "\n")
+        with (self.root / "warnings.txt").open("a", encoding="utf-8") as f:
+            f.write(message + "\n")
 
     def log(self, step, payload):
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"global_step": step, **payload}, allow_nan=False) + "\n")
-        self.upload(step, {**payload, **self.pending_media.pop(step, {})})
-        if "val/loss" in payload:
-            print(f"step={step} val_loss={payload['val/loss']:.5f} "
-                  f"token_accuracy={payload['val/token_accuracy']:.3%} "
-                  f"exact_match={payload['val/exact_match']:.3%}", flush=True)
-            if "val/autoregressive/token_accuracy" in payload:
-                print(f"  autoregressive_accuracy={payload['val/autoregressive/token_accuracy']:.3%} "
-                      f"autoregressive_exact_match={payload['val/autoregressive/exact_match']:.3%}", flush=True)
-                if 'val/autoregressive/all_queries_exact_match' in payload:
-                    print(f"  all_queries_exact_match={payload['val/autoregressive/all_queries_exact_match']:.3%} "
-                          f"by_position={payload['val/autoregressive/query_position_accuracy']}", flush=True)
-        elif "train/loss" in payload and (step == 1 or step % 100 == 0):
-            print(f"step={step} train_loss={payload['train/loss']:.5f} "
-                  f"lr={payload['train/lr']:.3g} grad_norm={payload['train/grad_norm']:.3g}", flush=True)
-
-    def queue_trace(self, step, arrays, panel):
-        self.pending_media.setdefault(step, {}).update(self.trace_payload(arrays, panel))
-
-    def upload(self, step, payload):
-        if self.run is not None:
-            try:
-                self.run.log(payload, step=step)
-            except Exception as error:
-                self.warn(f"W&B upload failed: {error}")
-
-    def trace_payload(self, arrays, panel):
         if self.run is None:
-            return {}
+            return
         try:
-            table = [[t, m, float(arrays['r_gates'][t,m]), float(arrays['w_gates'][t,m]),
-                      float(arrays['s_norms'][t,m]), float(arrays['update_distances'][t,m])]
-                     for t in range(arrays['w_gates'].shape[0]) for m in range(arrays['w_gates'].shape[1])]
-            attention = [[t, n, float(v)] for t, row in enumerate(arrays['attn_weights']) for n, v in enumerate(row)]
-            return {"rtla/panels": self.wandb.Image(str(panel)),
-                    "rtla/registers": self.wandb.Table(columns=["timestep", "register", "read", "write", "state_norm", "update_distance"], data=table),
-                    "rtla/attention": self.wandb.Table(columns=["timestep", "token_position", "weight"], data=attention)}
+            with preserve_rng():
+                self.run.log({"global_step": step, **payload}, step=step)
         except Exception as error:
-            self.warn(f"W&B trace conversion failed: {error}")
-            return {}
+            self.warn(f"W&B upload failed: {error}")
+
+    def result(self, payload):
+        if self.run is None:
+            return
+        try:
+            with preserve_rng():
+                self.run.summary.update(payload)
+        except Exception as error:
+            self.warn(f"W&B summary failed: {error}")
 
     def finish(self):
-        if self.run is not None:
-            try:
+        if self.run is None:
+            return
+        try:
+            with preserve_rng():
                 self.run.finish()
-            except Exception as error:
-                self.warn(f"W&B finalization failed: {error}")
+        except Exception as error:
+            self.warn(f"W&B finalization failed: {error}")

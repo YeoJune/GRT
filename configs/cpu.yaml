@@ -1,0 +1,13 @@
+# Execution checks only; not the GPU convergence experiment.
+model:
+  d_model: 32
+  num_registers: 4
+  alu: {num_layers: 2, nhead: 4, d_ff: 32}
+data: {train_samples: 16, validation_samples: 4, test_samples: 4}
+training:
+  batch_size: 4
+  stop_on_convergence: false
+  curriculum:
+    - {num_pairs: 1, key_size: 1, max_steps: 2}
+    - {num_pairs: 2, key_size: 1, max_steps: 2}
+evaluation: {batch_size: 4, every_steps: 1}

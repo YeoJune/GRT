@@ -1,204 +1,341 @@
-import math
-import time
+"""Common curriculum trainer, preserving the native author RMT update order."""
+
+import copy
+from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
+import json
+import time
 import torch
-from torch import nn
-from grt.checkpoint import save_checkpoint, restore_rng, evaluation_context
-from grt.data import make_loader, move_batch
-from grt.evaluator import evaluate, evaluate_copy_generation, evaluate_remember_generation, autocast_context, check_precision
-from grt.metrics import masked_ce
-from grt.logger import write_json
+from transformers import get_linear_schedule_with_warmup
+from grt.checkpoint import (
+    seed_all,
+    capture_rng,
+    restore_rng,
+    load_checkpoint,
+    atomic_save,
+    CHECKPOINT_FORMAT,
+)
+from grt.config import save_config, validate_config
+from grt.logger import metadata, write_json, write_result_files, append_metrics, Monitor
+from grt.models.factory import create_model
+from grt.models.rmt import REFERENCE_COMMIT as COMMIT
+from grt.data import get_adapter, make_dataset, make_loader, forward_batch
+from grt.evaluator import evaluate
 
-def optimizer_groups(model, weight_decay):
-    exempt = set()
-    for module in model.modules():
-        for name, parameter in module.named_parameters(recurse=False):
-            if isinstance(module, nn.LayerNorm) or name == "bias" or name.endswith("_bias"):
-                exempt.add(id(parameter))
-    decay, no_decay = [], []
-    for p in model.parameters():
-        if p.requires_grad:
-            (no_decay if id(p) in exempt else decay).append(p)
-    return [{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}]
 
-class Trainer:
-    def __init__(self, model, cfg, logger=None, on_evaluate=None):
-        self.model, self.cfg = model, cfg
-        self.device = next(model.parameters()).device
-        check_precision(self.device, cfg.training.mixed_precision)
-        self.logger, self.on_evaluate = logger, on_evaluate
-        t = cfg.training
-        optimizer_cls = torch.optim.Adam if t.optimizer == "adam" else torch.optim.AdamW
-        self.optimizer = optimizer_cls(optimizer_groups(model, t.weight_decay), lr=t.lr, betas=(0.9, t.adam_beta2))
-        horizon = t.scheduler_steps or t.max_steps
-        def schedule(step):
-            if step >= horizon:
-                return 0.0
-            if step < t.warmup_steps:
-                return (step + 1) / max(1, t.warmup_steps)
-            progress = min(1.0, max(0.0, (step - t.warmup_steps) / max(1, horizon - t.warmup_steps)))
-            return 1 - progress if t.scheduler == "linear" else 0.5 * (1 + math.cos(math.pi * progress))
-        self.scheduler = (torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, factor=0.5, patience=t.plateau_patience, min_lr=t.min_lr)
-            if t.scheduler == "plateau" else torch.optim.lr_scheduler.LambdaLR(self.optimizer, schedule))
-        if hasattr(torch.amp, "GradScaler"):
-            self.scaler = torch.amp.GradScaler("cuda", enabled=t.mixed_precision == "fp16")
-        else:  # PyTorch 2.2 compatibility; newer versions use the current API.
-            self.scaler = torch.cuda.amp.GradScaler(enabled=t.mixed_precision == "fp16")
-        self.global_step = 0
-        self.next_train_sample_id = 0
-        self.best_validation_loss = math.inf
-        self.training_seconds = 0.0
-        self.first_target_step = None
-        self.first_target_seconds = None
-        self.converged = False
-        self.stop_reason = "update_budget"
-        self.peak_training_gpu_memory_bytes = None
-        self.output_dir = Path(cfg.run.output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+def run(cfg, device):
+    validate_config(cfg)
+    root = Path(cfg.run.output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    # Check configuration before initializing optional external monitoring.
+    stored = root / "experiment_config.json"
+    if stored.exists() and json.loads(stored.read_text()) != asdict(cfg):
+        raise ValueError("Configuration changed; use a new output directory")
+    if not stored.exists() and any(root.iterdir()):
+        raise ValueError("Nonempty output directory without experiment configuration")
+    stored.write_text(json.dumps(asdict(cfg), indent=2))
+    monitor = Monitor(root, cfg)
+    try:
+        return _run(cfg, device, monitor)
+    finally:
+        monitor.finish()
 
-    def progress(self):
-        return {key: getattr(self, key) for key in ("global_step", "next_train_sample_id", "best_validation_loss",
-                "training_seconds", "first_target_step", "first_target_seconds", "converged", "stop_reason",
-                "peak_training_gpu_memory_bytes")}
 
-    def resume(self, state):
-        self.model.load_state_dict(state["model"])
-        self.optimizer.load_state_dict(state["optimizer"])
-        self.scheduler.load_state_dict(state["scheduler"])
-        self.scaler.load_state_dict(state["scaler"])
-        for key in self.progress():
-            setattr(self, key, state.get(key, getattr(self, key)))
-        restore_rng(state["rng"])
+def _run(cfg, device, monitor):
+    if cfg.training.mixed_precision != "fp32":
+        raise ValueError("The author reference path currently requires fp32")
+    root = Path(cfg.run.output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    save_config(cfg, root / "resolved_config.yaml")
+    stages = cfg.training.curriculum or [
+        SimpleNamespace(
+            num_pairs=cfg.data.train_segments - 1,
+            key_size=cfg.data.key_size,
+            max_steps=cfg.training.max_steps,
+        )
+    ]
+    results = []
+    previous = None
+    started = time.perf_counter()
+    global_offset = 0
+    adapter = get_adapter(cfg.data.name)
+    old_summary = root / "summary.json"
+    prior_wall = (
+        json.loads(old_summary.read_text()).get("wall_seconds", 0)
+        if old_summary.exists()
+        else 0
+    )
+    for index, stage in enumerate(stages):
+        current = copy.deepcopy(cfg)
+        adapter.configure_stage(current, stage)
+        current.training.max_steps = stage.max_steps
+        current.training.curriculum = []
+        stage_dir = (
+            root / f"stage_{index + 1:02d}_pairs{stage.num_pairs}_key{stage.key_size}"
+        )
+        stage_dir.mkdir(exist_ok=True)
+        save_config(current, stage_dir / "resolved_config.yaml")
+        seed_all(current.training.model_seed)
+        model = create_model(current).to(device)
+        provenance = metadata(model, current)
+        provenance["reference_source"] = json.loads(
+            (Path(__file__).parent / "vendor/armt/SOURCE.json").read_text()
+        )
+        if not (root / "metadata.json").exists():
+            write_json(root / "metadata.json", provenance)
+        provenance["loss_convention"] = "raw labels and shifted predictor mask"
+        if not (stage_dir / "metadata.json").exists():
+            write_json(stage_dir / "metadata.json", provenance)
+        monitor.result({"metadata": provenance})
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=current.training.lr,
+            weight_decay=current.training.weight_decay,
+            betas=(0.9, current.training.adam_beta2),
+        )
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer, stage.max_steps // 10, stage.max_steps * 2
+        )
+        train = make_dataset(current, "train", stage.num_pairs)
+        valid = make_dataset(current, "validation", stage.num_pairs)
+        loader = make_loader(current, train, training=True)
+        step = epoch_batch = samples_seen = 0
+        best = -1.0
+        last_validation = None
+        done = False
+        training_seconds = 0.0
+        peak_memory = 0
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+        path = stage_dir / "last.pt"
+        if path.exists():
+            state = load_checkpoint(path)
+            if state["format"] != CHECKPOINT_FORMAT:
+                raise ValueError(
+                    "Legacy checkpoint resume requires its original checkout"
+                )
+            model.load_state_dict(state["model"])
+            optimizer.load_state_dict(state["optimizer"])
+            scheduler.load_state_dict(state["scheduler"])
+            restore_rng(state["rng"])
+            step = state["step"]
+            epoch_batch = state["epoch_batch"]
+            best = state["best_exact_match"]
+            done = state["done"]
+            last_validation = state["validation"]
+            training_seconds = state.get("training_seconds", 0.0)
+            peak_memory = state.get("peak_training_gpu_memory_bytes", 0)
+            samples_seen = state.get("train_samples_seen", 0)
+        elif previous is not None:
+            model.load_state_dict(previous)
+        iterator = iter(loader)
+        # Rebuild the loader cursor without changing the checkpoint RNG used by the collator.
+        if epoch_batch:
+            rng = capture_rng()
+            for _ in range(epoch_batch):
+                next(iterator)
+            restore_rng(rng)
 
-    def save(self, name):
-        save_checkpoint(self.output_dir / name, self.model, self.cfg, self.optimizer,
-                        self.scheduler, self.scaler, self.progress())
+        def save(target, done_flag):
+            atomic_save(
+                {
+                    "format": CHECKPOINT_FORMAT,
+                    "reference_commit": COMMIT,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "rng": capture_rng(),
+                    "step": step,
+                    "epoch_batch": epoch_batch,
+                    "best_exact_match": best,
+                    "validation": last_validation,
+                    "done": done_flag,
+                    "training_seconds": training_seconds,
+                    "peak_training_gpu_memory_bytes": peak_memory,
+                    "train_samples_seen": samples_seen,
+                    "config": asdict(current),
+                },
+                target,
+            )
 
-    def validate(self):
-        d = self.cfg.data
-        loader = make_loader(d, "validation", d.train_segments, d.validation_samples, self.cfg.evaluation.batch_size)
-        metrics = evaluate(self.model, loader, self.cfg.training.mixed_precision)
-        if not math.isfinite(metrics["loss"]):
-            self.fail("nonfinite validation loss")
-        payload = {f"val/{k}": v for k, v in metrics.items()}
-        if d.protocol == "paper_copy":
-            generation_loader = make_loader(d, "validation", d.train_segments,
-                self.cfg.evaluation.autoregressive_samples, self.cfg.evaluation.batch_size)
-            generation = evaluate_copy_generation(self.model, generation_loader, self.cfg.training.mixed_precision)
-            payload.update({f"val/autoregressive/{k}": v for k, v in generation.items()})
-            self.converged = (metrics["loss"] <= 0.05 and metrics["token_accuracy"] >= 0.99
-                              and generation["token_accuracy"] >= 0.99 and generation["exact_match"] >= 0.95)
-        elif d.protocol == "paper_ar":
-            generation_loader = make_loader(d, "validation", d.train_segments,
-                self.cfg.evaluation.autoregressive_samples, self.cfg.evaluation.batch_size)
-            generation = evaluate_remember_generation(self.model, generation_loader, d.value_size,
-                self.cfg.training.mixed_precision, balanced_queries=d.remember_sampling == "balanced_contexts")
-            payload.update({f"val/autoregressive/{k}": v for k, v in generation.items()})
-            self.converged = generation["exact_match"] >= self.cfg.training.convergence_exact_match
-            if d.remember_sampling == "balanced_contexts":
-                self.converged = self.converged and generation['all_queries_exact_match'] >= self.cfg.training.convergence_exact_match
-        interval = self.cfg.training.plateau_every_steps or self.cfg.evaluation.every_steps
-        if self.cfg.training.scheduler == "plateau" and self.global_step % interval == 0:
-            self.scheduler.step(metrics["loss"])
-        if metrics["loss"] <= 0.05 and self.first_target_step is None:
-            self.first_target_step, self.first_target_seconds = self.global_step, self.training_seconds
-        if metrics["loss"] < self.best_validation_loss:
-            self.best_validation_loss = metrics["loss"]
-            self.save("best.pt")
-        if self.converged:
-            self.save("converged.pt")
-        return payload
-
-    def fail(self, reason, **details):
-        write_json(self.output_dir / "failure.json", {"reason": reason, "global_step": self.global_step,
-                                                       "next_train_sample_id": self.next_train_sample_id, **details})
-        raise FloatingPointError(reason)
-
-    def train(self, stop_after=None, time_limit_seconds=None):
-        # stop_after is a testable interruption boundary; it does not alter the LR budget.
-        stop = self.cfg.training.max_steps if stop_after is None else min(stop_after, self.cfg.training.max_steps)
-        t, d = self.cfg.training, self.cfg.data
-        self.model.train()
-        count = t.batch_size * t.grad_accum_steps
-        train_batches = iter(make_loader(d, "train", d.train_segments,
-                             max(0, stop-self.global_step)*count, t.batch_size, self.next_train_sample_id))
-        session_started = time.perf_counter()
-        remaining = (None if t.max_seconds is None else max(0.0, t.max_seconds-self.training_seconds))
-        if time_limit_seconds is not None:
-            remaining = time_limit_seconds if remaining is None else min(remaining, time_limit_seconds)
-        while self.global_step < stop and not (t.stop_on_convergence and self.converged):
-            if remaining is not None and time.perf_counter() - session_started >= remaining:
-                self.stop_reason = "time_budget"
+        model.train()
+        while step < stage.max_steps and not done:
+            if (
+                cfg.training.max_seconds is not None
+                and prior_wall + time.perf_counter() - started
+                >= cfg.training.max_seconds
+            ):
                 break
-            started = time.perf_counter()
-            if self.device.type == "cuda":
-                torch.cuda.synchronize()
-                torch.cuda.reset_peak_memory_stats()
-            # Materialize only one effective batch so the denominator is exact.
-            batches = [move_batch(next(train_batches), self.device) for _ in range(t.grad_accum_steps)]
-            self.next_train_sample_id += count
-            denominator = sum((b["labels"] != -100).sum().item() for b in batches)
-            if not denominator:
-                raise ValueError("Effective batch has no labels")
-            self.optimizer.zero_grad(set_to_none=True)
-            loss_sum = 0.0
-            for b in batches:
-                with autocast_context(self.device, t.mixed_precision):
-                    out = self.model(b["input_ids"], b["attention_mask"])
-                    loss = masked_ce(out.logits, b["labels"], "sum") / denominator
-                if not torch.isfinite(loss):
-                    self.fail("nonfinite training loss")
-                loss_sum += loss.item()
-                self.scaler.scale(loss).backward()
-            self.scaler.unscale_(self.optimizer)
-            if t.grad_clip_type == "value":
-                grad = torch.linalg.vector_norm(torch.stack([p.grad.detach().float().norm()
-                    for p in self.model.parameters() if p.grad is not None]))
-                nn.utils.clip_grad_value_(self.model.parameters(), t.grad_clip)
-            else:
-                grad = nn.utils.clip_grad_norm_(self.model.parameters(), t.grad_clip)
-            if not torch.isfinite(grad) and not self.scaler.is_enabled():
-                self.fail("nonfinite gradient")
-            lr = self.optimizer.param_groups[0]["lr"]
-            previous_scale = self.scaler.get_scale()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            skipped = self.scaler.is_enabled() and self.scaler.get_scale() < previous_scale
-            if self.device.type == "cuda":
-                torch.cuda.synchronize()
-                peak = torch.cuda.max_memory_allocated()
-                self.peak_training_gpu_memory_bytes = max(self.peak_training_gpu_memory_bytes or 0, peak)
-            self.training_seconds += time.perf_counter() - started
-            if skipped:
-                if self.logger:
-                    self.logger.log(self.global_step, {"train/overflow_skip": True, "train/scaler": self.scaler.get_scale()})
-                # An overflow is recorded and training stops rather than silently retrying.
-                self.fail("fp16 overflow skipped optimizer update", scaler=self.scaler.get_scale())
-            if t.scheduler in ("cosine", "linear"):
-                self.scheduler.step()
-            self.global_step += 1
-            payload = {"train/loss": loss_sum, "train/lr": lr, "train/grad_norm": grad.item(),
-                       "train/next_sample_id": self.next_train_sample_id, "train/seconds": self.training_seconds}
-            if self.peak_training_gpu_memory_bytes is not None:
-                payload["train/peak_gpu_memory_bytes"] = self.peak_training_gpu_memory_bytes
-            if self.global_step % self.cfg.evaluation.every_steps == 0 or self.global_step == stop:
-                payload.update(self.validate())
-            if self.on_evaluate and self.cfg.rtla.enabled and self.global_step % self.cfg.rtla.every_steps == 0:
-                # The callback handles eval mode; preserve RNG even for custom callbacks.
-                with evaluation_context(self.model):
-                    callback_metrics = self.on_evaluate(self.model, self.global_step)
-                payload.update(callback_metrics or {})
-            if self.logger:
-                self.logger.log(self.global_step, payload)
-            if self.global_step % self.cfg.checkpoint.every_steps == 0:
-                self.save(f"step_{self.global_step:06d}.pt")
-                self.save("last.pt")
-        if self.converged:
-            self.stop_reason = "converged"
-        if not (self.output_dir / "best.pt").exists() or (self.global_step % self.cfg.evaluation.every_steps and not self.converged):
-            payload = self.validate()
-            if self.logger:
-                self.logger.log(self.global_step, payload)
-        self.save("last.pt")
-        return self.progress()
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            update_started = time.perf_counter()
+            optimizer.zero_grad(set_to_none=True)
+            loss_total = 0.0
+            try:
+                effective_batch = next(iterator)
+            except StopIteration:
+                iterator = iter(loader)
+                epoch_batch = 0
+                effective_batch = next(iterator)
+            epoch_batch += 1
+            samples_seen += len(effective_batch["input_ids"])
+            for start in range(
+                0, len(effective_batch["input_ids"]), current.training.batch_size
+            ):
+                batch = {
+                    k: v[start : start + current.training.batch_size]
+                    for k, v in effective_batch.items()
+                }
+                loss = (
+                    forward_batch(model, batch, device).loss
+                    / current.training.grad_accum_steps
+                )
+                loss.backward()
+                loss_total += loss.item()
+            torch.nn.utils.clip_grad_value_(
+                model.parameters(), current.training.grad_clip
+            )
+            optimizer.step()
+            scheduler.step()
+            step += 1
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+                peak_memory = max(peak_memory, torch.cuda.max_memory_allocated(device))
+            training_seconds += time.perf_counter() - update_started
+            if step % current.evaluation.every_steps == 0 or step == stage.max_steps:
+                # Original random-length validation plus an explicit maximum-length functional check.
+                last_validation = evaluate(
+                    model, current, valid, device, vary=current.data.vary_n_pairs
+                )
+                fixed = evaluate(model, current, valid, device, vary=False)
+                last_validation["fixed_length"] = fixed
+                score = (
+                    fixed["exact_match"]
+                    if current.training.stop_on_convergence
+                    else last_validation["exact_match"]
+                )
+                if score > best:
+                    best = score
+                    save(stage_dir / "best.pt", False)
+                done = (
+                    current.training.stop_on_convergence
+                    and fixed["exact_match"] >= current.training.convergence_exact_match
+                )
+                row = {
+                    "step": step,
+                    "train/loss": loss_total,
+                    "train/lr": optimizer.param_groups[0]["lr"],
+                    "train/seconds": training_seconds,
+                    "train/peak_gpu_memory_bytes": peak_memory,
+                    "validation": last_validation,
+                }
+                row["train/samples"] = samples_seen
+                append_metrics(stage_dir, row)
+                payload = {
+                    "stage_step": step,
+                    "num_pairs": stage.num_pairs,
+                    "key_size": stage.key_size,
+                    **{k: v for k, v in row.items() if k.startswith("train/")},
+                    "val/random/loss": last_validation["loss"],
+                    "val/random/exact_match": last_validation["exact_match"],
+                    "val/fixed/loss": fixed["loss"],
+                    "val/fixed/exact_match": fixed["exact_match"],
+                }
+                if cfg.rtla.enabled and callable(
+                    getattr(model, "forward_with_trace", None)
+                ):
+                    from grt.rtla import log_trace
+
+                    payload.update(
+                        log_trace(model, current, valid, device, stage_dir, step)
+                    )
+                monitor.log(global_offset + step, payload)
+                print(
+                    f"{cfg.model.name.upper()} {stage.num_pairs} pairs step {step}: loss={loss_total:.4f}, fixed EM={fixed['exact_match']:.3f}",
+                    flush=True,
+                )
+                save(path, done)
+            elif step % cfg.wandb.every_steps == 0:
+                monitor.log(
+                    global_offset + step,
+                    {
+                        "stage_step": step,
+                        "num_pairs": stage.num_pairs,
+                        "train/loss": loss_total,
+                        "train/lr": optimizer.param_groups[0]["lr"],
+                        "train/samples": samples_seen,
+                        "train/seconds": training_seconds,
+                        "train/peak_gpu_memory_bytes": peak_memory,
+                    },
+                )
+        if last_validation is None:
+            last_validation = evaluate(model, current, valid, device, vary=False)
+            last_validation["fixed_length"] = dict(last_validation)
+            best = last_validation["exact_match"]
+            save(stage_dir / "best.pt", done)
+        done = done or step >= stage.max_steps
+        save(path, done)
+        selected = torch.load(
+            stage_dir / "best.pt", map_location="cpu", weights_only=False
+        )
+        previous = selected["model"]
+        converged = (
+            last_validation["fixed_length"]["exact_match"]
+            >= current.training.convergence_exact_match
+        )
+        results.append(
+            {
+                "num_pairs": stage.num_pairs,
+                "key_size": stage.key_size,
+                "step": step,
+                "completed": done,
+                "converged": converged,
+                "train_samples_seen": samples_seen,
+                "checkpoint": str(stage_dir / "best.pt"),
+                "training_seconds": training_seconds,
+                "peak_training_gpu_memory_bytes": peak_memory,
+                "stop_reason": "converged"
+                if current.training.stop_on_convergence and converged
+                else ("update_budget" if done else "time_budget"),
+                "validation": last_validation,
+            }
+        )
+        status = "completed" if done and index == len(stages) - 1 else "interrupted"
+        if current.training.stop_on_convergence and done and not converged:
+            status = "stage_not_converged"
+        write_result_files(
+            root,
+            "summary",
+            {
+                "reference_commit": COMMIT,
+                "status": status,
+                "stages": results,
+                "wall_seconds": prior_wall + time.perf_counter() - started,
+            },
+        )
+        monitor.result({"status": status, "stages": results})
+        global_offset += step
+        if not done or (current.training.stop_on_convergence and not converged):
+            break
+    model.load_state_dict(previous)
+    test = make_dataset(current, "test", stage.num_pairs)
+    evaluation = evaluate(model, current, test, device, vary=False)
+    write_result_files(
+        root,
+        "evaluation",
+        {
+            "checkpoint": str(stage_dir / "best.pt"),
+            "checkpoint_step": selected["step"],
+            "num_pairs": stage.num_pairs,
+            **evaluation,
+        },
+    )
+    monitor.result(
+        {
+            "test/loss": evaluation["loss"],
+            "test/exact_match": evaluation["exact_match"],
+            "test/samples": evaluation["samples"],
+        }
+    )
+    return results

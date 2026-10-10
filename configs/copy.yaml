@@ -1,5 +1,0 @@
-data:
-  task: copy
-  train_segments: 4
-  eval_segments: [4, 10, 20]
-  target_len: 20

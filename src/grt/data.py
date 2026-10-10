@@ -1,174 +1,134 @@
-"""Integer-token benchmarks; data RNG never touches the model RNG."""
-import hashlib
-import math
-from typing import TypedDict
+"""Dataset adapter boundary: models and trainer never interpret task tokens."""
+
+from typing import Protocol
+from types import SimpleNamespace
+import importlib
 import torch
-from torch import Tensor
-from torch.utils.data import Dataset, DataLoader
-
-class Batch(TypedDict):
-    input_ids: Tensor
-    attention_mask: Tensor
-    labels: Tensor
-
-def generator(seed, task, split, sample_id, component):
-    encoded = f"{seed}/{task}/{split}/{sample_id}/{component}".encode("utf-8")
-    value = int.from_bytes(hashlib.sha256(encoded).digest()[:8], "little") % 2**63
-    return torch.Generator().manual_seed(value)
-
-def generate_sample(task, split, sample_id, segments, data_seed=20260916) -> Batch:
-    if task not in ("copy", "reverse", "passkey") or split not in ("train", "validation", "test"):
-        raise ValueError("Unknown task/split")
-    if type(sample_id) is not int or sample_id < 0 or type(segments) is not int or segments < 2:
-        raise ValueError("sample_id must be nonnegative; segments must be >=2")
-    length = segments * 128
-    payload_rng = generator(data_seed, task, split, sample_id, "payload")
-    noise_rng = generator(data_seed, task, split, sample_id, f"noise:{segments}")
-    ids = torch.randint(4, 1024, (length,), generator=noise_rng)
-    labels = torch.full((length,), -100, dtype=torch.int64)
-    if task in ("copy", "reverse"):
-        target = torch.randint(4, 1024, (20,), generator=payload_rng)
-        ids[:20] = target
-        ids[-20:] = 3
-        labels[-20:] = target if task == "copy" else target.flip(0)
-    else:
-        keys = torch.randperm(1020, generator=payload_rng)[:4] + 4
-        values = torch.randint(4, 1024, (4,), generator=payload_rng)
-        query = torch.randint(0, 4, (), generator=payload_rng).item()
-        ids[:12:3], ids[1:12:3], ids[2:12:3] = keys, 1, values
-        ids[-2], ids[-1], labels[-1] = keys[query], 2, values[query]
-    return {"input_ids": ids, "attention_mask": torch.ones(length, dtype=torch.bool), "labels": labels}
-
-class SyntheticDataset(Dataset):
-    def __init__(self, cfg, split, segments, samples, start_id=0, batch_size=1):
-        self.cfg, self.split, self.segments = cfg, split, segments
-        self.samples, self.start_id = samples, start_id
-        self.batch_size = batch_size
-
-    def __len__(self):
-        return self.samples
-
-    def __getitem__(self, index):
-        if index < 0 or index >= self.samples:
-            raise IndexError(index)
-        sample_id = self.start_id + index
-        if self.cfg.protocol == "paper_ar":
-            pairs = self.segments - 1
-            if self.split == "train" and self.cfg.vary_n_pairs:
-                # One length per microbatch; validation always uses the stated length.
-                length_rng = generator(self.cfg.data_seed, "remember", self.split,
-                                       sample_id // self.batch_size, f"length:{pairs}")
-                pairs = torch.randint(1, pairs + 1, (), generator=length_rng).item()
-            if self.split == "train":
-                sample_id %= self.cfg.train_samples
-            if self.cfg.remember_sampling == "balanced_contexts":
-                return generate_balanced_remember(self.split, sample_id, pairs, self.cfg.data_seed)
-            return generate_remember(self.split, sample_id, pairs, self.cfg.key_size,
-                                     self.cfg.value_size, self.cfg.data_seed)
-        if self.cfg.protocol == "paper_copy":
-            if self.segments != 3:
-                raise ValueError("paper_copy requires 3 segments")
-            if self.split == "train":
-                sample_id %= self.cfg.train_samples
-            return generate_paper_copy(self.split, sample_id, self.cfg.data_seed)
-        return generate_sample(self.cfg.task, self.split, sample_id, self.segments, self.cfg.data_seed)
-
-def generate_paper_copy(split, sample_id, data_seed=20260916) -> Batch:
-    """Published short Copy: X + [start] + X + X, shifted next-token labels."""
-    source = torch.randint(2, 12, (24,), generator=generator(data_seed, "paper_copy", split, sample_id, "source"))
-    sequence = torch.cat([source, torch.tensor([1]), source, source])
-    ids, labels = sequence[:-1].clone(), sequence[1:].clone()
-    labels[:24] = -100
-    return {"input_ids": ids, "attention_mask": torch.ones(72, dtype=torch.bool), "labels": labels}
+from torch.utils.data import DataLoader
+from grt.vendor.armt.data import ARDataset, make_collator
 
 
-def generate_remember(split, sample_id, pairs, key_size=1, value_size=1, data_seed=20260916):
-    """ARMT Appendix E/I: unique facts followed by a separate query segment."""
-    if pairs <= 0 or key_size <= 0 or value_size <= 0 or pairs > 16 ** key_size:
-        raise ValueError("Remember requires positive sizes and enough unique keys")
-    rng = generator(data_seed, "remember", split, sample_id, f"pairs:{pairs}:key:{key_size}:value:{value_size}")
-    # Rejection sampling avoids allocating all 16**key_size possible keys.
-    selected = []
-    seen = set()
-    while len(selected) < pairs:
-        key = torch.randint(0, 16, (key_size,), generator=rng)
-        identity = tuple(key.tolist())
-        if identity not in seen:
-            seen.add(identity)
-            selected.append(key)
-    keys = torch.stack(selected)
-    values = torch.randint(0, 16, (pairs, value_size), generator=rng)
-    target = torch.randint(pairs, (), generator=rng).item()
-    sep, gen, eos = torch.tensor([100]), torch.tensor([101]), torch.tensor([102])
-    facts = [torch.cat([key, sep, value, eos]) for key, value in zip(keys, values)]
-    query = torch.cat([keys[target], gen, values[target], eos])
-    ids = torch.cat([*facts, query])
-    labels = torch.full_like(ids, -100)
-    # Labels are already next-token aligned; GEN predicts the first value.
-    answer_start = ids.numel() - value_size - 1
-    labels[answer_start-1:-1] = ids[answer_start:]
-    return {"input_ids": ids, "attention_mask": torch.ones_like(ids, dtype=torch.bool), "labels": labels}
+class DatasetAdapter(Protocol):
+    def validate(self, cfg): ...
+    def configure_stage(self, cfg, stage): ...
+    def dataset(self, cfg, split, pairs): ...
+    def collator(self, cfg, vary): ...
+    def generation_kwargs(self, cfg): ...
+    def generation_target(self, cfg, batch): ...
 
 
-def remember_context_capacity(pairs, split):
-    total = math.comb(16, pairs) * math.perm(16, pairs)
-    boundaries = (0, total * 3 // 4, total * 7 // 8, total)
-    index = ("train", "validation", "test").index(split)
-    return boundaries[index], boundaries[index+1] - boundaries[index]
+class RememberAdapter:
+    def validate(self, cfg):
+        d = cfg.data
+        if (
+            d.key_size <= 0
+            or d.value_size <= 0
+            or d.train_segments < 2
+            or d.data_seed < 0
+        ):
+            raise ValueError("Invalid Remember dimensions")
+        if (
+            cfg.model.vocab_size != 128
+            or cfg.model.segment_len != d.key_size + d.value_size + 2
+        ):
+            raise ValueError(
+                "Remember requires V128 and segment_len=key_size+value_size+2"
+            )
+        if min(d.train_samples, d.validation_samples, d.test_samples) <= 0:
+            raise ValueError("Dataset sizes must be positive")
+        if d.train_segments - 1 > 16**d.key_size:
+            raise ValueError("Remember requires unique keys")
+        for s in cfg.training.curriculum:
+            if (
+                s.num_pairs <= 0
+                or s.key_size <= 0
+                or s.max_steps <= 0
+                or s.num_pairs > 16**s.key_size
+            ):
+                raise ValueError("Invalid curriculum stage")
+
+    def configure_stage(self, cfg, stage):
+        cfg.data.key_size = stage.key_size
+        cfg.data.train_segments = stage.num_pairs + 1
+        cfg.model.segment_len = stage.key_size + cfg.data.value_size + 2
+
+    def dataset(self, cfg, split, pairs):
+        size = getattr(
+            cfg.data,
+            {
+                "train": "train_samples",
+                "validation": "validation_samples",
+                "test": "test_samples",
+            }[split],
+        )
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(
+                cfg.data.data_seed + {"train": 0, "validation": 1, "test": 2}[split]
+            )
+            return ARDataset(cfg.data.key_size, cfg.data.value_size, pairs, size)
+
+    def collator(self, cfg, vary):
+        return make_collator(
+            SimpleNamespace(vary_n_segments=vary, value_size=cfg.data.value_size)
+        )
+
+    def generation_kwargs(self, cfg):
+        return dict(
+            max_new_tokens=cfg.data.value_size + 1, pad_token_id=0, eos_token_id=102
+        )
+
+    def generation_target(self, cfg, batch):
+        return batch["labels"][:, -cfg.data.value_size - 1 :]
 
 
-def generate_balanced_remember(split, sample_id, pairs, data_seed=20260916):
-    """Unique, split-disjoint mappings; consecutive samples query every fact.
+_ADAPTERS = {"remember": RememberAdapter()}
 
-    Controlled Remember variant: distinct values and fixed context length.
-    An affine permutation of the finite mapping space avoids source collisions
-    across splits, including permutations of the fact order.
-    """
-    if not 1 <= pairs <= 16 or sample_id < 0:
-        raise ValueError("Invalid balanced Remember size/index")
-    offset, capacity = remember_context_capacity(pairs, split)
-    context, query_index = divmod(sample_id, pairs)
-    if context >= capacity:
-        raise ValueError("Requested more unique contexts than the split contains")
-    total = math.comb(16, pairs) * math.perm(16, pairs)
-    digest = hashlib.sha256(f"{data_seed}/balanced_remember/{pairs}".encode()).digest()
-    multiplier = int.from_bytes(digest[:8], "little") % total or 1
-    while math.gcd(multiplier, total) != 1:
-        multiplier = (multiplier + 1) % total or 1
-    rank = ((offset + context) * multiplier + int.from_bytes(digest[8:16], "little")) % total
-    key_rank, value_rank = divmod(rank, math.perm(16, pairs))
-    keys, start = [], 0
-    for position in range(pairs):
-        for candidate in range(start, 16):
-            block = math.comb(15-candidate, pairs-position-1)
-            if key_rank < block:
-                keys.append(candidate)
-                start = candidate + 1
-                break
-            key_rank -= block
-    pool, values = list(range(16)), []
-    for position in range(pairs):
-        block = math.perm(15-position, pairs-position-1)
-        index, value_rank = divmod(value_rank, block)
-        values.append(pool.pop(index))
-    order = torch.randperm(pairs, generator=generator(data_seed, "balanced_remember", "context", rank, "order"))
-    facts = torch.tensor([[keys[i],100,values[i],102] for i in order.tolist()])
-    query = facts[query_index].clone()
-    query[1] = 101
-    ids = torch.cat([facts.flatten(), query])
-    labels = torch.full_like(ids, -100)
-    labels[-3:-1] = query[-2:]
-    return {"input_ids": ids, "attention_mask": torch.ones_like(ids, dtype=torch.bool), "labels": labels}
 
-def collate(samples) -> Batch:
-    if not samples or len({s["input_ids"].shape for s in samples}) != 1:
-        raise ValueError("A batch must contain nonempty samples of one length")
-    return {key: torch.stack([s[key] for s in samples]) for key in samples[0]}
+def register_adapter(name, adapter):
+    if name in _ADAPTERS:
+        raise ValueError(f"Dataset adapter already registered: {name}")
+    _ADAPTERS[name] = adapter
 
-def make_loader(cfg, split, segments, samples, batch_size, start_id=0):
-    return DataLoader(SyntheticDataset(cfg, split, segments, samples, start_id, batch_size),
-                      batch_size=batch_size, shuffle=False, num_workers=cfg.num_workers,
-                      collate_fn=collate, generator=torch.Generator().manual_seed(cfg.data_seed))
+
+def get_adapter(name):
+    if name in _ADAPTERS:
+        return _ADAPTERS[name]
+    if ":" in name:
+        module, attr = name.split(":", 1)
+        adapter = getattr(importlib.import_module(module), attr)
+        return adapter() if isinstance(adapter, type) else adapter
+    raise ValueError(f"Unknown dataset adapter: {name}")
+
+
+def make_dataset(cfg, split, pairs):
+    return get_adapter(cfg.data.name).dataset(cfg, split, pairs)
+
+
+def make_loader(cfg, dataset, training=False, vary=None):
+    if vary is None:
+        vary = cfg.data.vary_n_pairs
+    batch = (
+        cfg.training.batch_size * cfg.training.grad_accum_steps
+        if training
+        else cfg.evaluation.batch_size
+    )
+    return DataLoader(
+        dataset,
+        batch_size=batch,
+        collate_fn=get_adapter(cfg.data.name).collator(cfg, vary),
+        num_workers=0,
+        generator=torch.Generator().manual_seed(cfg.training.model_seed),
+    )
+
 
 def move_batch(batch, device):
-    return {key: value.to(device) for key, value in batch.items()}
+    return {k: v.to(device) for k, v in batch.items()}
+
+
+def forward_batch(model, batch, device):
+    return model(
+        **{
+            k: batch[k].to(device)
+            for k in ("input_ids", "attention_mask", "labels", "labels_mask")
+        }
+    )

@@ -1,45 +1,35 @@
+# Common Remember experiment. Model selection belongs in rmt.yaml or grt.yaml.
 model:
-  size: small
-  vocab_size: 1024
-  segment_len: 128
+  vocab_size: 128
+  segment_len: 4
   num_registers: 32
-  d_model: 256
-  tie_word_embeddings: true
-  alu:
-    num_layers: 4
-    nhead: 4
-    d_ff: 1024
-    dropout: 0.1
-    activation: gelu
+  d_model: 128
+  alu: {num_layers: 4, nhead: 4, d_ff: 128, dropout: 0.0, activation: gelu}
 data:
-  data_seed: 20260916
-  validation_samples: 1024
-  test_samples: 4096
-  num_workers: 0
+  name: remember
+  data_seed: 54
+  train_segments: 2
+  key_size: 1
+  value_size: 1
+  vary_n_pairs: true
+  train_samples: 1000000
+  validation_samples: 1000
+  test_samples: 10000
 training:
-  model_seed: 1234
-  batch_size: 128
+  model_seed: 54
+  batch_size: 512
   grad_accum_steps: 1
-  max_steps: 50000
   lr: 0.0003
-  weight_decay: 0.01
-  warmup_steps: 1000
-  grad_clip: 1.0
+  weight_decay: 0.001
+  adam_beta2: 0.999
   mixed_precision: fp32
-evaluation:
-  batch_size: 128
-  every_steps: 500
-  warmup: 10
-  iterations: 50
-checkpoint:
-  every_steps: 2000
-rtla:
-  enabled: true
-  every_steps: 500
-  batch_size: 128
-wandb:
-  enabled: false
-  project: grt-research
-  run_name: null
-run:
-  output_dir: null
+  grad_clip: 1.0
+  stop_on_convergence: false
+  convergence_exact_match: 0.99
+  max_seconds: null
+  curriculum:
+    - {num_pairs: 1, key_size: 1, max_steps: 2000}
+    - {num_pairs: 2, key_size: 1, max_steps: 10000}
+evaluation: {batch_size: 512, every_steps: 250}
+rtla: {enabled: false, batch_size: 8}
+wandb: {enabled: false, project: grt-research, every_steps: 50}
