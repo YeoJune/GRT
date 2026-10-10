@@ -31,3 +31,23 @@ generated JSON is absent. Appendix E specifies approximately 500k parameters,
 four layers and hidden size 128, but does not specify every backbone option.
 This is a short Remember validation using the paper task and RMT recurrence,
 not a claim to reproduce all Figure 2 training conditions or results.
+
+## Native author reference path
+
+`src/grt/reference/` vendors `base_models/modeling_gpt_neox.py`,
+`modeling_rmt/language_modeling.py`, and `adapters.py` from author commit
+`24cbb9aed62a5748c4045fd928f7f59899f03b24`. The only edit to these three
+files is making the adapter import package-relative. `SOURCE.json` records
+the original and vendored SHA256 hashes; the license is included in the package.
+`data.py` extracts the original `generate_pairs`, `ARDataset`, and `collate_fn`
+bodies, with the collator's globals captured by a factory. This path supports
+Remember, not Rewrite.
+
+`runner.py` is local orchestration: it calls the native wrapper with raw labels
+and the author's labels_mask, and backpropagates the wrapper's internal loss.
+It retains original AdamW/linear scheduling, random-length collator and
+best-exact-match stage transfer. Checkpoint/resume, CPU/one-device execution,
+deterministic split generation, and additional fixed-length evaluation are local.
+It does not depend on the common logits-only model adapter or shifted labels.
+The historical generated backbone JSON is still unavailable; the small-model
+configuration follows the later public generator noted above.

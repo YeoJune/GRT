@@ -35,10 +35,68 @@ Colab은 런타임 유형에서 GPU를 선택하세요. W&B 계정은 필요하�
 결과와 `pytest_output.txt`, `pytest.xml`을 `runs/notebook_<timestamp>/`에 저장하고
 마지막 셀에서 ZIP을 만듭니다. 실패하면 해당 로그를 공유하세요.
 
-## Colab T4: Remember 기능 점검 (1단계)
+## 원본 RMT 기준 경로와 CPU 검사
 
-[notebooks/colab_rmt_paper_remember.ipynb](notebooks/colab_rmt_paper_remember.ipynb)는
-`rmt_paper_remember.yaml`에 [rmt_remember_functional.yaml](configs/rmt_remember_functional.yaml)을 병합해 실행합니다.
+현재 기준 경로는 `configs/rmt_author_reference.yaml`과 `src/grt/reference/`입니다.
+저자 저장소의 논문 시점 commit `24cbb9`에서 backbone, memory cell, recurrent wrapper를 가져왔고,
+데이터 생성과 collator의 함수 본문도 보존했습니다. 원본의 raw `labels`/`labels_mask`를 넘겨
+wrapper 내부 loss를 직접 backward합니다. 기존 logits-only adapter와 shifted labels는 사용하지 않습니다.
+출처와 변경 내역은 [third_party/NOTICE.md](third_party/NOTICE.md), 파일별 hash는
+`src/grt/reference/SOURCE.json`에 있습니다. 2024년 생성된 모델 JSON은 공개본에 없어
+세부 backbone 설정은 이후 공개된 저자 설정 생성기를 기준으로 합니다.
+
+CPU에서 실행·단계 전환·재개를 확인하는 짧은 명령:
+
+```bash
+python scripts/train.py --config configs/rmt_author_reference.yaml configs/rmt_author_cpu_smoke.yaml --output-dir runs/author-cpu-smoke --device cpu
+python -m pytest -q tests/test_author_reference.py
+```
+
+동일 명령과 출력 경로로 재개합니다. 이전 실험의 checkpoint와 형식이 다르므로 새 run을 사용합니다.
+원본 기준 YAML의 2,000/10,000 update는 원본의 첫 두 curriculum 수준입니다.
+짧은 Colab 실험은 아래 T4 override를 사용합니다.
+native runner는 원본 길이 샘플링 검증과 고정 최대 길이 검증을 함께 기록합니다.
+GPU 실행 시 batch512 × accumulation1은 기존2쌍 실측 약2.49GiB를 기준으로 한 원본 effective batch이며,
+새 native 경로의 GPU 처리량·VRAM은 아직 실측하지 않았습니다.
+
+별도의 짧은 수렴 진단은 다음 명령입니다. 원본 생성기로 만든32개 문맥을 학습하고,
+각 문맥의 두 키를 모두 질의한64개 답을 실제 생성해 확인합니다.
+학습 배치는 원본 collator의 길이·질의 샘플링을 사용합니다.
+
+```bash
+python scripts/check_rmt_reference_cpu.py --size reference --max-steps 1000 --output-dir runs/author-cpu-convergence
+```
+
+이 검사는 학습 집합 내 수렴 검사이며 일반화·논문 재현 검사가 아닙니다. 미수렴 시 결과를 저장하고 exit1을 반환합니다.
+원본 크기(D128/L4/memory32)의 CPU 검사에서800 update에64개 생성 답이 모두 정답이었고, loss는0.0539였습니다.
+축소 CPU 모델(D32/L2/memory4)도1,800 update에64개 모두 정답, loss0.0899로 수렴했습니다.
+별도 `--fixture contrast`는 두 값의 집합을 고정하고 연결·순서만 교환하는8예제 검사입니다.
+이 검사에서는 원본 크기 모델이600 update 후5/8 정답에 머물렀습니다. 모든 작은 과제가 수렴했다고 주장하지 않습니다.
+현재 확인한 것은 원본 데이터·모듈·loss 경로의 작은 학습 집합 내 수렴이며, 전체 데이터 일반화는 미검증입니다.
+
+## Colab T4: 원본 RMT pilot
+
+수정본을 pull한 뒤 [colab_rmt_paper_remember.ipynb](notebooks/colab_rmt_paper_remember.ipynb)를 실행합니다.
+`rmt_author_reference.yaml` + `rmt_author_t4.yaml`을 기존 `scripts/train.py`로 실행하며,
+Drive의 새 `rmt_author_t4_seed54` 경로에 저장합니다. 같은 설정·경로로 실행하면 `last.pt`에서 재개합니다.
+
+1쌍 최대600 → 2쌍 최대2,400 update, 생성 exact match≥99%일 때만 다음 단계로 진행합니다.
+학습65,536 / validation512 / test1,024개로 원본 random 데이터 생성·질의 샘플링을 유지합니다.
+고정 최대 길이 생성 정확도로 best checkpoint를 선택하며, 원본 방식의 무작위 길이 검증도 기록합니다.
+원본 대비 데이터 수·update 예산·배치와 이에 따른 scheduler 길이가 달라지는 pilot입니다.
+
+microbatch1,024 × accumulation1은 원본 effective batch512의 두 배입니다. LR3e-4는 유지합니다.
+기존2쌍 B512 실측2.49GiB를 환산하면 약5GiB이며, 이전 B1024 update0.67초 기준
+최대 학습 약34분에 검증·설치 시간이 추가됩니다. 새 native 경로의 속도·VRAM은 미측정이며 로그에 기록합니다.
+예산 내 수렴을 보장하지 않습니다. 공유 결과는 `summary.json`, `evaluation.json`, `convergence.png`와
+각 stage의 `metrics.jsonl`, `resolved_config.yaml`, `metadata.json`입니다.
+
+
+## 이전 Colab T4: Remember 기능 점검
+
+이전 controlled 실험은 `rmt_paper_remember.yaml`에
+[rmt_remember_functional.yaml](configs/rmt_remember_functional.yaml)을 병합한 경로입니다.
+현재 Colab 노트북은 위의 native author 경로를 실행합니다.
 원본 RMT와 Remember의 입력·출력 형식을 유지하면서, 기능 점검용으로 **서로 다른 key/value**를 쓰고
 같은 context의 모든 key를 각각 질의합니다. context는 fact 순서를 바꾼 경우까지 고려해 split 간 분리합니다.
 

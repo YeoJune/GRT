@@ -15,7 +15,7 @@ GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval(`passkey`) 합성 메�
 | `tests/` | 데이터·설정·모델·학습/재개·RTLA 검증 |
 | `notebooks/smoke_test.ipynb` | 사용자 Colab에서 테스트와 두 모델의 짧은 실행 점검 |
 | `notebooks/colab_t4_copy.ipynb` | Colab T4에서 RMT/GRT의 Copy 초기 수렴 비교 |
-| `notebooks/colab_rmt_paper_remember.ipynb` | 논문 Remember 과제의 RMT curriculum 검증; 단계별 생성 exact match 확인 |
+| `notebooks/colab_rmt_paper_remember.ipynb` | 원본 RMT native 경로의 T4 pilot; 단계별 생성 exact match 확인 |
 | `runs/` | 실행별 설정·로그·checkpoint·평가·분석 산출물; 기존 결과 보존 |
 | `pyproject.toml`, `documents/` | 패키지 의존성·개발 설정, 명세와 연구 기록 |
 
@@ -25,6 +25,7 @@ GRT와 독립 RMT를 Copy, Reverse, Associative Retrieval(`passkey`) 합성 메�
 - 현재 두 모델은 공통 logits-only 인터페이스와 학습·평가 코드를 사용하되 모델 구현은 독립적이다. loss 계산은 모델 외부에, GRT 분석은 RTLA에 둔다.
 - 현재 검증은 ARMT 논문의 Remember(`paper_ar`) 과제로, GPT-NeoX RMT·pair별 세그먼트·curriculum·생성 exact match를 사용한다. RMT 성공 확인 후 GRT를 연결한다. 기존 `recovery`의 병렬 복원과 2022 기반 `paper_copy`의 두 번 Copy는 별도 과제다. 원본 구조·과제 기능과 학습/실행 최적화를 구분하고, 짧은 검증을 논문 전체 실험 재현으로 표현하지 않는다. 데이터·loss mask·상태 전달 변경 시 정답 누출과 재현성을 확인한다.
 - 기능 점검용 `balanced_contexts`는 서로 다른 key/value, context별 모든 질의, split 간 context 분리를 사용한다. 원본 random Remember와 데이터 분포가 다름을 명시하고, 모든 질의 성공률·질의 위치별 정확도를 확인한다. 기존 random 실험의 checkpoint를 이 holdout 검증에 재사용하지 않는다.
+- 원본 기준 경로는 `configs/rmt_author_reference.yaml`과 `src/grt/reference/`이다. 저자의 backbone·wrapper·data·내부 loss를 사용하며 기존 logits-only 경로와 checkpoint 형식이 다르다. 원본 파일 변경 시 `SOURCE.json`의 변경 내역과 모듈 대조 검사를 갱신한다. 작은 CPU fixture 수렴을 원본 규모의 수렴으로 표현하지 않는다. Colab은 `rmt_author_reference.yaml` + `rmt_author_t4.yaml`을 사용하고, 고정 길이 생성 정확도99%를 만족한 단계만 다음으로 넘긴다.
 - 설정은 `base → 모델 → 과제 → override` 순으로 병합하고 목록은 교체한다. 실험의 실제 조건은 `resolved_config.yaml`과 실행 metadata로 확인한다. 설정을 바꾼 실험은 기존 결과를 덮어쓰지 않고 별도 run으로 기록한다.
 - 모델 비교에서는 데이터·학습 예산·평가 조건의 차이를 밝힌다. 짧은 실행 점검, 기본 길이 수렴, 길이 확장 성능을 구분하며 gate 분포만으로 메모리의 의미적 역할을 단정하지 않는다.
 

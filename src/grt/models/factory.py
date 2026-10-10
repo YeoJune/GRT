@@ -6,6 +6,8 @@ def create_model(cfg):
         from .grt import GRTModel
         return GRTModel(cfg)
     if cfg.name == "rmt":
+        if cfg.rmt_backbone == "author_neox":
+            raise ValueError("Author RMT uses grt.reference.runner and its native labels/loss interface")
         if cfg.rmt_backbone == "gpt_neox":
             from .rmt_neox import NeoXRMTModel
             return NeoXRMTModel(cfg)

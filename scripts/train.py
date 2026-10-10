@@ -46,6 +46,14 @@ def main(argv=None):
     if device.type == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA requested but unavailable")
     check_precision(device, cfg.training.mixed_precision)
+    if cfg.model.rmt_backbone == "author_neox":
+        if state is not None or args.stop_after is not None:
+            parser.error("Author reference resumes using --config and the same output directory")
+        if args.max_steps is not None and cfg.training.curriculum:
+            parser.error("Author curriculum budgets must be changed in the configuration")
+        from grt.reference.runner import run
+        run(cfg, device)
+        return
     if cfg.training.curriculum:
         if state is not None or args.stop_after is not None or args.max_steps is not None:
             parser.error("Curriculum resumes with --config and the same --output-dir; update budgets are configured per stage")

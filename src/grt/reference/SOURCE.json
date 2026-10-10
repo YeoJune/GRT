@@ -1,0 +1,36 @@
+{
+  "repository": "https://github.com/RodkinIvan/associative-recurrent-memory-transformer",
+  "commit": "24cbb9aed62a5748c4045fd928f7f59899f03b24",
+  "files": {
+    "modeling_gpt_neox.py": {
+      "upstream_path": "base_models/modeling_gpt_neox.py",
+      "upstream_sha256": "241b3388ab1941a42bbda44b644de231f9712b2f53492a37549ca71c7464a197",
+      "vendored_sha256": "91dbaf0e369dec0cbd8f17ff5c67a0cb9a83e63cd74f67078802968244aa8617"
+    },
+    "language_modeling.py": {
+      "upstream_path": "modeling_rmt/language_modeling.py",
+      "upstream_sha256": "908cd08d6816b99fed3f3ef21655f83eb45d33380d14b1a3e33d0069e2995508",
+      "vendored_sha256": "908cd08d6816b99fed3f3ef21655f83eb45d33380d14b1a3e33d0069e2995508"
+    },
+    "adapters.py": {
+      "upstream_path": "adapters.py",
+      "upstream_sha256": "f72b3126b432f4f0e9831c1bdb44af2f469cf8fbf9412384ec8cb6e125d02405",
+      "vendored_sha256": "f72b3126b432f4f0e9831c1bdb44af2f469cf8fbf9412384ec8cb6e125d02405"
+    }
+  },
+  "changes": [
+    "modeling_gpt_neox.py: adapters import made relative",
+    "data.py: generate_pairs, ARDataset, collate_fn bodies extracted; collator globals captured in a factory"
+  ],
+  "backbone_config_source": "5297db7:base_models/gptconfigs/create_config.py (2024 generated JSON unavailable)",
+  "data_ast_sha256_python312": {
+    "generate_pairs": "bb2400a687f9fcbb707c1c0d5fd987b0edaf7e171577c5e85cc4730cad2bfb83",
+    "ARDataset": "4cc2f4f99f32f43422c0cf29e1071f6a42fb009676a84109f720dfe317d7f6d7",
+    "collate_fn": "8f44a8b5c39f503826bd8d494a41c3f1783c777e13394ff08278256facae5a95"
+  },
+  "data": {
+    "upstream_path": "run_finetuning_associative_retrieval.py",
+    "upstream_sha256": "91cb4afa00afd0d290bb21b16fa46930449cf0b10cee59c5ead8bd4a119ee46b",
+    "vendored_sha256": "2d9577ebac0790461fc62a427dbb7273a1abf3c6a97dd0fbd50588d3a5b61c92"
+  }
+}

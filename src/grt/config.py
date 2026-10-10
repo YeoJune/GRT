@@ -174,21 +174,21 @@ def validate_model(m):
     build_config(ModelConfig, asdict(m))
     if m.name not in ("grt", "rmt"):
         raise ValueError("model.name must be grt or rmt")
-    if m.size not in ("small", "large") or (not m.tie_word_embeddings and m.rmt_backbone != "gpt_neox"):
+    if m.size not in ("small", "large") or (not m.tie_word_embeddings and m.rmt_backbone not in ("gpt_neox", "author_neox")):
         raise ValueError("Use small/large and tied word embeddings")
     for value in (m.vocab_size, m.segment_len, m.num_registers, m.d_model, m.alu.nhead, m.alu.num_layers, m.alu.d_ff):
         if type(value) is not int or value <= 0:
             raise ValueError("Model dimensions must be positive integers")
     if m.d_model % m.alu.nhead or not 0 <= m.alu.dropout <= 1 or m.alu.activation not in ("gelu", "relu"):
         raise ValueError("Invalid ALU heads, dropout or activation")
-    if m.rmt_backbone not in ("bidirectional", "relative_postln", "gpt_neox"):
+    if m.rmt_backbone not in ("bidirectional", "relative_postln", "gpt_neox", "author_neox"):
         raise ValueError("Invalid rmt_backbone")
     if m.rmt_backbone == "relative_postln":
         if m.name != "rmt" or m.head_dim is None or m.head_dim <= 0 or m.d_model % 2 or m.alu.activation != "relu":
             raise ValueError("relative_postln requires RMT, positive head_dim, even d_model and relu")
     elif m.head_dim is not None or m.alu.activation != "gelu":
         raise ValueError("The recovery backbone requires gelu and no head_dim override")
-    if m.rmt_backbone == "gpt_neox" and (m.name != "rmt" or (m.d_model // m.alu.nhead) % 8):
+    if m.rmt_backbone in ("gpt_neox", "author_neox") and (m.name != "rmt" or (m.d_model // m.alu.nhead) % 8):
         raise ValueError("GPT-NeoX RMT requires a head dimension divisible by 8 for rotary_pct=0.25")
     if m.name == "rmt" and (m.router is not None or m.register is not None):
         raise ValueError("RMT does not accept GRT router/register settings")
@@ -222,7 +222,7 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
             raise ValueError("paper_copy requires a finite train set and autoregressive evaluation")
     elif d.protocol == "paper_ar":
         m = cfg.model
-        if d.task != "remember" or m.name != "rmt" or m.rmt_backbone != "gpt_neox":
+        if d.task != "remember" or m.name != "rmt" or m.rmt_backbone not in ("gpt_neox", "author_neox"):
             raise ValueError("paper_ar stage 1 requires Remember and GPT-NeoX RMT")
         if d.key_size <= 0 or d.value_size <= 0 or m.segment_len != d.key_size + d.value_size + 2:
             raise ValueError("paper_ar segment length must be key_size + value_size + 2")
@@ -236,6 +236,8 @@ def validate_config(cfg, *, benchmark=True, require_output=True):
             raise ValueError("Invalid Remember curriculum stage")
         if d.remember_sampling not in ("random", "balanced_contexts"):
             raise ValueError("Unknown Remember sampling")
+        if m.rmt_backbone == "author_neox" and d.remember_sampling != "random":
+            raise ValueError("Author reference uses the original random Remember data")
         if d.remember_sampling == "balanced_contexts" and (d.key_size != 1 or d.value_size != 1 or d.vary_n_pairs or
                 any(s.key_size != 1 or s.num_pairs > 16 for s in t.curriculum)):
             raise ValueError("Balanced Remember uses single-token distinct keys/values and fixed pair counts")
