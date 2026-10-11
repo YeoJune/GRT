@@ -1,0 +1,200 @@
+# One catalog. See docs/20261011_experiment_workflow.md for ownership and merge order.
+version: 1
+defaults:
+  training:
+    model_seed: 54
+    batch_size: 512
+    grad_accum_steps: 1
+    lr: 0.0003
+    weight_decay: 0.001
+    adam_beta2: 0.999
+    mixed_precision: fp32
+    grad_clip: 1.0
+    stop_on_convergence: false
+    convergence_exact_match: 0.99
+    max_seconds: null
+  rtla:
+    enabled: false
+    batch_size: 8
+  wandb:
+    enabled: false
+    project: grt-research
+    every_steps: 50
+  model:
+    implementation: neox
+    attention_mode: decoder
+    register_read_source: intermediate
+    tie_word_embeddings: true
+    rotary_pct: 0.25
+    rotary_base: 10000
+    attention_dropout: 0.0
+tasks:
+  remember:
+    model:
+      vocab_size: 128
+      segment_len: 4
+      num_registers: 32
+      d_model: 128
+      alu:
+        num_layers: 4
+        nhead: 4
+        d_ff: 128
+        dropout: 0.0
+        activation: gelu
+    data:
+      name: remember
+      data_seed: 54
+      train_segments: 2
+      key_size: 1
+      value_size: 1
+      vary_n_pairs: true
+      train_samples: 1000000
+      validation_samples: 1000
+      test_samples: 10000
+    evaluation:
+      batch_size: 512
+      every_steps: 250
+    training:
+      curriculum:
+      - num_pairs: 1
+        key_size: 1
+        max_steps: 2000
+      - num_pairs: 2
+        key_size: 1
+        max_steps: 10000
+  wikitext103:
+    model:
+      vocab_size: 267735
+      segment_len: 150
+      num_registers: 10
+      attention_mode: decoder
+      alu:
+        dropout: 0.1
+        activation: gelu
+    data:
+      name: wikitext103
+      options:
+        path: data/wikitext103
+        objective: next_token
+    training:
+      curriculum: []
+      max_steps: 200000
+      batch_size: 60
+      grad_accum_steps: 1
+      global_batch_size: 60
+      bptt_segments: 3
+      lr: 0.00025
+      weight_decay: 0.0
+      grad_clip: 0.25
+      stop_on_convergence: false
+      mixed_precision: fp32
+    evaluation:
+      batch_size: 10
+      every_steps: 4000
+sizes:
+  base:
+    model:
+      d_model: 410
+      alu:
+        num_layers: 16
+        nhead: 10
+        d_ff: 2100
+      router:
+        pool_nhead: 10
+  small:
+    model:
+      d_model: 256
+      alu:
+        num_layers: 6
+        nhead: 8
+        d_ff: 1024
+      router:
+        pool_nhead: 8
+  tiny:
+    model:
+      d_model: 128
+      alu:
+        num_layers: 3
+        nhead: 4
+        d_ff: 512
+      router:
+        pool_nhead: 4
+models:
+  rmt:
+    model:
+      name: rmt
+      router: null
+      register: null
+  grt:
+    model:
+      name: grt
+      router:
+        mlp_hidden: 512
+      register:
+        conditional_read: false
+        dropout_prob: 0.0
+        write_gate_bias_init: -2.0
+        s0_learnable: true
+tokenizers:
+  word:
+    model:
+      vocab_size: 267735
+    data:
+      options:
+        path: data/wikitext103
+        tokenization: word
+  gpt2_bpe:
+    model:
+      vocab_size: 50257
+    data:
+      options:
+        path: data/wikitext103_gpt2
+        tokenization: gpt2_bpe
+budgets:
+  smoke:
+    training:
+      max_steps: 200
+      curriculum: []
+    evaluation:
+      every_steps: 20
+    wandb:
+      every_steps: 10
+  20k:
+    training:
+      max_steps: 20000
+      curriculum: []
+    evaluation:
+      every_steps: 4000
+    wandb:
+      every_steps: 50
+  full:
+    training:
+      max_steps: 200000
+      curriculum: []
+    evaluation:
+      every_steps: 4000
+    wandb:
+      every_steps: 50
+runtimes:
+  kaggle:
+    training:
+      batch_size: 10
+      grad_accum_steps: 3
+      global_batch_size: 60
+      max_seconds: null
+    wandb:
+      enabled: true
+  cpu:
+    training:
+      batch_size: 4
+      grad_accum_steps: 1
+      global_batch_size: null
+    data:
+      train_samples: 16
+      validation_samples: 8
+      test_samples: 8
+    evaluation:
+      batch_size: 4
+      every_steps: 2
+    wandb:
+      enabled: false

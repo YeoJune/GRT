@@ -1,4 +1,0 @@
-# Apply after wikitext103.yaml. Existing GPT-2 tokenizer, no pretrained weights.
-model: {vocab_size: 50257}
-data:
-  options: {path: data/wikitext103_gpt2, tokenization: gpt2_bpe}

@@ -1,3 +1,5 @@
+> 과거 실행 안내/검증 기록입니다. 현재 실행 규칙은 [실험 workflow](../20261011_experiment_workflow.md)를 따릅니다.
+
 # WikiText-103 GPT-2 BPE와 Kaggle 노트북
 
 사용자 선택: GPT-2 기존 byte-level BPE, vocabulary 50257. 기본 다운로드는 Hugging Face `openai-community/gpt2` tokenizer와 `Salesforce/wikitext`의 `wikitext-103-v1`이다. 새 tokenizer 학습은 하지 않는다. 기존 word-level 267735 경로는 보존한다.

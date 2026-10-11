@@ -3,15 +3,14 @@
 갱신일: 2026-10-11. 사용자 합의를 통합한 유일한 최신 설계 기준이다.
 상태: 문서 정리 후 새 인코더·디코더, Remember 병렬 slot, WikiText 학습·평가 경로 구현. 검증 결과는 9절에 기록한다.
 이전 문서는 archive에 보존하며 현재 설정을 선택하는 근거로 사용하지 않는다.
-`implementation=neox`가 새 구조이며 `legacy`는 기존 Remember/저자 reference 호환 경로다.
+현재 실행 구조는 공통 NeoX 하나다. 과거 모델/설정/checkpoint 호환 경로는 제공하지 않는다.
 
 ## 1. 범위와 순서
 
 기존 Remember 실험을 지원하면서 WikiText-103 지원을 추가한다.
 문서 최신화 후 코드 구현, 작은 CPU 검증 순서로 작업한다.
 인코더와 디코더는 간결한 공통 backbone/데이터/학습 경계를 사용한다.
-기존 저자 baseline, fixture, checkpoint와 실행 결과는 보존한다.
-새 모델은 기존 checkpoint와 자동 호환된다고 가정하지 않는다.
+과거 설명과 검증 기록은 문서로만 archive에 남긴다. 과거 config/모델 wrapper/fixture와 checkpoint 변환 코드는 유지하지 않는다.
 커밋은 명시 승인 후, push는 지시 후 수행한다.
 장시간 GPU 학습은 사용자가 수행하며 에이전트는 작은 CPU 기능 검증을 수행한다.
 
@@ -32,7 +31,7 @@ GPT-NeoX 계열 Transformer, parallel residual, RoPE, tied embedding/출력 head
 RoPE rotary_pct=0.25, base=10000을 사용한다.
 base는 RMT 2022 WikiText의 차원을 맞춘 NeoX 변형이며 정확한 원문 모델 재현이 아니다.
 small은 후속 사용자 지시에 따라 D256으로 변경했고 FFN=4D(1024)를 유지한다. tied full softmax를 두 모델에 공통 적용한다.
-tiny와 200-update 동작 확인 조건, 크기/예산 선택과 W&B 로깅은 [preset 안내](20261011_wikitext_presets.md)를 따른다.
+크기·예산 선택과 노트북 운영은 [실험 workflow](20261011_experiment_workflow.md)를 따른다. tiny와 200-update 조건은 유지한다.
 WikiText word-level vocabulary는 267735, 별도 GPT-2 BPE 옵션은 50257이다. Remember는 기존 V128/token 규칙을 기반으로 한다.
 공통 NeoX 경로는 기존 vendor의 GELU, LayerNorm eps=1e-5, 선형/embedding 초기화 std=0.02를 계승한다.
 후보와 token hidden은 모두 final norm 뒤에서 추출한다. 새 비교 프로토콜을 추가한 것으로 해석하지 않는다.
@@ -74,7 +73,7 @@ fixed_state 옵션은 token이 모든 layer에서 segment 시작 S_read를 읽�
 후보 계산 경로는 유지하되 candidate 중간 표현을 token 읽기 source로 제공하지 않는다.
 fixed_state는 detach가 아니며 state gradient/BPTT와 독립이다.
 read gate와 register_read_source는 별도 옵션이다.
-`configs/fixed_state.yaml`로 fixed_state를 선택한다. read gate는 `model.register.conditional_read`로 제어한다.
+`--set model.register_read_source=fixed_state` 또는 동일한 Python override로 fixed_state를 선택한다. read gate는 `model.register.conditional_read`로 제어한다.
 
 | Query → Key | 인코더 | 디코더 |
 |---|---|---|
@@ -111,13 +110,14 @@ MASK는 기존 데이터에서 사용하지 않는 V128의 103을 모든 answer 
 새 병렬 collator는 data seed로 초기화한 독립 Torch generator를 사용하고 해당 상태도 checkpoint에 저장한다.
 기존 autoregressive collator의 전역 RNG 동작은 보존한다.
 RMT encoder 비교에도 동일 query 입력/labels/loss를 적용한다.
-원본 autoregressive Remember baseline은 별도 참조 경로로 보존한다.
+Remember 디코더도 현재 공통 NeoX를 사용하며 next-token shift loss와 autoregressive 생성으로 평가한다.
 
 ## 6. WikiText-103 승인 조건
 
 원문 word tokenizer와 데이터 처리, vocabulary 267735.
 full softmax는 원문 adaptive softmax와 다르며 메모리 비용을 실제 측정한다.
-추가 GPT-2 BPE 실험은 [BPE 계약과 Kaggle 안내](20261011_wikitext_bpe.md)를 따른다.
+실행 방법은 [실험 workflow](20261011_experiment_workflow.md)를 따른다.
+GPT-2 BPE는 `openai-community/gpt2`의 50257 vocabulary를 사용한다. 각 원본 줄에서 CR/LF만 제거하고 공백·대소문자를 보존한다. 빈 줄을 포함해 줄마다 EOS50256을 붙이며 BOS/padding/truncation/prefix-space 추가는 하지 않는다. tokenizer만 다운로드하고 모델 weights는 초기화한다. tokenizer와 prepared artifact의 hash를 manifest에 기록한다.
 단어 기준 원문 조건과 구분하며 BPE-token PPL을 기록한다.
 
 | 항목 | 설정 |
@@ -132,7 +132,7 @@ full softmax는 원문 adaptive softmax와 다르며 메모리 비용을 실제 
 | dropout / attention dropout | 0.1 / 0 |
 | max updates | 200000 |
 
-GPU/시간 예산은 미제공이며 microbatch/accumulation은 실측으로 조절한다.
+Kaggle T4 × 2는 microbatch10/accumulation3으로 시작하며 메모리 사전 측정으로 global batch60을 유지해 조절한다.
 기존 FP32 경로를 기준으로 CPU 기능 검사를 준비한다.
 데이터 순서/target token 예산을 공유하고 모델 RNG와 데이터 RNG를 구분한다.
 연속 state의 입출력, stream ID/reset, BPTT detach 경계가 필요하다.
@@ -147,9 +147,9 @@ WikiText 인코더 MLM/분류 목적은 후속 지정이며 자동으로 next-to
 공통 backbone/모델 factory에 인코더·디코더와 read source 정책을 둔다.
 데이터 adapter에서 task별 입력/label 계약을 구성하고 trainer의 token-ID 기반 분기는 피한다.
 trainer/evaluator에는 objective/state/metric capability를 명시적으로 확장한다.
-기존 Remember author reference를 몰래 바꾸거나 vendor 원본을 무기록 변경하지 않는다.
+현재 모델에서 사용하는 vendor 코드의 출처·hash·라이선스를 유지한다.
 
-검증: 원본 baseline 회귀, tied save/load, read off 영향, stack/write-back 각1회,
+검증: 공통 backbone 일치, tied save/load, read off 영향, stack/write-back 각1회,
 prefix 호출 제거, masked Remember label 변경시 입력/logits 불변,
 fact->query gradient, parallel value+EOS EM,
 fixed_state/read=false 미래 token 불변, intermediate의 경로 기록,
@@ -158,14 +158,14 @@ GPU 수렴/VRAM/throughput은 작은 CPU 검사와 구분하여 보고한다.
 
 ## 8. 실제 인터페이스와 학습 상태
 
-공통 모델은 `src/grt/models/neox.py`, factory 선택은 `model.implementation=neox`다.
-인코더·디코더는 같은 stack 구현에 attention mask만 바꾼다. legacy/vendor 원본은 수정하지 않는다.
+공통 모델은 `src/grt/models/neox.py`이며 factory는 항상 현재 `RecurrentNeoX`를 생성한다. `implementation=neox`는 실행 구조의 식별 값이다.
+인코더·디코더는 같은 stack 구현에 attention mask만 바꾼다. factory의 과거 구현 분기는 없다.
 
 | 모델 입력/출력 | 계약 |
 |---|---|
 | input_ids | int64 [B,L], unpadded, segment_len 단위로 순서대로 처리 |
 | memory_state | 선택 입력 [B,M,D]; 없으면 learnable initial memory로 시작 |
-| labels / labels_mask | Remember raw label: parallel slot-aligned CE 또는 legacy next-token shift |
+| labels / labels_mask | Remember raw label: parallel slot-aligned CE 또는 디코더 next-token shift |
 | target_ids | WikiText adapter가 정렬한 next-token target [B,L]; -100은 replay loss 제외 |
 | 출력 | loss, logits(일반 forward), memory_state(마지막 write-back) |
 
@@ -196,16 +196,16 @@ optimizer update 사이에는 graph를 보관하지 않는다. K=0이면 직전 
 마지막 짧은 segment도 boundary next-token target을 포함하고 실제 target 수를 token budget에 누적한다.
 200000 updates의 target 예산 상한은 1.8B(60×150×200000)이며 짧은 tail/reset을 반영한 실제 수를 기록한다.
 
-checkpoint는 model/Adam/scheduler/RNG뿐 아니라 rank별 history, detached boundary states,
+현재 checkpoint 형식은 `memory_experiment/3`이며 과거 형식 변환/읽기는 제공하지 않는다. checkpoint는 model/Adam/scheduler/RNG뿐 아니라 rank별 history, detached boundary states,
 stream offset, 실제 target token 수, manifest와 best loss를 저장한다. 동일 설정/동일 world_size로만 재개한다.
 validation은 dropout off로 순차 state를 유지하고 training RNG를 보존한다. best는 validation mean NLL로 선택한다.
 DDP 학습은 stream을 rank별로 나누며 평가 전체 stream은 각 rank에서 동일하게 읽는다. 평가를 중복 합산하지 않는다.
 
 `--benchmark-steps`는 WikiText에서도 실제 replay/full softmax/Adam/gradient norm clip을 측정한다.
 microbatch를 줄일 때 accumulation을 늘려 global batch를 유지한다. 출력 calibrated_override를
-새 YAML로 저장해 본 학습 명령의 마지막에 추가한다. 학습 설정을 자동으로 덮어쓰지 않는다.
+utils에서 적용해 모델당 최종 Config YAML 하나를 저장하고 본 학습에 사용한다. 환경·logging·보정용 YAML을 별도로 늘리지 않는다.
 평가 batch는 자동으로 변경하지 않으며 평가에서도 메모리 여유 조건을 만족해야 한다.
-측정 예상 시간은 checkpoint I/O/데이터 준비/마지막 test 시간을 제외한다.
+utils의 예상 시간은 학습·주기별 validation·마지막 test를 포함하며 checkpoint I/O·데이터 준비·시작 시간은 제외한다.
 
 WikiText는 Adam betas=(0.9,0.999), eps=1e-8, weight decay=0이다. Remember는 기존
 AdamW/value clip/linear schedule/curriculum을 재사용한다. 두 과제의 optimizer 프로토콜을 혼동하지 않는다.
@@ -227,39 +227,15 @@ small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbo
 
 새 GRT Remember에도 RTLA trace를 지원하며 query를 포함한 모든 segment의 stack 뒤 write-back을 기록한다.
 WikiText 자동 RTLA 샘플링과 인코더 MLM objective는 지원 범위 밖이며 해당 설정을 명시적으로 거부한다.
-최신 Kaggle 노트북은 small WikiText의 GPT-2 BPE/word-level 실행용이다. 기존 Remember 노트북은 archive에 보존한다.
+Kaggle 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/20k/full 예산을 선택한다. 기본은 tiny/smoke/RMT·GRT 두 모델이다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
 
-## 9. 검증 결과와 실행 전 남은 항목
+## 9. 현재 검증과 해석 범위
 
-공통 구조 구현 시 `python -m pytest -q`: **51 passed**, 93.96초(CPU). 새 경로 검사 18개를 포함한다.
-GPT-2 BPE와 WikiText Kaggle 노트북 추가 후 전체 CPU 회귀는 **54 passed**, 108.49초다.
-후속 Hugging Face 기본 다운로드 경로 변경에서는 사용자 지시에 따라 추가 학습·회귀 검사를 실행하지 않았다.
-tiny/smoke와 주기별 W&B 로깅 변경은 실제 tiny CPU2 updates·offline SDK 두 검사(3.96초), 실패 상태 기록 한 검사와 가벼운 preset routing 확인에 한정했다. 전체 회귀는 반복하지 않았다.
-추가 검사 범위와 실제 tokenizer/GPU 미검증 조건은 [BPE 안내](20261011_wikitext_bpe.md)의 검증 절을 따른다.
+현재 코드 기준 관련 CPU 검사 54개가 9.16초에 통과했다(설정 선택·단일 파일 입력·형식 거부·짧은 실행/재개와 vendor 출처 검사). 전체 회귀나 GPU 수렴 검사 결과로 해석하지 않는다. 현재 카탈로그와 공통 NeoX 인코더·디코더 계약을 검사한다. 모델/과제 검사는 현재 preset에서 작은 CPU override를 적용하고, archive의 코드나 설정에 의존하지 않는다. config 단일 파일 입력과 현재 checkpoint 재개를 지원하며 옛 경로/형식은 거부한다.
 
-- vendor 원본 hash와 저자 RMT loss/gradient/generate fixture 회귀.
-- 두 모델 backbone 초기 weight 일치, tied Parameter 공유 및 save/load 후 유지.
-- Remember 정답 제외 입력, value_size=1/2, slot-aligned CE, fact→query gradient,
-  독립 sampling RNG, segment별 stack/write-back 횟수, read off의 출력 불변.
-- fixed_state/read=false와 RMT의 미래 token 변경 불변 및 nonzero incoming memory에서
-  가변 길이 prefix 불변. intermediate의 register 우회 경로 영향 확인.
-- replay 이전 detached state에는 gradient 없음, replay의 이전 3 segments에는 gradient 전달.
-- encoder Remember 학습과 정확한 재개, WikiText 두 모델의 dropout 포함 정확한 재개.
-- WikiText boundary target 수/NLL 정렬/PPL, CPU 2-rank 학습·state checkpoint·preflight,
-  microbatch×accumulation×world_size 예산 유지, 인코더 LM 목적의 명시적 거부.
+사용자가 제공한 tiny/smoke GPU 실행은 두 모델 모두 200 updates 완료했고 온라인 W&B도 failures=0, last_logged_step=200으로 종료했다. small BPE/T4 × 2 preflight는 두 모델 약0.48초/update였다. 이는 과거 관측이며 이번 코드 정리 후 GPU 실행을 다시 수행한 결과가 아니다. tiny/full 수렴과 시간은 아직 확인하지 않았다.
 
-별도 CLI로 새 GRT 인코더의 4 update 학습, checkpoint 평가와 NPZ/JSON/PNG trace 생성을 확인했다.
-기능 확인용 결과는 `runs/neox_encoder_check/`, `runs/neox_encoder_trace/`에 있다.
-4 update의 exact match는 0으로, 이 검사는 학습 경로 확인이며 수렴 결과가 아니다.
-`git diff --check`와 Python compile 검사도 통과했다.
-
-GPU 수렴과 실제 WikiText-103 전체 데이터 학습은 아직 검증하지 않았다. 사용자가 제공한 small BPE/T4 두 장의
-preflight 시간·VRAM은 [preset 안내](20261011_wikitext_presets.md)에 기록했다. tiny/full 학습 실측과 온라인 W&B 업로드는 Kaggle에서 확인한다.
-기본 intermediate의 teacher-forced_noncausal PPL을 엄격한 autoregressive RMT PPL과
-동일 조건으로 해석해서는 안 된다. 정확한 RMT 2022 Transformer-XL/adaptive-softmax 재현도 아니다.
-
-후속 small D256 변경과 실제 인터페이스 호출 결과: [CPU 실험 보고서](20261011_small256_cpu.md).
-Remember 4조건과 full-vocabulary 합성 LM 2조건을 실행했다. 본 WikiText 데이터 결과와 구별한다.
+GRT intermediate의 teacher_forced_noncausal PPL을 autoregressive RMT PPL과 동일 조건으로 해석하지 않는다. 정확한 RMT 2022 Transformer-XL/adaptive-softmax 재현도 아니다.
 
 ## 10. 출처
 

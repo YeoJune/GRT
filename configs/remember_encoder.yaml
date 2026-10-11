@@ -1,4 +1,0 @@
-data:
-  name: remember
-  options: {objective: parallel}
-model: {attention_mode: encoder}

@@ -54,7 +54,7 @@ def test_enabled_monitor_preserves_training_rng_and_resumes_id(tmp_path, monkeyp
         left = torch.load(tmp_path / "plain" / stage / "last.pt", weights_only=False)
         right = torch.load(tmp_path / "logged" / stage / "last.pt", weights_only=False)
         assert all(torch.equal(v, right["model"][k]) for k, v in left["model"].items())
-        assert torch.equal(left["rng"]["torch"], right["rng"]["torch"])
+        assert torch.equal(left["rng_by_rank"][0]["torch"], right["rng_by_rank"][0]["torch"])
     assert [s for s, p in runs[0].logs] == [1, 2, 3, 4]
     assert [p["num_pairs"] for s, p in runs[0].logs] == [1, 1, 2, 2]
     assert "test/exact_match" in runs[0].summary and runs[0].finished

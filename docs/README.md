@@ -1,18 +1,18 @@
 # 문서 목록
 
-현재 설계 기준은 [최신 통합 명세](20261011_current_spec.md) 하나다.
-새 구조의 실행 안내는 [저장소 README](../README.md)를 따른다.
-현재 small D256의 직접 실행 결과는 [CPU 실험 보고서](20261011_small256_cpu.md)에 있다.
-Small WikiText-103의 T4 두 장 설정과 시간 계산은 [Kaggle 실행 안내](20261011_wikitext_kaggle.md)에 있다.
-추가 GPT-2 BPE 경로와 최신 노트북은 [BPE 안내](20261011_wikitext_bpe.md)를 따른다.
-base/small/tiny 선택과 200-update 동작 확인은 [preset 안내](20261011_wikitext_presets.md)를 따른다.
+현재 문서는 다음 두 개다.
 
-이전 설계·검토·검증·환경별 실험 기록은 모두 `archive/`에 보존했다.
+- [통합 명세](20261011_current_spec.md): 모델 구조, 데이터·학습 계약.
+- [실험 workflow](20261011_experiment_workflow.md): 설정 카탈로그, CLI, 노트북/utils, 확장 규칙.
+
+실행 시작점은 [저장소 README](../README.md)와 [Kaggle 노트북](../notebooks/kaggle.ipynb)이다.
+
+이전 설계·검토·검증 기록은 `archive/`의 Markdown 문서로만 보존한다. 실행 코드와 config는 보관하지 않는다.
 아래 문서는 과거 기록이며 최신 실행 설정으로 사용하지 않는다.
 
 | 기록 | 문서 |
 |---|---|
-| 기존 Remember Kaggle 노트북 | [20261011_kaggle_remember.ipynb](archive/20261011_kaggle_remember.ipynb) |
+| 이전 Remember Kaggle 운영 기록 | [20261011_kaggle_remember.md](archive/20261011_kaggle_remember.md) |
 | 20260608_experiment1 | [20260608_experiment1.md](archive/20260608_experiment1.md) |
 | 20260608_proposal | [20260608_proposal.md](archive/20260608_proposal.md) |
 | 20260608_run_tests | [20260608_run_tests.md](archive/20260608_run_tests.md) |
@@ -30,3 +30,8 @@ base/small/tiny 선택과 200-update 동작 확인은 [preset 안내](20261011_w
 | 20261011_wikitext30m_setup | [20261011_wikitext30m_setup.md](archive/20261011_wikitext30m_setup.md) |
 | 20261011_wikitext_approved_setup | [20261011_wikitext_approved_setup.md](archive/20261011_wikitext_approved_setup.md) |
 | 20261011_wikitext_backbone_remaining | [20261011_wikitext_backbone_remaining.md](archive/20261011_wikitext_backbone_remaining.md) |
+| 이전 small CPU 검사 | [20261011_small256_cpu.md](archive/20261011_small256_cpu.md) |
+| 이전 WikiText Kaggle 안내 | [20261011_wikitext_kaggle.md](archive/20261011_wikitext_kaggle.md) |
+| BPE 추가 기록 | [20261011_wikitext_bpe.md](archive/20261011_wikitext_bpe.md) |
+| 크기·예산·W&B 추가 기록 | [20261011_wikitext_presets.md](archive/20261011_wikitext_presets.md) |
+| 이전 구현 검증 기록 | [20261011_validation_history.md](archive/20261011_validation_history.md) |

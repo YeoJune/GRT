@@ -1,4 +1,4 @@
-"""Evaluate a current or native author_rmt/1 checkpoint on the common dataset."""
+"""Evaluate a current checkpoint on the common dataset."""
 
 import argparse
 from pathlib import Path

@@ -8,7 +8,7 @@ import torch
 
 class WikiTextAdapter:
     def validate(self, cfg):
-        if cfg.model.implementation != "neox" or cfg.model.attention_mode != "decoder":
+        if cfg.model.attention_mode != "decoder":
             raise ValueError("WikiText next-token training requires the new decoder; encoder objective is unspecified")
         if cfg.data.options.get('objective', 'next_token') != 'next_token':
             raise ValueError('WikiText supports only the explicit next-token objective')

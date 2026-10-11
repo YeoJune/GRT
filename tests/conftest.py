@@ -1,6 +1,6 @@
 import pytest
 import torch
-from grt.config import load_config
+from grt.experiments import load_experiment
 
 
 @pytest.fixture(autouse=True)
@@ -12,10 +12,13 @@ def cpu_threads():
 
 
 def tiny_config(path, model="rmt"):
-    cfg = load_config(
-        ["configs/base.yaml", f"configs/{model}.yaml", "configs/cpu.yaml"],
-        output_dir=path,
-    )
-    if model == "grt":
-        cfg.model.router.mlp_hidden = 32
-    return cfg
+    return load_experiment(task='remember', model=model, runtime='cpu', output_dir=path,
+        overrides={
+            'model': {'d_model': 32, 'num_registers': 4,
+                      'alu': {'num_layers': 2, 'nhead': 4, 'd_ff': 64},
+                      **({'router': {'mlp_hidden': 32}} if model == 'grt' else {})},
+            'training': {'curriculum': [
+                {'num_pairs': 1, 'key_size': 1, 'max_steps': 2},
+                {'num_pairs': 2, 'key_size': 1, 'max_steps': 2}]},
+            'data': {'validation_samples': 4, 'test_samples': 4},
+            'evaluation': {'every_steps': 1}})

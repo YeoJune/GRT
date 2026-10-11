@@ -1,89 +1,73 @@
 # GRT
 
-GRT와 RMT를 공통 GPT-NeoX backbone에서 비교한다. 인코더·디코더, Remember, WikiText-103을 지원한다.
-현재 설계와 세부 설정은 [최신 통합 명세](docs/20261011_current_spec.md)를 따른다.
-이전 설계·실험 기록은 [archive 목록](docs/README.md)에 보존했다.
+GRT와 RMT를 공통 GPT-NeoX backbone에서 비교한다. Remember 인코더·디코더와 WikiText-103 디코더를 지원한다.
+[통합 명세](docs/20261011_current_spec.md)는 모델·데이터 계약,
+[실험 workflow](docs/20261011_experiment_workflow.md)는 설정·실행·확장 규칙을 정의한다.
+archive에는 과거 Markdown 문서만 보존한다. 코드와 설정은 현재 명세만 지원한다.
 
-## 설치와 CPU 검사
+## 설치와 실행
 
 Python 3.10+, PyTorch를 사용한다.
 
 ```bash
-python -m pip install -e '.[dev]'
-python -m pytest -q
-python scripts/train.py --config configs/base.yaml configs/neox.yaml configs/remember_encoder.yaml configs/neox_cpu.yaml configs/neox_grt.yaml --output-dir runs/grt_encoder_cpu --device cpu
+python -m pip install -e '.[dev,wandb,wikitext]'
+python scripts/train.py --task remember --model grt --size tiny --budget smoke --runtime cpu --steps 2 --set model.attention_mode=encoder --set data.options.objective=parallel --output-dir runs/remember_encoder_cpu --device cpu
 ```
 
-위 명령의 마지막 모델 파일을 `configs/neox_rmt.yaml`로 바꾸면 동일 backbone의 RMT 인코더다.
-Remember 인코더는 정답을 가린 slot에서 value+EOS를 병렬 예측한다. 정답을 입력에 넣지 않는다.
-새 디코더 Remember는 `remember_encoder.yaml`을 빼고 실행한다.
-설정은 왼쪽부터 병합하므로 모델 선택 파일을 크기 설정 뒤에 둔다.
+Remember 인코더는 정답을 가린 slot에서 value+EOS를 병렬 예측한다. 디코더는 두 `--set` 옵션을 제거한다.
+RMT는 `--model rmt`로 선택한다. [로컬 템플릿](notebooks/template.ipynb)도 같은 인터페이스를 사용한다.
 
-small D256 그대로 직접 CPU 실험을 수행하는 명령과 결과는 [CPU 실험 보고서](docs/20261011_small256_cpu.md)에 있다.
+## WikiText-103 · Kaggle T4 × 2
 
-## WikiText-103
+[Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
+반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
+기본은 tiny·smoke·RMT/GRT 각각 200 updates이며, small 2만 updates는 다음 선택으로 실행한다.
 
-Small의 T4 × 2 설정·메모리·시간 계산과 실행 명령은 [Kaggle 안내](docs/20261011_wikitext_kaggle.md)를 따른다.
-GPT-2 BPE 50,257 옵션은 [BPE 안내](docs/20261011_wikitext_bpe.md)에 있다.
-[Kaggle 노트북](notebooks/kaggle.ipynb)은 tiny BPE·200-update 동작 확인이 기본이며 word-level도 선택할 수 있다.
-[크기·예산 preset 안내](docs/20261011_wikitext_presets.md)에 base/small/tiny와 W&B 기록 조건을 정리했다.
+```python
+job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',))
+```
 
-원래 tokenized v1 파일을 준비한다. `wikitext-103-raw`와 BPE는 이 설정과 다르다.
+| 선택 | 값 |
+|---|---|
+| size | base D410/L16/H10/FF2100 · small D256/L6/H8/FF1024 · tiny D128/L3/H4/FF512 |
+| budget | smoke 200 · 20k 20000 · full 200000 updates |
+| models | `('rmt',)` / `('grt',)` / `('rmt', 'grt')` 순차 실행 |
+| tokenization | gpt2_bpe(기본, 50257) / word(267735) |
+
+GPT-2 BPE backbone은 base 59.01M, small 17.60M, tiny 7.03M이며 router 크기는 별도다.
+원본은 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`, tokenizer는 `openai-community/gpt2`다.
+Tokenizer만 다운로드하며 모델 weights는 새로 초기화한다. BPE-token PPL과 word-level PPL을 구분한다.
+
+`steps=30000` 또는 `overrides={'evaluation': {'every_steps': 1000}}`로 변경할 수 있다.
+이런 숫자 변경에는 새 YAML이나 노트북을 만들지 않는다. 모든 preset은 [단일 카탈로그](configs/experiments.yaml)에서 관리한다.
+사전 측정은 global batch60을 유지하며 microbatch·accumulation을 보정하고, 최종 Config와 ETA를 모델별로 저장한다.
+CLI도 동일 카탈로그를 지원한다.
 
 ```bash
-python scripts/prepare_wikitext.py --source /path/to/wikitext-103 --output-dir data/wikitext103
-python scripts/train.py --config configs/base.yaml configs/neox.yaml configs/wikitext103.yaml configs/neox_grt.yaml --output-dir runs/grt_wiki_preflight --device cuda --batch-size 1 --grad-accum-steps 60 --benchmark-steps 3
+python scripts/download_wikitext.py --output-dir data/wikitext103_hf_source
+python scripts/prepare_wikitext_bpe.py --source data/wikitext103_hf_source --output-dir data/wikitext103_gpt2
+# torchrun 2 GPU: 사전 측정 예시
+torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --model rmt --size small --tokenization gpt2_bpe --budget 20k --runtime kaggle --output-dir runs/small_rmt_20k_preflight --device cuda --benchmark-steps 10
 ```
 
-base는 D410/16층/10 heads/FF2100, small은 D256/6층/8 heads/FF1024이다.
-tiny는 D128/3층/4 heads/FF512다. `wikitext_{base,small,tiny}.yaml` 중 하나를
-`wikitext103.yaml` 뒤, 모델 선택 앞에 추가한다. 기존 base 기본값은 CLI 호환을 위해 보존했다.
-RMT는 마지막 모델 파일을 `neox_rmt.yaml`로 바꾼다. tied vocabulary를 포함한 실제 backbone은
-base 148.18M, small 73.28M으로 두 모델에서 동일하다.
-
-사전 측정의 `benchmark.json`에 update 시간·peak VRAM·`calibrated_override`가 저장된다.
-그 override를 YAML로 저장해 학습 명령 마지막에 추가하고 `--benchmark-steps`를 제거한다.
-본 학습은 사전 측정 폴더와 별개로 `--output-dir runs/grt_wiki` 등 새 경로에서 시작한다.
-global batch60은 `microbatch × accumulation × world_size`로 유지해야 한다.
-단일 GPU 위 예시는 1×60이다. GPU 용량에 맞춰 사전 측정으로 조절한다.
-데이터 경로는 별도 YAML의 `data.options.path`로 덮어쓸 수 있다.
-
-BPE는 `prepare_wikitext_bpe.py`로 같은 원본 파일을 별도로 준비하고,
-`configs/wikitext_bpe.yaml`을 크기 설정 뒤에 추가한다. GPT-2 tokenizer만 사용하고 모델 weights는 새로 초기화한다.
-small BPE의 공통 backbone은 17.61M이다. BPE-token PPL을 word-level PPL과 직접 비교하지 않는다.
-base/small/tiny BPE backbone은 각각 59.01M/17.60M/7.03M이다.
-노트북의 `MODEL_SIZE`로 크기, `EXPERIMENT='smoke'/'20k'/'full'`로 200/20000/200000 updates를 선택한다.
-small 2만 updates는 `MODEL_SIZE='small'`, `EXPERIMENT='20k'`이며 full의 평가/로그 주기를 유지한다.
-smoke는 두 모델을 각각 실행하며 평가20/학습 로그10 updates 주기다. full은 선택한 모델 하나씩 실행한다.
-Kaggle 노트북은 기본으로 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`과
-`openai-community/gpt2` tokenizer를 내려받는다. CLI에서는 `pip install -e '.[wikitext]'` 후
-`scripts/download_wikitext.py --output-dir data/wikitext103_hf_source`로 원본을 준비한다.
-
-GRT는 `intermediate` register 읽기, read gate off가 기본이다. token-token만 causal하며
-층간 register 경로로 미래 정보가 전달되므로 결과는 `teacher_forced_noncausal`로 기록한다.
-엄격한 causal 비교 조건은 `configs/fixed_state.yaml`을 추가하고 read gate를 끈 상태다.
-RMT decoder 결과는 `autoregressive`로 기록한다. WikiText 인코더 next-token 학습은 거부한다.
+CLI 본 학습에는 benchmark의 calibrated_override를 반영한 최종 Config를 사용한다. 노트북 utils가 이를 자동 처리한다.
+GRT 기본 intermediate/read off는 `teacher_forced_noncausal`, RMT decoder는 `autoregressive`다.
+GRT의 엄격한 causal 조건은 `--set model.register_read_source=fixed_state`이며 read gate off를 유지한다.
 
 ## 결과와 재개
 
-같은 설정·출력 경로로 다시 실행하면 `last.pt`에서 재개한다. 설정이 바뀌면 새 경로를 쓴다.
-Remember는 stage별 checkpoint/metrics, WikiText는 실행 루트에 checkpoint/metrics를 저장한다.
-두 경로 모두 `resolved_config.yaml`, `metadata.json`, `summary.json/.txt`, `evaluation.json/.txt`를 기록한다.
-Remember는 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
-W&B 기본은 off이며 연결 실패 시에도 로컬 결과를 유지한다.
-WikiText는 첫 step과 `wandb.every_steps`마다 학습 loss/LR/tokens/time/VRAM을 기록하며 평가 step에는 NLL/PPL을 추가한다.
-`wandb_status.json`에 연결 상태·URL·마지막 기록 step·실패 수를 남긴다. preflight는 W&B run을 생성하지 않는다.
+같은 최종 설정·world_size·데이터·출력 경로로 다시 실행하면 last.pt에서 재개한다. 조건이 바뀌면 새 run을 사용한다.
+숫자 예산/override를 바꾸면 utils의 기본 run 이름에 설정 hash가 붙는다. 기존 run과의 설정 차이는 학습 전에 거부한다.
+다른 Kaggle 세션의 데이터/결과는 `job.prepare_data(prepared_input=..., resume_input=...)`로 복원한다.
+
+Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다.
+Remember는 stage별 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
+W&B는 Kaggle에서 기본 활성화하며 첫 step·주기별·평가·마지막 step을 기록한다.
+`wandb_status.json`에 URL·마지막 step·실패 수를 남기며 utils가 완료 상태를 확인한다. preflight는 W&B run을 생성하지 않는다.
 
 ```bash
-python scripts/evaluate.py --checkpoint runs/grt_wiki/best.pt --device cuda
-python scripts/evaluate.py --checkpoint runs/grt_encoder_cpu/stage_01_pairs1_key1/best.pt --samples 8 --batch-size 4 --device cpu
+python scripts/evaluate.py --checkpoint /kaggle/working/wiki_small_gpt2_bpe_20k_seed54/rmt/best.pt --device cuda
 ```
 
-WikiText CPU 부분 검사는 `--tokens N`으로 지정한다. 평가 batch를 바꾸면 stream partition도 달라지므로
-두 모델 비교에는 동일한 batch를 사용한다. 평가 명령의 결과는 기본으로 checkpoint 폴더에 기록된다.
-
-새 Remember GRT의 gate/state trace도 `scripts/analyze.py`로 기록할 수 있다.
-기존 `configs/rmt.yaml`, `grt.yaml`, `cpu.yaml`, `t4.yaml`, `kaggle.yaml`과
-[노트북](notebooks/kaggle.ipynb)은 legacy 참조 실험용으로 보존했다.
-legacy/native `author_rmt/1` checkpoint 읽기·평가와 vendor fixture를 유지하며 새 구조로 자동 변환하지 않는다.
-원본 출처·hash는 `src/grt/vendor/armt/`, 라이선스는 [NOTICE](third_party/NOTICE.md)에 있다.
+평가 batch가 달라지면 stream partition도 달라지므로 비교 실험에서는 동일하게 유지한다.
+`--config`는 현재 실행용 최종 Config YAML 하나를 읽는다. 이전 config 경로·모델 구현·checkpoint 형식은 지원하지 않는다. checkpoint는 `memory_experiment/3`만 읽으며 현재 형식으로 시작한 run을 재개한다. 출처·hash는 `src/grt/vendor/armt/`, 라이선스는 [NOTICE](third_party/NOTICE.md)에 있다.

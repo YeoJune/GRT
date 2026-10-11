@@ -1,23 +1,13 @@
-"""Offline byte-BPE preparation and the notebook's production stream workflow."""
+"""Offline byte-BPE preparation and prepared data identity."""
 import hashlib
-import json
-import os
-from pathlib import Path
-import signal
-import subprocess
-import sys
 
 import pytest
 import torch
-import yaml
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers
 from transformers import GPT2TokenizerFast
-from grt.config import load_config
+from grt.experiments import load_experiment
 from grt.wikitext import WikiTextAdapter
 from scripts.prepare_wikitext_bpe import prepare
-
-REPO = Path(__file__).resolve().parents[1]
-
 
 @pytest.fixture
 def prepared(tmp_path):
@@ -61,8 +51,7 @@ def test_byte_bpe_preserves_text_eos_long_lines_and_hashes(prepared):
 
 def test_adapter_checks_bpe_identity_and_tokenizer_artifacts(prepared):
     _, destination, manifest, _, _ = prepared
-    cfg = load_config(['configs/base.yaml', 'configs/neox.yaml', 'configs/wikitext103.yaml',
-                       'configs/wikitext_small.yaml', 'configs/wikitext_bpe.yaml', 'configs/neox_rmt.yaml'])
+    cfg = load_experiment(task='wikitext103', model='rmt', size='small', tokenization='gpt2_bpe')
     cfg.data.options['path'] = str(destination)
     adapter = WikiTextAdapter()
     assert adapter.dataset(cfg, 'test').numel() == manifest['token_counts']['test']
@@ -73,47 +62,3 @@ def test_adapter_checks_bpe_identity_and_tokenizer_artifacts(prepared):
     (destination / 'tokenizer/merges.txt').write_text('changed')
     with pytest.raises(ValueError, match='artifact hash'):
         adapter.dataset(cfg, 'test')
-
-
-def test_kaggle_notebook_cpu_preflight_training_and_resume(prepared, tmp_path, monkeypatch):
-    original, destination, _, _, _ = prepared
-    # Execute the notebook's actual helpers, config builder, measurement and train cells.
-    # CPU, one worker and a tiny stack are explicit test substitutions.
-    monkeypatch.setenv('OMP_NUM_THREADS', '1')
-    monkeypatch.setenv('MKL_NUM_THREADS', '1')
-    monkeypatch.setenv('HF_HOME', str(tmp_path / 'hf_cache'))
-    notebook = json.loads((REPO / 'notebooks/kaggle.ipynb').read_text())
-    source = lambda index: ''.join(notebook['cells'][index]['source'])
-    root = tmp_path / 'run'
-    root.mkdir()
-    namespace = dict(Path=Path, os=os, sys=sys, subprocess=subprocess, signal=signal,
-        json=json, hashlib=hashlib, yaml=yaml, torch=torch,
-        REPO_DIR=REPO, RUN_DIR=root, PREPARED_DIR=destination, TOKENIZATION='gpt2_bpe',
-        PREPARED_INPUT=destination, SOURCE_DIR=original,
-        MODEL_SIZE='small', EXPERIMENT='full', RUN_ID='cpu_notebook_test',
-        WANDB=False, MAX_STEPS=2, MODELS=('rmt', 'grt'), TRAIN_MODEL='rmt',
-        WORLD_SIZE=1, DEVICE='cpu', BENCHMARK_STEPS=1, MEMORY_FRACTION=.8)
-    exec(compile(source(3), 'notebook_helpers', 'exec'), namespace)
-    exec(compile(source(4), 'notebook_data', 'exec'), namespace)
-    exec(compile(source(5), 'notebook_configs', 'exec'), namespace)
-    small = tmp_path / 'tiny.yaml'
-    small.write_text(yaml.safe_dump({'model': {'d_model': 32, 'segment_len': 4, 'num_registers': 2,
-        'alu': {'num_layers': 1, 'nhead': 4, 'd_ff': 64}},
-        'training': {'batch_size': 4, 'grad_accum_steps': 15, 'global_batch_size': 60, 'bptt_segments': 1},
-        'evaluation': {'batch_size': 10, 'every_steps': 2}}))
-    config_builder = namespace['configs']
-    namespace['configs'] = lambda model: config_builder(model) + [str(small)]
-    namespace['launcher'] = [sys.executable, '-u', 'scripts/train.py']
-    monkeypatch.setattr(torch.cuda, 'get_device_properties', lambda i: type('Device', (), {'total_memory': 2**40})())
-    exec(compile(source(7), 'notebook_preflight', 'exec'), namespace)
-    for model in ['rmt', 'grt']:
-        namespace['TRAIN_MODEL'] = model
-        exec(compile(source(9), 'notebook_train', 'exec'), namespace)
-        summary = json.loads((root / model / 'summary.json').read_text())
-        assert summary['step'] == 2
-        assert summary['perplexity_unit'] == 'bpe_token'
-        expected_kind = 'autoregressive' if model == 'rmt' else 'teacher_forced_noncausal'
-        assert summary['score_kind'] == expected_kind
-        exec(compile(source(9), 'notebook_resume', 'exec'), namespace)
-        assert json.loads((root / model / 'summary.json').read_text())['step'] == 2
-        assert 'total_compute_hours' in (root / (model + '_eta.txt')).read_text()

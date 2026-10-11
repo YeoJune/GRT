@@ -13,7 +13,16 @@ from grt.distributed import DistributedContext
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", nargs="+", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config", help="One resolved Config YAML")
+    source.add_argument("--task", help='Task preset from configs/experiments.yaml')
+    parser.add_argument('--model', choices=['rmt', 'grt'])
+    parser.add_argument('--size')
+    parser.add_argument('--tokenization')
+    parser.add_argument('--budget')
+    parser.add_argument('--runtime')
+    parser.add_argument('--steps', type=int)
+    parser.add_argument('--set', action='append', default=[], metavar='SECTION.FIELD=VALUE')
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--grad-accum-steps", type=int)
@@ -23,7 +32,16 @@ def main():
     args = parser.parse_args()
     if args.benchmark_steps < 0 or not 0 < args.memory_fraction < 1:
         parser.error("Invalid benchmark settings")
-    cfg = load_config(args.config, output_dir=args.output_dir)
+    from grt.experiments import load_experiment, parse_overrides
+    overrides = parse_overrides(args.set)
+    if args.config:
+        if any(value is not None for value in [args.model, args.size, args.tokenization, args.budget, args.runtime, args.steps]) or args.set:
+            parser.error('Use --task for named presets/--steps/--set, or --config for a resolved YAML')
+        cfg = load_config(args.config, output_dir=args.output_dir)
+    else:
+        cfg = load_experiment(task=args.task, model=args.model or 'rmt', size=args.size,
+            tokenization=args.tokenization, budget=args.budget, runtime=args.runtime,
+            steps=args.steps, overrides=overrides, output_dir=args.output_dir)
     if args.batch_size is not None:
         cfg.training.batch_size = args.batch_size
     if args.grad_accum_steps is not None:

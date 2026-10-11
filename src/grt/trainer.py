@@ -1,4 +1,4 @@
-"""Common curriculum trainer, preserving the native author RMT update order."""
+"""Common Remember curriculum and stream-training dispatcher."""
 
 import copy
 from dataclasses import asdict
@@ -19,7 +19,7 @@ from grt.checkpoint import (
 from grt.config import Config, build_config, save_config, validate_config
 from grt.logger import metadata, write_json, write_result_files, append_metrics, Monitor
 from grt.models.factory import create_model
-from grt.models.rmt import REFERENCE_COMMIT as COMMIT
+from grt.vendor.armt import REFERENCE_COMMIT as COMMIT
 from grt.data import get_adapter, make_dataset, make_loader, forward_batch
 from grt.evaluator import evaluate, evaluate_lengths
 from grt.distributed import DistributedContext
@@ -55,7 +55,7 @@ def _run(cfg, device, monitor, ctx):
     if hasattr(adapter, "train_stream"):
         return adapter.train_stream(cfg, device, monitor, ctx)
     if cfg.training.mixed_precision != "fp32":
-        raise ValueError("The author reference path currently requires fp32")
+        raise ValueError("Current training requires fp32")
     root = Path(cfg.run.output_dir)
     root.mkdir(parents=True, exist_ok=True)
     if ctx.main:
@@ -154,25 +154,21 @@ def _run(cfg, device, monitor, ctx):
         path = stage_dir / "last.pt"
         if path.exists():
             state = load_checkpoint(path)
-            if state["format"] != CHECKPOINT_FORMAT:
-                raise ValueError(
-                    "Legacy checkpoint resume requires its original checkout"
-                )
             model.load_state_dict(state["model"])
             optimizer.load_state_dict(state["optimizer"])
             scheduler.load_state_dict(state["scheduler"])
-            saved_world = state.get("world_size", 1)
+            saved_world = state["world_size"]
             if saved_world != ctx.world_size:
                 raise ValueError("Resume requires unchanged world_size")
-            restore_rng(state.get("rng_by_rank", [state["rng"]])[ctx.rank])
+            restore_rng(state["rng_by_rank"][ctx.rank])
             step = state["step"]
             epoch_batch = state["epoch_batch"]
             best = state["best_exact_match"]
             done = state["done"]
             last_validation = state["validation"]
-            training_seconds = state.get("training_seconds", 0.0)
-            peak_memory = state.get("peak_training_gpu_memory_bytes", 0)
-            samples_seen = state.get("train_samples_seen", 0)
+            training_seconds = state["training_seconds"]
+            peak_memory = state["peak_training_gpu_memory_bytes"]
+            samples_seen = state["train_samples_seen"]
         elif previous is not None:
             model.load_state_dict(previous)
         training_model = ctx.wrap(model)
@@ -197,7 +193,6 @@ def _run(cfg, device, monitor, ctx):
                         "model": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
                         "scheduler": scheduler.state_dict(),
-                        "rng": states[0],
                         "rng_by_rank": states,
                         "world_size": ctx.world_size,
                         "step": step,

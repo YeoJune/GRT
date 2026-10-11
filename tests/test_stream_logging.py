@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from grt.config import load_config
+from grt.experiments import load_experiment
 from grt.logger import Monitor
 from grt import trainer
 
@@ -30,9 +30,7 @@ def test_tiny_stream_logs_before_validation_with_real_offline_wandb(tmp_path, mo
         dataset='synthetic CPU logging check; NOT WikiText', tokenization='gpt2_bpe',
         vocab_size=50257, sha256=hashes, token_counts=counts)))
     root = tmp_path / name
-    cfg = load_config(['configs/base.yaml', 'configs/neox.yaml', 'configs/wikitext103.yaml',
-        'configs/wikitext_tiny.yaml', 'configs/wikitext_bpe.yaml', f'configs/neox_{name}.yaml',
-        'configs/wikitext_smoke.yaml'], output_dir=root)
+    cfg = load_experiment(task='wikitext103', model=name, size='tiny', tokenization='gpt2_bpe', budget='smoke', output_dir=root)
     cfg.data.options['path'] = str(data)
     # Actual tiny backbone/vocabulary/L150/K3; shorten only the CPU verification budget.
     cfg.training.max_steps = 2

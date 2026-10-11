@@ -1,4 +1,4 @@
-"""Shared NeoX blocks with explicit memory masks; legacy vendor code stays intact."""
+"""Shared NeoX blocks with explicit memory masks."""
 from dataclasses import dataclass
 import torch
 from torch import nn
@@ -9,8 +9,11 @@ from grt.vendor.armt.modeling_gpt_neox import (
     GPTNeoXAttention, GPTNeoXLayer, apply_rotary_pos_emb,
 )
 from .router import GlobalRouterUnit
-from .grt import write_back
 from grt.metrics import causal_loss
+
+
+def write_back(state, candidate, write):
+    return (1 - write) * state + write * candidate
 
 
 @dataclass

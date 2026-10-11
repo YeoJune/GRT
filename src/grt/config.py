@@ -7,7 +7,7 @@ import math
 import types
 import yaml
 
-EXPERIMENT_VERSION = "remember/2"
+EXPERIMENT_VERSION = "memory_experiment/3"
 
 
 @dataclass
@@ -36,7 +36,7 @@ class RegisterConfig:
 @dataclass
 class ModelConfig:
     name: str = "rmt"
-    implementation: str = "legacy"
+    implementation: str = "neox"
     attention_mode: str = "decoder"
     register_read_source: str = "intermediate"
     rotary_pct: float = 0.25
@@ -46,8 +46,7 @@ class ModelConfig:
     segment_len: int = 4
     num_registers: int = 32
     d_model: int = 128
-    tie_word_embeddings: bool = False
-    position_capacity: int | None = None
+    tie_word_embeddings: bool = True
     alu: ALUConfig = field(default_factory=ALUConfig)
     router: RouterConfig | None = None
     register: RegisterConfig | None = None
@@ -210,55 +209,24 @@ def validate_model(m):
         raise ValueError("Invalid model dimensions")
     if not 0 <= m.alu.dropout <= 1 or m.alu.activation != "gelu":
         raise ValueError("Invalid ALU settings")
-    if m.implementation not in ("legacy", "neox"):
-        raise ValueError("Unknown model implementation")
-    if m.implementation == "neox":
-        rotary_dim = int((m.d_model // m.alu.nhead) * m.rotary_pct)
-        if (m.attention_mode not in ("encoder", "decoder")
-            or m.register_read_source not in ("intermediate", "fixed_state")
-            or not m.tie_word_embeddings or m.position_capacity is not None
-            or rotary_dim <= 0 or rotary_dim % 2 or not 0 < m.rotary_pct <= 1
-            or m.rotary_base <= 0 or not 0 <= m.attention_dropout <= 1):
-            raise ValueError("Invalid common NeoX backbone settings")
-        if m.name == "grt":
-            m.router = m.router or RouterConfig()
-            m.register = m.register or RegisterConfig()
-            if (m.router.pool_nhead <= 0 or m.d_model % m.router.pool_nhead or m.router.mlp_hidden <= 0
-                or not m.register.s0_learnable or not 0 <= m.register.dropout_prob <= 1
-                or not math.isfinite(m.register.write_gate_bias_init)):
-                raise ValueError("Invalid GRT register/router settings")
-        elif m.router or m.register:
-            raise ValueError("RMT has no router/register gates")
-        return m
-    if m.name == "rmt":
-        if (
-            m.tie_word_embeddings
-            or m.position_capacity is not None
-            or m.router
-            or m.register
-            or (m.d_model // m.alu.nhead) % 8
-        ):
-            raise ValueError(
-                "Author RMT requires untied embeddings, rotary head dimension divisible by 8 and no router"
-            )
-    else:
-        if m.position_capacity is not None and m.position_capacity < m.segment_len:
-            raise ValueError("position_capacity must cover segment_len")
+    if m.implementation != "neox":
+        raise ValueError("Only the current NeoX implementation is supported")
+    rotary_dim = int((m.d_model // m.alu.nhead) * m.rotary_pct)
+    if (m.attention_mode not in ("encoder", "decoder")
+        or m.register_read_source not in ("intermediate", "fixed_state")
+        or not m.tie_word_embeddings
+        or rotary_dim <= 0 or rotary_dim % 2 or not 0 < m.rotary_pct <= 1
+        or m.rotary_base <= 0 or not 0 <= m.attention_dropout <= 1):
+        raise ValueError("Invalid common NeoX backbone settings")
+    if m.name == "grt":
         m.router = m.router or RouterConfig()
         m.register = m.register or RegisterConfig()
-        if (
-            m.router.pool_nhead <= 0
-            or m.d_model % m.router.pool_nhead
-            or m.router.mlp_hidden <= 0
-        ):
-            raise ValueError("Invalid router dimensions")
-        if (
-            not m.tie_word_embeddings
-            or not m.register.s0_learnable
-            or not 0 <= m.register.dropout_prob <= 1
-            or not math.isfinite(m.register.write_gate_bias_init)
-        ):
-            raise ValueError("GRT retains tied embeddings and learnable registers")
+        if (m.router.pool_nhead <= 0 or m.d_model % m.router.pool_nhead or m.router.mlp_hidden <= 0
+            or not m.register.s0_learnable or not 0 <= m.register.dropout_prob <= 1
+            or not math.isfinite(m.register.write_gate_bias_init)):
+            raise ValueError("Invalid GRT register/router settings")
+    elif m.router or m.register:
+        raise ValueError("RMT has no router/register gates")
     return m
 
 
@@ -291,7 +259,7 @@ def validate_config(cfg, require_output=True):
         raise ValueError("bptt_segments must be nonnegative")
     if t.model_seed < 0 or t.mixed_precision != "fp32":
         raise ValueError(
-            "This reference experiment requires nonnegative seeds and fp32"
+            "Current experiments require nonnegative seeds and fp32"
         )
     if t.max_seconds is not None and t.max_seconds <= 0:
         raise ValueError("max_seconds must be positive")
@@ -314,15 +282,9 @@ def validate_config(cfg, require_output=True):
     return cfg
 
 
-def load_config(paths, output_dir=None):
-    if isinstance(paths, (str, Path)):
-        paths = [paths]
-    raw = {}
-    for path in paths:
-        part = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-        if not isinstance(part, dict):
-            raise ValueError(f"{path} must contain a mapping")
-        raw = merge_dicts(raw, part)
+def load_config(path, output_dir=None):
+    """Read one current resolved Config; named presets use load_experiment."""
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     cfg = build_config(Config, raw)
     if output_dir is not None:
         cfg.run.output_dir = str(output_dir)
@@ -333,23 +295,3 @@ def save_config(cfg, path):
     Path(path).write_text(
         yaml.safe_dump(asdict(cfg), sort_keys=False), encoding="utf-8"
     )
-
-
-def legacy_config(raw):
-    """Explicit read-only import of author_rmt/1 configuration."""
-    if raw["model"].get("rmt_backbone") != "author_neox":
-        raise ValueError("Only native author RMT legacy checkpoints are supported")
-    selected = {}
-    for key, cls in [
-        ("model", ModelConfig),
-        ("data", DataConfig),
-        ("training", TrainingConfig),
-        ("evaluation", EvaluationConfig),
-        ("rtla", RTLAConfig),
-        ("wandb", WandbConfig),
-        ("run", RunConfig),
-    ]:
-        names = {f.name for f in fields(cls)}
-        selected[key] = {k: v for k, v in raw.get(key, {}).items() if k in names}
-    selected["data"]["name"] = "remember"
-    return build_config(Config, selected)

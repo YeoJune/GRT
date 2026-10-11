@@ -1,7 +1,9 @@
+> 과거 실행 안내/검증 기록입니다. 현재 실행 규칙은 [실험 workflow](../20261011_experiment_workflow.md)를 따릅니다.
+
 # Small WikiText-103: Kaggle T4 × 2
 
 현재 D256/6층/8 heads/FF1024 small을 사용한다. 이 문서의 GPU 시간과 메모리는 계산 또는 측정 후보이며, 실제 T4 측정 결과는 아직 없다. CPU synthetic LM 결과를 GPU 시간이나 실제 WikiText 성능으로 외삽하지 않는다.
-이 문서의 계산은 word-level이다. GPT-2 BPE와 최신 [Kaggle 노트북](../notebooks/kaggle.ipynb)은 [BPE 안내](20261011_wikitext_bpe.md)를 따른다.
+이 문서의 계산은 word-level이다. GPT-2 BPE와 최신 [Kaggle 노트북](../../notebooks/kaggle.ipynb)은 [BPE 안내](20261011_wikitext_bpe.md)를 따른다.
 
 ## 고정 조건과 측정 후보
 

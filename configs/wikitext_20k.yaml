@@ -1,2 +1,0 @@
-# Independent 20k-update cosine schedule; full-run evaluation/logging cadence.
-training: {max_steps: 20000}

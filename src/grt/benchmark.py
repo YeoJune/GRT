@@ -15,60 +15,6 @@ from grt.models.factory import create_model
 from grt.logger import write_result_files
 
 
-def plan_curriculum(
-    reports, available_seconds, total_seconds, max_training_seconds=23400
-):
-    """Select one common paper-budget prefix that fits both measured models."""
-    models = list(reports)
-    if not models or not reports[models[0]]["stages"]:
-        raise ValueError("No measured curriculum")
-    stages = reports[models[0]]["stages"]
-    signature = lambda rows: [
-        (r["num_pairs"], r["key_size"], r["max_steps"]) for r in rows
-    ]
-    if any(
-        signature(report["stages"]) != signature(stages) for report in reports.values()
-    ):
-        raise ValueError("Models must measure the same curriculum and update budgets")
-    costs = {model: 0.0 for model in models}
-    count = 0
-    overhead, data_reserve, final_reserve = 1.25, 600, 1200
-    for index in range(len(stages)):
-        for model in models:
-            row = reports[model]["stages"][index]
-            costs[model] += (
-                row["estimated_training_seconds"] + row["estimated_validation_seconds"]
-            )
-        fits_models = all(
-            costs[model] * overhead + data_reserve
-            <= min(max_training_seconds, available_seconds[model] - final_reserve)
-            for model in models
-        )
-        fits_total = (
-            sum(costs.values()) * overhead
-            + len(models) * (data_reserve + final_reserve)
-            <= total_seconds
-        )
-        if not fits_models or not fits_total:
-            break
-        count = index + 1
-    return {
-        "models": models,
-        "stage_count": count,
-        "pairs": [r["num_pairs"] for r in stages[:count]],
-        "estimated_seconds": {
-            model: sum(
-                r["estimated_training_seconds"] + r["estimated_validation_seconds"]
-                for r in reports[model]["stages"][:count]
-            )
-            for model in models
-        },
-        "overhead_factor": overhead,
-        "data_reserve_seconds": data_reserve,
-        "final_evaluation_reserve_seconds": final_reserve,
-    }
-
-
 def _optimizer(model, cfg):
     return torch.optim.AdamW(
         model.parameters(),

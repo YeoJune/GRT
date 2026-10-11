@@ -1,13 +1,13 @@
-"""Checkpoint/RNG utilities and explicit read-only import of native author_rmt/1."""
+"""Current checkpoint and RNG utilities."""
 
 from contextlib import contextmanager
 from pathlib import Path
 import random
 import numpy as np
 import torch
-from grt.config import Config, build_config, legacy_config
+from grt.config import Config, build_config
 
-CHECKPOINT_FORMAT = "memory_experiment/2"
+CHECKPOINT_FORMAT = "memory_experiment/3"
 
 
 def seed_all(seed):
@@ -93,17 +93,13 @@ def atomic_save(state, path):
 def load_checkpoint(path):
     # Locally produced experiment files also contain Python/NumPy RNG state.
     state = torch.load(path, map_location="cpu", weights_only=False)
-    if state.get("format") not in (CHECKPOINT_FORMAT, "author_rmt/1"):
+    if state.get("format") != CHECKPOINT_FORMAT:
         raise ValueError("Unsupported checkpoint format")
     return state
 
 
 def restore_model(state, device="cpu"):
-    cfg = (
-        legacy_config(state["config"])
-        if state["format"] == "author_rmt/1"
-        else build_config(Config, state["config"])
-    )
+    cfg = build_config(Config, state["config"])
     from grt.models.factory import create_model
 
     model = create_model(cfg).to(device)

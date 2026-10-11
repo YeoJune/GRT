@@ -1,4 +1,4 @@
-"""Single-node torchrun support, without changing native model state_dict keys."""
+"""Single-node torchrun support, without changing model state_dict keys."""
 
 from contextlib import nullcontext
 from datetime import timedelta

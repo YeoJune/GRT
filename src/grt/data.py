@@ -22,10 +22,9 @@ class RememberAdapter:
         d = cfg.data
         if d.options.get('objective', 'next_token') not in ('next_token', 'parallel'):
             raise ValueError('Unknown Remember objective')
-        if d.options.get("objective") == "parallel" and (
-            cfg.model.implementation != "neox" or cfg.model.attention_mode != "encoder"):
+        if d.options.get("objective") == "parallel" and cfg.model.attention_mode != "encoder":
             raise ValueError("Parallel Remember requires the new encoder")
-        if cfg.model.implementation == "neox" and cfg.model.attention_mode == "encoder" and d.options.get("objective") != "parallel":
+        if cfg.model.attention_mode == "encoder" and d.options.get("objective") != "parallel":
             raise ValueError("Remember encoder requires masked parallel answer slots")
         if (
             d.key_size <= 0

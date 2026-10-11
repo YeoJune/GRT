@@ -3,7 +3,8 @@ import copy
 from pathlib import Path
 import torch
 import pytest
-from grt.config import load_config, validate_config
+from grt.config import validate_config
+from grt.experiments import load_experiment
 from grt.models.factory import create_model
 from grt.data import make_dataset, make_loader, forward_batch
 from grt.trainer import run
@@ -12,8 +13,10 @@ from scripts.prepare_wikitext import prepare
 
 
 def config(tmp_path, name='grt', mode='encoder'):
-    cfg = load_config(['configs/base.yaml','configs/neox.yaml',
-        'configs/remember_encoder.yaml','configs/neox_cpu.yaml',f'configs/neox_{name}.yaml'], output_dir=tmp_path)
+    cfg = load_experiment(task='remember', model=name, runtime='cpu', steps=4, output_dir=tmp_path,
+        overrides={'model': {'attention_mode': mode, 'd_model': 32, 'num_registers': 4,
+                            'alu': {'num_layers': 2, 'nhead': 4, 'd_ff': 64}},
+                   'data': {'options': {'objective': 'parallel' if mode == 'encoder' else 'next_token'}}})
     if name == 'grt':
         cfg.model.router.mlp_hidden = 32
     cfg.model.attention_mode = mode
@@ -218,8 +221,7 @@ def test_stream_distributed_cli_and_checkpoint_state(tmp_path,name):
 
 def test_base_head_41_and_size_presets(tmp_path):
     for name in ['grt','rmt']:
-        paths=['configs/base.yaml','configs/neox.yaml','configs/wikitext103.yaml',f'configs/neox_{name}.yaml']
-        cfg=load_config(paths,output_dir=tmp_path)
+        cfg=load_experiment(task='wikitext103', model=name, size='base', output_dir=tmp_path)
         validate_config(cfg)
         cfg.model.alu.num_layers=1;cfg.model.vocab_size=16;cfg.model.num_registers=2
         model=create_model(cfg)

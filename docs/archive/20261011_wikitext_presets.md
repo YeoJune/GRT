@@ -1,3 +1,5 @@
+> 과거 실행 안내/검증 기록입니다. 현재 실행 규칙은 [실험 workflow](../20261011_experiment_workflow.md)를 따릅니다.
+
 # WikiText 크기 선택과 짧은 동작 확인
 
 사용자 승인: tiny D128/3층/4 heads/FF512, 200 updates, 20 updates마다 전체 validation. base와 small은 기존 차원을 보존한다. 크기와 실험 예산을 별개 preset으로 선택한다.

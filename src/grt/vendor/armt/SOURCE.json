@@ -7,11 +7,6 @@
       "upstream_sha256": "241b3388ab1941a42bbda44b644de231f9712b2f53492a37549ca71c7464a197",
       "vendored_sha256": "91dbaf0e369dec0cbd8f17ff5c67a0cb9a83e63cd74f67078802968244aa8617"
     },
-    "language_modeling.py": {
-      "upstream_path": "modeling_rmt/language_modeling.py",
-      "upstream_sha256": "908cd08d6816b99fed3f3ef21655f83eb45d33380d14b1a3e33d0069e2995508",
-      "vendored_sha256": "908cd08d6816b99fed3f3ef21655f83eb45d33380d14b1a3e33d0069e2995508"
-    },
     "adapters.py": {
       "upstream_path": "adapters.py",
       "upstream_sha256": "f72b3126b432f4f0e9831c1bdb44af2f469cf8fbf9412384ec8cb6e125d02405",
@@ -20,7 +15,8 @@
   },
   "changes": [
     "modeling_gpt_neox.py: adapters import made relative",
-    "data.py: generate_pairs, ARDataset, collate_fn bodies extracted; collator globals captured in a factory"
+    "data.py: generate_pairs, ARDataset, collate_fn bodies extracted; collator globals captured in a factory",
+    "Current-only cleanup: removed unused MemoryCell/RecurrentWrapper execution source. NeoX blocks, adapters and data extraction are unchanged."
   ],
   "backbone_config_source": "5297db7:base_models/gptconfigs/create_config.py (2024 generated JSON unavailable)",
   "data_ast_sha256_python312": {

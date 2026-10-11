@@ -1,8 +1,0 @@
-model:
-  implementation: neox
-  attention_mode: decoder
-  register_read_source: intermediate
-  tie_word_embeddings: true
-  rotary_pct: 0.25
-  rotary_base: 10000
-  attention_dropout: 0.0

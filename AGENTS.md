@@ -2,18 +2,19 @@
 
 ## 프로젝트와 구조
 
-현재 기준은 `docs/20261011_current_spec.md`의 공통 NeoX 인코더·디코더와 Remember/WikiText-103이다. 기존 ARMT 저자 Remember RMT는 legacy 참조 경로로 보존한다.
+현재 기준은 `docs/20261011_current_spec.md`의 공통 NeoX 인코더·디코더와 Remember/WikiText-103이다. 현재 공통 NeoX만 실행하며 과거 모델/설정/checkpoint 호환 경로는 유지하지 않는다.
 
 | 경로 | 역할 |
 |---|---|
-| `src/grt/models/` | 모델 factory, 원본 RMT 구성, GRT router·ALU·write-back |
+| `src/grt/models/` | 공통 NeoX factory/backbone, RMT memory, GRT router·write-back |
 | `src/grt/vendor/armt/` | 원본 backbone·wrapper·데이터, 출처와 hash |
 | `src/grt/config.py`, `data.py`, `metrics.py` | 설정, 교체 가능한 데이터 adapter, predictor-mask CE |
 | `src/grt/trainer.py`, `evaluator.py`, `distributed.py`, `benchmark.py` | 공통 학습·평가, torchrun 분산 실행·사전 측정 |
 | `src/grt/checkpoint.py`, `logger.py` | 상태/RNG 복원, JSON/JSONL/TXT, 선택적 W&B |
 | `src/grt/rtla.py`, `plots.py` | GRT fact update trace와 분석 |
-| `scripts/` | `train.py`, `evaluate.py`, `analyze.py`, 작은 CPU 검사 `check_rmt.py` |
-| `configs/` | `base.yaml` → 모델(`rmt/grt`) → 환경(`t4/kaggle/cpu`) |
+| `src/grt/experiments.py`, `utils/` | preset 조합, 노트북 공통 실행·준비·측정·결과 확인 |
+| `scripts/` | `train.py`, `evaluate.py`, `analyze.py`, 현재 small 진단 `check_small.py` |
+| `configs/` | `experiments.yaml`의 과제·크기·모델·tokenizer·예산·환경 카탈로그; 과거 YAML은 삭제 |
 | `notebooks/` | `template.ipynb`와 최신 `kaggle.ipynb` 두 개만 유지 |
 | `docs/` | 날짜가 붙은 설계 기준, `archive/`의 이전 기록, 문서 목록 |
 | `tests/`, `runs/` | CPU 검사, 실행별 결과·checkpoint |
@@ -23,12 +24,12 @@
 - 작업 전 관련 코드·설정, README와 관련 문서를 읽는다. 문서의 날짜·적용 범위와 사용자 요청을 함께 확인한다.
 - 원본 기준 코드와 GRT 설계, 학습 최적화를 구분한다. 원본 파일 변경 시 `SOURCE.json`과 대조 검사를 갱신한다.
 - Remember decoder는 raw labels와 predictor mask, encoder는 masked slot에 정렬된 raw labels를 받는다. WikiText adapter만 명시적 `target_ids` 계약으로 다음 token을 정렬한다. loss shift를 중복 적용하지 않는다. 두 모델은 같은 과제 입력·target을 사용한다.
-- GRT router·ALU·write-back 계약을 유지한다. 새 구조는 segment의 전체 stack 뒤 write-back 한 번이며 학습 prefix 재계산을 제거한다. intermediate 기본/fixed_state 옵션, read gate off 기본을 유지하고 causal 여부와 fact→query gradient를 확인한다. legacy prefix는 참조 경로에서만 보존한다.
+- GRT router·ALU·write-back 계약을 유지한다. 새 구조는 segment의 전체 stack 뒤 write-back 한 번이며 학습 prefix 재계산을 제거한다. intermediate 기본/fixed_state 옵션, read gate off 기본을 유지하고 causal 여부와 fact→query gradient를 확인한다. 과거 prefix 구현과 wrapper 분기는 제거한다.
 - 새 데이터셋은 adapter를 통해 같은 배치 계약에 연결한다. trainer/evaluator에 과제·모델별 분기를 추가하지 않는다. 인터페이스 변경은 데이터 경계·모델 factory에서 명시한다.
 - 원본 collator는 전역 Torch RNG를 사용한다. 같은 dataset/seed라도 모델 초기화에 따라 길이·질의 선택 순서가 다를 수 있다. 이를 동일 배치 비교로 표현하거나 정리 작업 중 몰래 바꾸지 않는다.
-- 설정은 순서대로 병합하고 목록은 교체한다. 실제 조건은 resolved config와 metadata로 확인한다. 설정이 바뀌면 새 run을 사용하고 기존 결과를 보존한다.
+- 설정은 `docs/20261011_experiment_workflow.md`의 역할·병합 순서를 따른다. 신규 크기/고정 비교 조건은 카탈로그에 추가하고 숫자 변경은 `--steps`/`--set`을 쓴다. 실험별 flat YAML과 노트북 helper 코드를 복사하지 않고 utils를 확장한다. 목록과 null은 교체한다. 실제 조건은 resolved config와 metadata로 확인한다. 설정이 바뀌면 새 run을 사용하고 기존 결과를 보존한다.
 - W&B 공통 기본은 false이며 Kaggle 실험은 true로 설정한다. 비활성 시 import·연결하지 않는다. 모니터링이 모델 RNG에 영향을 주지 않게 한다. 로컬 TXT/JSON 기록을 항상 유지한다.
-- 임시 문서는 제거하고 기록 문서는 `YYYYMMDD_이름`으로 보존하며 목록을 갱신한다. archive 문서는 현재 실행 안내로 사용하지 않는다.
+- 임시 문서는 제거하고 기록 문서는 `YYYYMMDD_이름`으로 보존하며 목록을 갱신한다. archive에는 Markdown 문서만 보존한다. config·notebook·zip·실행 코드를 보관하거나 archive를 읽는 실행/테스트 경로를 추가하지 않는다. 하위 호환성 코드는 유지하지 않는다.
 
 ## 협업과 검증
 

@@ -14,7 +14,8 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import torch
 from grt.checkpoint import seed_all, restore_model, load_checkpoint, evaluation_context
-from grt.config import CurriculumStage, load_config, validate_config
+from grt.config import CurriculumStage, validate_config
+from grt.experiments import load_experiment
 from grt.data import get_adapter, make_dataset, make_loader
 from grt.evaluator import evaluate
 from grt.logger import write_json
@@ -124,12 +125,10 @@ def main():
     records = []
     for mode in ('encoder', 'decoder'):
         for name in ('grt', 'rmt'):
-            paths = ['configs/base.yaml','configs/neox.yaml','configs/wikitext_small.yaml']
-            if mode == 'encoder':
-                paths.append('configs/remember_encoder.yaml')
-            paths.append(f'configs/neox_{name}.yaml')
             directory = root/f'remember_{mode}_{name}'
-            cfg = load_config(paths, output_dir=directory)
+            cfg = load_experiment(task='remember', model=name, size='small', output_dir=directory,
+                overrides={'model': {'attention_mode': mode},
+                           'data': {'options': {'objective': 'parallel' if mode == 'encoder' else 'next_token'}}})
             cfg.training.batch_size = cfg.evaluation.batch_size = 8
             cfg.training.global_batch_size = 8
             cfg.training.max_steps = args.remember_steps
@@ -140,8 +139,7 @@ def main():
             write_json(root/'results.json', records)
     prepared = synthetic_stream(root)
     for name in ('grt', 'rmt'):
-        cfg = load_config(['configs/base.yaml','configs/neox.yaml','configs/wikitext103.yaml',
-            'configs/wikitext_small.yaml',f'configs/neox_{name}.yaml'], output_dir=root/f'lm_synthetic_{name}')
+        cfg = load_experiment(task='wikitext103', model=name, size='small', tokenization='word', output_dir=root/f'lm_synthetic_{name}')
         cfg.data.options['path'] = str(prepared.resolve())
         cfg.training.batch_size = cfg.training.grad_accum_steps = cfg.training.global_batch_size = 1
         cfg.training.max_steps = args.lm_steps
@@ -149,7 +147,7 @@ def main():
         cfg.evaluation.every_steps = max(1,args.lm_steps//3)
         records.append(experiment(cfg,'synthetic word stream, full V267735; NOT WikiText-103'))
         write_json(root/'results.json',records)
-    write_json(root/'protocol.json', dict(threads=args.threads, config_small='configs/wikitext_small.yaml',
+    write_json(root/'protocol.json', dict(threads=args.threads, catalog='configs/experiments.yaml', size='small',
         remember_steps=args.remember_steps, lm_steps=args.lm_steps,
         note='Direct run/evaluate/restore interfaces. Small backbone kept intact; CPU batch and update budget reduced. Test is diagnostic, selection uses validation.'))
 
