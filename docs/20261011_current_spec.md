@@ -130,7 +130,7 @@ GPT-2 BPE는 `openai-community/gpt2`의 50257 vocabulary를 사용한다. 각 �
 | scheduler | cosine, warmup 0 |
 | gradient clipping | global norm 0.25 |
 | dropout / attention dropout | 0.1 / 0 |
-| max updates | 200000 |
+| max updates | 100000 |
 | validation / logging | 1000 / 10 updates (smoke: 20 / 10) |
 
 Kaggle T4 × 2는 microbatch32/accumulation4로 시작하며 auto_batch=true, memory_fraction=0.8로 global batch256을 유지해 조절한다. rank당 실질 배치128의 약수는 모두 2의 거듭제곱이므로 후보는128→64→32→16→8→4→2→1이다. 모든 크기와 두 모델에 같은 학습 설정을 사용한다. 공통 auto_batch 기본은 false이며 Kaggle runtime에서만 true로 켠다.
@@ -196,7 +196,7 @@ Kaggle 기본 입력은 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`�
 optimizer update 사이에는 graph를 보관하지 않는다. K=0이면 직전 detached state만 읽는다.
 이 경우 현재 write gate를 다음 segment의 loss로 학습할 경로도 끊기므로 GRT 학습의 기본 K=3을 유지한다.
 마지막 짧은 segment도 boundary next-token target을 포함하고 실제 target 수를 token budget에 누적한다.
-update당 target 예산 상한은38400(256×150)이다. 20k의20000 updates는768M, full의200000 updates는7.68B로 이전 배치60 대비 약4.27배이며 짧은 tail/reset을 반영한 실제 수를 기록한다. budget 이름은 계속 update 수를 뜻한다. 이전20k의180M token과 비교하려면 steps=4688, 이전full의1.8B와 비교하려면 steps=46875를 명시하고 최종 실제 token 수를 확인한다.
+update당 target 예산 상한은38400(256×150)이다. 10k의10000 updates는384M, 100k의100000 updates는3.84B이며 짧은 tail/reset을 반영한 실제 수를 기록한다. budget 이름은 update 수를 뜻한다.
 
 현재 checkpoint 형식은 `memory_experiment/3`이며 과거 형식 변환/읽기는 제공하지 않는다. checkpoint는 model/Adam/scheduler/RNG뿐 아니라 rank별 history, detached boundary states,
 stream offset, 실제 target token 수, manifest와 best loss를 저장한다. 동일 설정/동일 world_size로만 재개한다.
@@ -228,13 +228,13 @@ small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbo
 
 새 GRT Remember에도 RTLA trace를 지원하며 query를 포함한 모든 segment의 stack 뒤 write-back을 기록한다.
 WikiText 자동 RTLA 샘플링과 인코더 MLM objective는 지원 범위 밖이며 해당 설정을 명시적으로 거부한다.
-Kaggle 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/20k/full 예산을 선택한다. 기본은 tiny/smoke/RMT·GRT 두 모델이다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
+Kaggle 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/10k/100k 예산을 선택한다. 기본은 tiny/smoke/RMT·GRT 두 모델이다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
 
 ## 9. 현재 검증과 해석 범위
 
 현재 코드 기준 관련 CPU 검사 54개가 9.16초에 통과했다(설정 선택·단일 파일 입력·형식 거부·짧은 실행/재개와 vendor 출처 검사). 전체 회귀나 GPU 수렴 검사 결과로 해석하지 않는다. 현재 카탈로그와 공통 NeoX 인코더·디코더 계약을 검사한다. 모델/과제 검사는 현재 preset에서 작은 CPU override를 적용하고, archive의 코드나 설정에 의존하지 않는다. config 단일 파일 입력과 현재 checkpoint 재개를 지원하며 옛 경로/형식은 거부한다.
 
-사용자가 제공한 tiny/smoke GPU 실행은 두 모델 모두 200 updates 완료했고 온라인 W&B도 failures=0, last_logged_step=200으로 종료했다. small BPE/T4 × 2 preflight는 두 모델 약0.48초/update였다. 이는 과거 관측이며 이번 코드 정리 후 GPU 실행을 다시 수행한 결과가 아니다. tiny/full 수렴과 시간은 아직 확인하지 않았다.
+사용자가 제공한 tiny/smoke GPU 실행은 두 모델 모두 200 updates 완료했고 온라인 W&B도 failures=0, last_logged_step=200으로 종료했다. small BPE/T4 × 2 preflight는 두 모델 약0.48초/update였다. 이는 과거 관측이며 이번 코드 정리 후 GPU 실행을 다시 수행한 결과가 아니다. tiny/100k 수렴과 시간은 아직 확인하지 않았다.
 
 GRT intermediate의 teacher_forced_noncausal PPL을 autoregressive RMT PPL과 동일 조건으로 해석하지 않는다. 정확한 RMT 2022 Transformer-XL/adaptive-softmax 재현도 아니다.
 

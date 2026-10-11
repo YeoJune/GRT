@@ -13,25 +13,25 @@
 | sizes | D/layers/heads/FF와 router pool heads; base/small/tiny |
 | models | RMT/GRT 이름과 router/register 계약 |
 | tokenizers | WikiText word/GPT-2 BPE vocabulary와 prepared 경로 |
-| budgets | smoke200 / 20k20000 / full200000, 평가·logging 주기 |
+| budgets | smoke200 / 10k10000 / 100k100000, 평가·logging 주기 |
 | runtimes | GPU/CPU microbatch·accumulation·메모리 조정 정책과 W&B 기본 활성화 |
 
 적용 순서는 **defaults → task → size → model → tokenizer → budget → runtime → 명시 override**다. dict는 재귀 병합, list와 null은 교체한다. 모델 선택은 크기 뒤에 적용해 RMT의 router/register를 null로 정리한다. unknown key와 잘못된 값은 typed Config 검사가 거부한다.
 
 동일 필드의 기본값은 표의 담당 영역에서 관리한다. 예외는 뒤에서 적용하는 명시 override로 표현한다. size에 학습 예산을 넣거나 runtime에 모델 차원을 넣지 않는다. 모델별로 backbone 차원을 달리 정의하지 않는다. `data.options` 내부 키는 과제 adapter가 검증한다.
 
-WikiText named API/CLI에서 생략한 선택은 small/GPT-2 BPE/full/RMT이며 runtime은 자동 선택하지 않는다. Kaggle 노트북에는 기존 tiny/smoke/두 모델 선택을 명시했다. Remember는 budget/steps를 생략하면 기존 pair curriculum을 사용하고, 지정하면 curriculum을 비워 `data.train_segments-1` pairs의 고정 update 실험을 사용한다. `steps`는 budget 다음에 max_steps를 덮어쓰고, overrides가 마지막 우선순위다. 업데이트 수 변경은 cosine schedule 길이도 바꾼다.
+WikiText named API/CLI에서 생략한 선택은 small/GPT-2 BPE/100k/RMT이며 runtime은 자동 선택하지 않는다. Kaggle 노트북에는 기존 tiny/smoke/두 모델 선택을 명시했다. Remember는 budget/steps를 생략하면 기존 pair curriculum을 사용하고, 지정하면 curriculum을 비워 `data.train_segments-1` pairs의 고정 update 실험을 사용한다. `steps`는 budget 다음에 max_steps를 덮어쓰고, overrides가 마지막 우선순위다. 업데이트 수 변경은 cosine schedule 길이도 바꾼다.
 
 새 크기는 sizes에 한 항목을 추가한다. 새로운 고정 비교 조건만 budgets에 이름을 추가한다. 단순히 updates/평가 주기/LR를 바꾸는 실험에는 새 YAML을 만들지 않고 `steps=30000`, `overrides={...}` 또는 CLI `--steps`/`--set`을 사용한다. 새 과제는 adapter와 tasks 항목을 추가하며 노트북에 task 분기를 복사하지 않는다. 모델 구조와 과제 조건은 최신 통합 명세를 기준으로 한다. 과거 실행 구조의 분기나 설정 경로 변환을 추가하지 않는다.
 
 ```python
 from grt.experiments import load_experiment
 cfg = load_experiment(task='wikitext103', model='rmt', size='small',
-                      tokenization='gpt2_bpe', budget='20k', runtime='kaggle')
+                      tokenization='gpt2_bpe', budget='10k', runtime='kaggle')
 ```
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --model rmt --size small --tokenization gpt2_bpe --budget 20k --runtime kaggle --output-dir runs/small_rmt_20k_preflight --device cuda --benchmark-steps 10
+torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --model rmt --size small --tokenization gpt2_bpe --budget 10k --runtime kaggle --output-dir runs/small_rmt_10k_preflight --device cuda --benchmark-steps 10
 # 새로운 숫자 예산: --steps 30000; 단일 값: --set evaluation.every_steps=1000
 ```
 
@@ -47,8 +47,8 @@ Kaggle 노트북에는 저장소 bootstrap, 선택한 실험 설정, 다음 호�
 
 ```python
 from grt.utils.kaggle import WikiTextRun
-job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',),
-                  run_id='wiki_small_gpt2_bpe_20k_b256_seed54')
+job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
+                  run_id='wiki_small_gpt2_bpe_10k_b256_seed54')
 job.setup()
 job.prepare_data()
 job.preflight()
@@ -77,7 +77,7 @@ on이면 CUDA 사전 측정에서 local effective batch의 약수만 큰 순서�
 실제 forward/backward/optimizer와 평가로 측정하며 DDP bucket 메모리도 확인한다. 실패 후보는 모든 rank에서 함께 낮춘다. microbatch1도 목표/평가 메모리를 만족하지 못하면 오류로 보고한다. 실질 배치 상한이나 약수 간격 때문에 목표 점유율보다 낮을 수 있다.
 
 ```python
-job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',),
+job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
                   overrides={'training': {'auto_batch': True, 'memory_fraction': 0.8}})
 ```
 
@@ -89,7 +89,7 @@ CLI는 `--set training.auto_batch=true --set training.memory_fraction=0.8`을 �
 
 base/small/tiny와 RMT/GRT는 global256, Adam LR5e-4를 공유한다. 배치60의 LR2.5e-4에 제곱근 scaling을 적용한 약5.16e-4를 반올림한 초기 설정이며 최적값을 실측한 것은 아니다. cosine/warmup0/clip0.25/dropout0.1/BPTT3/segment150/평가 batch10은 유지한다. auto_batch는 이 학습 조건을 바꾸지 않는다.
 
-20k/full의 validation은1000 updates, W&B logging은10 updates마다 수행한다. 이전4000/50 updates와 토큰 기준 간격이 비슷하도록 조정했다. smoke는200 updates와 validation20/logging10을 유지한다. budgets는 update 수로 정의하며20k=20000/full=200000을 유지한다. target 예산 상한은 smoke7.68M/20k768M/full7.68B이다. 이전 batch60 결과와 동일한 학습량은 아니므로 PPL 비교에 배치/LR/token 수를 함께 기록한다. 이전20k의180M token에 맞출 때는 steps=4688을 명시한다.
+10k/100k의 validation은1000 updates, W&B logging은10 updates마다 수행한다. smoke는200 updates와 validation20/logging10을 유지한다. 학습 budgets는10k=10000/100k=100000이며 target 예산 상한은 smoke7.68M/10k384M/100k3.84B이다. PPL 비교에 배치/LR/token 수를 함께 기록한다. 과거 학습 budget 이름과 호환 경로는 유지하지 않는다.
 
 기존 결과에 이어서 학습하지 않고 새 run_id를 사용한다. T4 GPU의 실제 메모리 적합성과 update 시간은 기존 preflight로 측정하고 ETA를 갱신한다. 기존 micro10 측정 시간을 새 microbatch/update 시간으로 단순 환산하지 않는다.
 

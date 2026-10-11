@@ -32,7 +32,7 @@ def load_experiment(*, task, model='rmt', size=None, tokenization=None,
     if task == 'wikitext103':
         size = size or 'small'
         tokenization = tokenization or 'gpt2_bpe'
-        budget = budget or 'full'
+        budget = budget or '100k'
     elif tokenization is not None:
         raise ValueError('Tokenization presets apply only to WikiText')
     raw = catalog['defaults']

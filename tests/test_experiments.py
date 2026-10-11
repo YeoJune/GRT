@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize('model', ['rmt', 'grt'])
 @pytest.mark.parametrize('size', ['base', 'small', 'tiny'])
-@pytest.mark.parametrize('budget', ['smoke', '20k', 'full'])
+@pytest.mark.parametrize('budget', ['smoke', '10k', '100k'])
 @pytest.mark.parametrize('tokenization', ['word', 'gpt2_bpe'])
 def test_catalog_current_contract(model, size, budget, tokenization):
     cfg = load_experiment(task='wikitext103', model=model, size=size,
@@ -24,7 +24,7 @@ def test_catalog_current_contract(model, size, budget, tokenization):
     dimensions = {'base': (410, 16, 10, 2100), 'small': (256, 6, 8, 1024), 'tiny': (128, 3, 4, 512)}
     assert (cfg.model.d_model, cfg.model.alu.num_layers, cfg.model.alu.nhead, cfg.model.alu.d_ff) == dimensions[size]
     assert cfg.model.vocab_size == {'word': 267735, 'gpt2_bpe': 50257}[tokenization]
-    assert cfg.training.max_steps == {'smoke': 200, '20k': 20000, 'full': 200000}[budget]
+    assert cfg.training.max_steps == {'smoke': 200, '10k': 10000, '100k': 100000}[budget]
     assert cfg.training.batch_size * cfg.training.grad_accum_steps * 2 == cfg.training.global_batch_size == 256
     assert cfg.training.auto_batch and cfg.training.memory_fraction == 0.8
     assert cfg.training.lr == 0.0005

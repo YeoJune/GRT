@@ -21,17 +21,17 @@ RMT는 `--model rmt`로 선택한다. [로컬 템플릿](notebooks/template.ipyn
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
 반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
-기본은 tiny·smoke·RMT/GRT 각각 200 updates이며, small 2만 updates는 다음 선택으로 실행한다.
+기본은 tiny·smoke·RMT/GRT 각각 200 updates이며, small 1만 updates는 다음 선택으로 실행한다.
 
 ```python
-job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',),
-                  run_id='wiki_small_gpt2_bpe_20k_b256_seed54')
+job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
+                  run_id='wiki_small_gpt2_bpe_10k_b256_seed54')
 ```
 
 | 선택 | 값 |
 |---|---|
 | size | base D410/L16/H10/FF2100 · small D256/L6/H8/FF1024 · tiny D128/L3/H4/FF512 |
-| budget | smoke 200 · 20k 20000 · full 200000 updates |
+| budget | smoke 200 · 10k 10000 · 100k 100000 updates |
 | models | `('rmt',)` / `('grt',)` / `('rmt', 'grt')` 순차 실행 |
 | tokenization | gpt2_bpe(기본, 50257) / word(267735) |
 
@@ -42,14 +42,14 @@ Tokenizer만 다운로드하며 모델 weights는 새로 초기화한다. BPE-to
 `steps=30000` 또는 `overrides={'evaluation': {'every_steps': 1000}}`로 변경할 수 있다.
 이런 숫자 변경에는 새 YAML이나 노트북을 만들지 않는다. 모든 preset은 [단일 카탈로그](configs/experiments.yaml)에서 관리한다.
 Kaggle은 global batch256, microbatch32×accumulation4×GPU2, Adam LR5e-4로 시작한다. 자동 조정은 Kaggle에서 기본 on이며 목표 VRAM80% 안에서 microbatch128→64→32…를 선택해 global256을 유지한다. off는 config 배치를 그대로 쓴다. 사전 측정은 최종 Config와 ETA를 모델별로 저장한다.
-20k/full은 validation1000/logging10 updates이며20k의 target 예산 상한은768M token이다. 이전 배치60의20k보다 약4.27배 많다. 같은180M token 예산에 맞출 때는 `steps=4688`을 명시한다. 설정 변경 시 새 run을 사용한다.
+10k/100k은 validation1000/logging10 updates이며 target 예산 상한은 각각384M/3.84B token이다. 설정 변경 시 새 run을 사용한다.
 CLI도 동일 카탈로그를 지원한다.
 
 ```bash
 python scripts/download_wikitext.py --output-dir data/wikitext103_hf_source
 python scripts/prepare_wikitext_bpe.py --source data/wikitext103_hf_source --output-dir data/wikitext103_gpt2
 # torchrun 2 GPU: 사전 측정 예시
-torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --model rmt --size small --tokenization gpt2_bpe --budget 20k --runtime kaggle --output-dir runs/small_rmt_20k_preflight --device cuda --benchmark-steps 10
+torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --model rmt --size small --tokenization gpt2_bpe --budget 10k --runtime kaggle --output-dir runs/small_rmt_10k_preflight --device cuda --benchmark-steps 10
 ```
 
 공통 `training.auto_batch` 기본은 false이며 Kaggle runtime에서 true로 켠다. 노트북은 `overrides={'training': {'auto_batch': False}}`, CLI는 `--set training.auto_batch=false`로 끈다. 목표는 `training.memory_fraction`(기본0.8)으로 지정한다. on이면 신규 CUDA 학습에서 필요한 사전 측정을 수행하고, 기존 측정/현재 run의 보정 배치를 재사용한다. 실질 배치와 평가 batch는 유지하며 CPU와 off에서는 자동 조정하지 않는다.
@@ -68,7 +68,7 @@ W&B는 Kaggle에서 기본 활성화하며 첫 step·주기별·평가·마지�
 `wandb_status.json`에 URL·마지막 step·실패 수를 남기며 utils가 완료 상태를 확인한다. preflight는 W&B run을 생성하지 않는다.
 
 ```bash
-python scripts/evaluate.py --checkpoint /kaggle/working/wiki_small_gpt2_bpe_20k_b256_seed54/rmt/best.pt --device cuda
+python scripts/evaluate.py --checkpoint /kaggle/working/wiki_small_gpt2_bpe_10k_b256_seed54/rmt/best.pt --device cuda
 ```
 
 평가 batch가 달라지면 stream partition도 달라지므로 비교 실험에서는 동일하게 유지한다.

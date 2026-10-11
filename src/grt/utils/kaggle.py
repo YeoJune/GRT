@@ -73,7 +73,7 @@ def estimate_time(benchmark, manifest, *, steps, eval_every, eval_batch, segment
 class WikiTextRun:
     repo_dir: Path
     size: str = 'small'
-    budget: str = '20k'
+    budget: str = '10k'
     models: tuple = ('rmt',)
     tokenization: str = 'gpt2_bpe'
     steps: int | None = None

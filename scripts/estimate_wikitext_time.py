@@ -12,7 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--benchmark', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
-    parser.add_argument('--steps', type=int, default=200000)
+    parser.add_argument('--steps', type=int, default=100000)
     parser.add_argument('--eval-every', type=int, default=1000)
     parser.add_argument('--eval-batch', type=int, default=10)
     parser.add_argument('--segment-len', type=int, default=150)

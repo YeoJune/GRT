@@ -80,7 +80,7 @@ tasks:
         objective: next_token
     training:
       curriculum: []
-      max_steps: 200000
+      max_steps: 100000
       batch_size: 256
       grad_accum_steps: 1
       global_batch_size: 256
@@ -161,17 +161,17 @@ budgets:
       every_steps: 20
     wandb:
       every_steps: 10
-  20k:
+  10k:
     training:
-      max_steps: 20000
+      max_steps: 10000
       curriculum: []
     evaluation:
       every_steps: 1000
     wandb:
       every_steps: 10
-  full:
+  100k:
     training:
-      max_steps: 200000
+      max_steps: 100000
       curriculum: []
     evaluation:
       every_steps: 1000
