@@ -29,6 +29,7 @@ python scripts/estimate_wikitext_time.py --benchmark runs/rmt_bpe_preflight/benc
 ## Kaggle
 
 최신 `notebooks/kaggle.ipynb`는 small WikiText용이며 기본은 GPT-2 BPE다. `TOKENIZATION='word'`로 기존 word-level도 선택한다. 기존 Remember 노트북은 `docs/archive/20261011_kaggle_remember.ipynb`에 보존한다. 유지하는 notebook은 `template.ipynb`와 `kaggle.ipynb` 두 개다.
+첫 코드 셀이 저장소가 없으면 GitHub `main`을 `/kaggle/working/GRT`에 자동 clone한다. 기존 git checkout은 로컬 수정이 없을 때만 fast-forward로 갱신한다. 로컬 수정이 있으면 갱신을 생략하며 오프라인에서는 `UPDATE_REPO=False`를 사용한다. 저장소를 수동으로 준비해야 했던 첫 셀의 assertion을 제거했다.
 
 설정 cell에서 실행 이름을 지정한다. 기본 `DOWNLOAD_WIKITEXT=True`는 데이터를 Hugging Face에서 다운로드하며 별도 Kaggle 입력 dataset은 필요 없다. 기존 로컬 `.tokens` 파일을 쓰려면 false로 바꾸고 SOURCE_DIR을 지정한다. T4 두 장 확인/W&B 로그인 → 다운로드·데이터 준비 → RMT/GRT 각각 preflight와 ETA → calibrated override 저장 → 본 학습/재개 → 결과 확인 순서다. 본 학습 cell은 전체 200000 updates 실행임을 명시한다. 세션 종료 시 저장 폴더를 Kaggle output/dataset으로 보존하고, 재개 cell에서 이전 output을 writable working 경로로 복사한다.
 
