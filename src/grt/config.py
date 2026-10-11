@@ -7,7 +7,7 @@ import math
 import types
 import yaml
 
-EXPERIMENT_VERSION = "memory_experiment/3"
+EXPERIMENT_VERSION = "memory_experiment/4"
 
 
 @dataclass
@@ -38,7 +38,6 @@ class ModelConfig:
     name: str = "rmt"
     implementation: str = "neox"
     attention_mode: str = "decoder"
-    register_read_source: str = "intermediate"
     rotary_pct: float = 0.25
     rotary_base: int = 10000
     attention_dropout: float = 0.0
@@ -215,7 +214,6 @@ def validate_model(m):
         raise ValueError("Only the current NeoX implementation is supported")
     rotary_dim = int((m.d_model // m.alu.nhead) * m.rotary_pct)
     if (m.attention_mode not in ("encoder", "decoder")
-        or m.register_read_source not in ("intermediate", "fixed_state")
         or not m.tie_word_embeddings
         or rotary_dim <= 0 or rotary_dim % 2 or not 0 < m.rotary_pct <= 1
         or m.rotary_base <= 0 or not 0 <= m.attention_dropout <= 1):

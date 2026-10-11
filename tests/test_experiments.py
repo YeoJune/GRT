@@ -53,6 +53,8 @@ def test_explicit_values_and_invalid_choices():
         load_experiment(task='wikitext103', overrides={'training': {'max_step': 1}})
     with pytest.raises(ValueError, match='Invalid type'):
         load_experiment(task='wikitext103', steps='200')
+    with pytest.raises(ValueError, match='Unknown keys'):
+        load_experiment(task='wikitext103', overrides={'model': {'register_read_source': 'fixed_state'}})
 
 
 def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):

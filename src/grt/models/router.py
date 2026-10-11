@@ -29,16 +29,21 @@ class GlobalRouterUnit(nn.Module):
         nn.init.zeros_(self.mlp_r[-1].bias)
         nn.init.constant_(self.mlp_w[-1].bias, write_gate_bias_init)
 
-    def forward(self, x, s):
+    def context(self, x, s):
         rich, alpha = self.pool_attn(
             self.q_pool.expand(x.shape[0], -1, -1), x, x, average_attn_weights=True
         )
         context, _ = self.reg_attn(rich, s, s, need_weights=False)
         g = torch.cat([rich, context], dim=-1).squeeze(1)
-        read = self.mlp_r(g).sigmoid().unsqueeze(-1)
-        write_logits = self.mlp_w(g)
+        return g, alpha.squeeze(1)
+
+    def forward(self, x, s):
+        read_context, _ = self.context(s, s)
+        write_context, alpha = self.context(x, s)
+        read = self.mlp_r(read_context).sigmoid().unsqueeze(-1)
+        write_logits = self.mlp_w(write_context)
         if self.training and self.dropout_prob:
             write_logits = write_logits.masked_fill(
                 torch.rand_like(write_logits) < self.dropout_prob, -torch.inf
             )
-        return read, write_logits.sigmoid().unsqueeze(-1), alpha.squeeze(1)
+        return read, write_logits.sigmoid().unsqueeze(-1), alpha

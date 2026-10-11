@@ -5,9 +5,9 @@ from pathlib import Path
 import random
 import numpy as np
 import torch
-from grt.config import Config, build_config
+from grt.config import Config, build_config, EXPERIMENT_VERSION
 
-CHECKPOINT_FORMAT = "memory_experiment/3"
+CHECKPOINT_FORMAT = EXPERIMENT_VERSION
 
 
 def seed_all(seed):

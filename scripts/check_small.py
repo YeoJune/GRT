@@ -95,7 +95,6 @@ def experiment(cfg, corpus):
         attention_mode=cfg.model.attention_mode, d_model=cfg.model.d_model,
         layers=cfg.model.alu.num_layers, heads=cfg.model.alu.nhead,
         d_ff=cfg.model.alu.d_ff, memory_slots=cfg.model.num_registers,
-        register_read_source=cfg.model.register_read_source,
         conditional_read=cfg.model.register.conditional_read if cfg.model.register else None,
         parameters=parameters, initial_test=initial, selected_checkpoint_test=final,
         selected_checkpoint_step=selected_step, last_checkpoint_step=last_step, last_checkpoint_test=last_test,

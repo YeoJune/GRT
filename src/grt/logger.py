@@ -69,7 +69,7 @@ def metadata(model, cfg):
             "author collator uses model-seeded global torch RNG; identical distribution, not guaranteed identical batch sequence across architectures"),
         "implementation": cfg.model.implementation,
         "attention_mode": cfg.model.attention_mode,
-        "register_read_source": cfg.model.register_read_source,
+        "memory_read": "segment_start_state" if cfg.model.name == "grt" else "read_block",
         "objective": cfg.data.options.get("objective", "next_token"),
     }
 

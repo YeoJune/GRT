@@ -61,10 +61,7 @@ class WikiTextAdapter:
 
     @staticmethod
     def score_kind(cfg):
-        if cfg.model.name == "rmt" or (cfg.model.register_read_source == "fixed_state"
-                and not cfg.model.register.conditional_read):
-            return "autoregressive"
-        return "teacher_forced_noncausal"
+        return "autoregressive"
 
     def evaluate(self, model, cfg, tokens, device):
         from grt.checkpoint import evaluation_context

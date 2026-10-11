@@ -24,7 +24,7 @@
 - 작업 전 관련 코드·설정, README와 관련 문서를 읽는다. 문서의 날짜·적용 범위와 사용자 요청을 함께 확인한다.
 - 원본 기준 코드와 GRT 설계, 학습 최적화를 구분한다. 원본 파일 변경 시 `SOURCE.json`과 대조 검사를 갱신한다.
 - Remember decoder는 raw labels와 predictor mask, encoder는 masked slot에 정렬된 raw labels를 받는다. WikiText adapter만 명시적 `target_ids` 계약으로 다음 token을 정렬한다. loss shift를 중복 적용하지 않는다. 두 모델은 같은 과제 입력·target을 사용한다.
-- GRT router·ALU·write-back 계약을 유지한다. 새 구조는 segment의 전체 stack 뒤 write-back 한 번이며 학습 prefix 재계산을 제거한다. intermediate 기본/fixed_state 옵션, read gate off 기본을 유지하고 causal 여부와 fact→query gradient를 확인한다. 과거 prefix 구현과 wrapper 분기는 제거한다.
+- GRT는 모든 layer의 token이 segment 시작 state를 읽는 구조만 구현한다. read gate도 시작 state만으로 계산하며 기본 off다. candidate 중간 register hidden을 token K/V로 노출하지 않으며 읽기 source 선택 옵션·과거 구현 분기를 두지 않는다. segment의 전체 stack 뒤 write-back 한 번을 유지하고 병렬/prefix 출력·종료 state 동등성과 fact→query gradient를 확인한다. prefix 재계산은 추론/검증용이며 학습 경로에는 넣지 않는다.
 - 새 데이터셋은 adapter를 통해 같은 배치 계약에 연결한다. trainer/evaluator에 과제·모델별 분기를 추가하지 않는다. 인터페이스 변경은 데이터 경계·모델 factory에서 명시한다.
 - 원본 collator는 전역 Torch RNG를 사용한다. 같은 dataset/seed라도 모델 초기화에 따라 길이·질의 선택 순서가 다를 수 있다. 이를 동일 배치 비교로 표현하거나 정리 작업 중 몰래 바꾸지 않는다.
 - 설정은 `docs/20261011_experiment_workflow.md`의 역할·병합 순서를 따른다. 신규 크기/고정 비교 조건은 카탈로그에 추가하고 숫자 변경은 `--steps`/`--set`을 쓴다. 실험별 flat YAML과 노트북 helper 코드를 복사하지 않고 utils를 확장한다. 목록과 null은 교체한다. 실제 조건은 resolved config와 metadata로 확인한다. 설정이 바뀌면 새 run을 사용하고 기존 결과를 보존한다.

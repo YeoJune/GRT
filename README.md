@@ -53,8 +53,8 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --m
 ```
 
 공통 `training.auto_batch` 기본은 false이며 Kaggle runtime에서 true로 켠다. 노트북은 `overrides={'training': {'auto_batch': False}}`, CLI는 `--set training.auto_batch=false`로 끈다. 목표는 `training.memory_fraction`(기본0.8)으로 지정한다. on이면 신규 CUDA 학습에서 필요한 사전 측정을 수행하고, 기존 측정/현재 run의 보정 배치를 재사용한다. 실질 배치와 평가 batch는 유지하며 CPU와 off에서는 자동 조정하지 않는다.
-GRT 기본 intermediate/read off는 `teacher_forced_noncausal`, RMT decoder는 `autoregressive`다.
-GRT의 엄격한 causal 조건은 `--set model.register_read_source=fixed_state`이며 read gate off를 유지한다.
+GRT는 segment 시작 state를 읽는 구조가 유일한 표준이며 read gate는 기본 off다. gate를 켜도 segment 시작 state만으로 계산하므로 GRT/RMT decoder는 모두 `autoregressive`다. candidate와 write gate는 전체 segment로 계산해 stack 종료 후 다음 state에만 반영한다.
+이전 중간 register 읽기 방식은 병렬 학습에서 미래 정보 leakage가 발생할 수 있어 제거했다. 설계 이유는 [통합 명세](docs/20261011_current_spec.md)에만 기록한다. 읽기 source 선택 옵션과 이전 실행 설정의 호환 경로는 없다. 변경된 모델은 새 run으로 실행한다.
 
 ## 결과와 재개
 
@@ -72,4 +72,4 @@ python scripts/evaluate.py --checkpoint /kaggle/working/wiki_small_gpt2_bpe_10k_
 ```
 
 평가 batch가 달라지면 stream partition도 달라지므로 비교 실험에서는 동일하게 유지한다.
-`--config`는 현재 실행용 최종 Config YAML 하나를 읽는다. 이전 config 경로·모델 구현·checkpoint 형식은 지원하지 않는다. checkpoint는 `memory_experiment/3`만 읽으며 현재 형식으로 시작한 run을 재개한다. 출처·hash는 `src/grt/vendor/armt/`, 라이선스는 [NOTICE](third_party/NOTICE.md)에 있다.
+`--config`는 현재 실행용 최종 Config YAML 하나를 읽는다. 이전 config 경로·모델 구현·checkpoint 형식은 지원하지 않는다. checkpoint는 `memory_experiment/4`만 읽으며 현재 형식으로 시작한 run을 재개한다. 출처·hash는 `src/grt/vendor/armt/`, 라이선스는 [NOTICE](third_party/NOTICE.md)에 있다.

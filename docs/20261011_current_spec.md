@@ -50,43 +50,41 @@ RoPE scaling은 없고 초기 cache 길이는 2048이며 더 긴 길이에서는
 X = embedding(segment_ids)
 u, alpha = AttentionPool(q_pool, X)
 v = RegisterCrossAttention(u, S, S)
-g = concat(u, v)
-R = sigmoid(MLP_R(g)); W = sigmoid(MLP_W(g))
+u_read = AttentionPool(q_pool, S)
+v_read = RegisterCrossAttention(u_read, S, S)
+R = sigmoid(MLP_R(concat(u_read, v_read)))
+W = sigmoid(MLP_W(concat(u, v)))
 S_read = R*S if conditional_read else S
-[Y; C] = TransformerStack([X; S_read], mask, position_ids)
+[Y; C] = TransformerStack([X; S_read], mask, position_ids,
+                          token_read_state=S_read)
 logits = tied_lm_head(Y)
 S_next = (1-W)*S + W*C
 ```
 
 R/W는 register별 scalar [B,M,1], S/C는 [B,M,D].
 read gate는 on/off 가능하고 기본 conditional_read=false. write gate는 항상 적용한다.
+read gate는 segment 시작 S만으로 계산하며 현재 token X를 참조하지 않는다. write gate는 기존 입력 기반 pooling을 유지하고 alpha는 이 write pooling의 token attention weights다.
 위치별 prefix 재계산은 새 구조에서 제거한다.
 세그먼트의 전체 Transformer stack 완료 후 write-back을 한 번 수행한다.
 개별 layer마다 저장 state를 write-back하지 않으며 S_next는 다음 segment에서 사용한다.
 저장 state S와 layer별 register hidden state H_R는 구분한다.
 
-## 4. 인코더/디코더와 register 읽기 옵션
+## 4. 인코더/디코더의 표준 register 읽기
 
-register_read_source=intermediate가 두 버전의 기본값이다.
-각 layer의 token은 이전 layer의 register 중간 표현을 읽는다.
-fixed_state 옵션은 token이 모든 layer에서 segment 시작 S_read를 읽는다.
-후보 계산 경로는 유지하되 candidate 중간 표현을 token 읽기 source로 제공하지 않는다.
-fixed_state는 detach가 아니며 state gradient/BPTT와 독립이다.
-read gate와 register_read_source는 별도 옵션이다.
-`--set model.register_read_source=fixed_state` 또는 동일한 Python override로 fixed_state를 선택한다. read gate는 `model.register.conditional_read`로 제어한다.
+GRT는 두 버전 모두 segment 시작 S_read를 모든 layer의 token 읽기 source로 사용한다. 각 layer의 LayerNorm과 K/V projection은 서로 다르지만 그 입력 state는 segment 안에서 고정된다. fixed_state는 선택 옵션이 아니라 유일한 표준 구조이며 register_read_source 설정 필드는 제거한다.
+candidate 계산용 register hidden은 모든 token을 읽고 layer마다 계산된다. 이 중간 표현은 token의 K/V로 제공하지 않는다. 전체 stack 완료 후 최종 candidate로 write-back을 한 번 수행하며 새 state는 다음 segment에서만 사용한다.
+읽기 state를 고정하는 것은 detach가 아니다. 이전 segment와의 state gradient 및 BPTT를 유지한다. read gate는 model.register.conditional_read로 제어하며 기본 off다.
 
 | Query → Key | 인코더 | 디코더 |
 |---|---|---|
 | Tokens → Tokens | 양방향 전체 | causal j<=i |
-| Tokens → Registers | 전체, 선택한 read source | 전체, 선택한 read source |
+| Tokens → Registers | 전체, segment 시작 S_read | 전체, segment 시작 S_read |
 | Registers → Tokens | 전체 | 전체 |
 | Registers → Registers | 전체 | 전체 |
 
-디코더 기본 intermediate는 token-token causal이다. 다층 register를 경유한
-미래 token -> register 중간 표현 -> 과거 token 경로가 가능하므로 엄격한 AR decoder와 구분한다.
-read=false는 router read gate 경로를 제거하지만 이 층간 경로는 제거하지 않는다.
-fixed_state + read=false는 해당 우회 경로를 막으며 CPU 미래변경 불변성 검사를 수행한다.
-read=true의 full-segment gate는 별도 미래 정보 경로를 만들 수 있어 평가 조건에 기록한다.
+디코더는 read gate on/off 모두 위치 i의 각 layer 표현이 segment 시작 state와 i까지의 token에만 의존한다. gate도 S만으로 계산하므로 병렬 입력의 미래 token에 영향을 받지 않는다. 따라서 dropout off, 동일한 RoPE 위치/segment 경계에서 전체 segment 병렬 계산과 prefix 단위 직렬 추론의 token 출력이 일치한다. 추론에서도 prefix의 임시 write-back 결과를 다음 token에 넣지 않고 segment 완료 시에만 저장한다. 완료 시 전체 token/state가 같으므로 candidate, write gate, 다음 저장 state도 일치한다.
+
+이전 중간 register 읽기 방식은 token-token mask가 causal이어도 병렬 teacher forcing에서 미래 token -> register hidden -> 앞쪽 token의 층간 경로로 leakage가 발생할 수 있었다. 종료 후 write-back의 타이밍 문제가 아니라 token에 노출되는 K/V source의 문제다. 이 방식은 설명 기록으로만 남기며 실행 코드·설정·호환 분기를 유지하지 않는다.
 NeoX 기본 전체 triangular mask를 그대로 쓰면 뒤쪽 register를 token이 읽지 못한다.
 인코더 양방향 및 디코더 block mask 지원을 명시적으로 구현한다.
 
@@ -141,12 +139,12 @@ LR은 이전 배치60의2.5e-4에서 제곱근 비례값 약5.16e-4를 반올림
 새 학습은 vendor manage_gradients에 의존하지 않는다. 자세한 replay/detach 경계는 8절을 따른다.
 segment boundary target을 빠뜨리지 않고 loss shift를 중복 적용하지 않는다.
 NLL 합/유효 target 수로 mean NLL을 계산한 후 exp로 PPL을 계산한다.
-intermediate decoder의 NLL/PPL은 엄격한 AR baseline과 동등하게 해석하지 않는다.
+현재 GRT decoder 기본과 RMT decoder는 모두 autoregressive NLL/PPL을 기록한다. 이전 중간 register 읽기로 얻은 GRT PPL은 leakage 가능성이 있으므로 현재 모델 또는 AR baseline과 같은 조건의 결과로 해석하지 않는다.
 WikiText 인코더 MLM/분류 목적은 후속 지정이며 자동으로 next-token 목적을 채택하지 않는다.
 
 ## 7. 구현 경계와 검증
 
-공통 backbone/모델 factory에 인코더·디코더와 read source 정책을 둔다.
+공통 backbone/모델 factory에 인코더·디코더와 고정 state 읽기를 구현한다. 읽기 source 선택 분기는 두지 않는다.
 데이터 adapter에서 task별 입력/label 계약을 구성하고 trainer의 token-ID 기반 분기는 피한다.
 trainer/evaluator에는 objective/state/metric capability를 명시적으로 확장한다.
 현재 모델에서 사용하는 vendor 코드의 출처·hash·라이선스를 유지한다.
@@ -154,7 +152,7 @@ trainer/evaluator에는 objective/state/metric capability를 명시적으로 확
 검증: 공통 backbone 일치, tied save/load, read off 영향, stack/write-back 각1회,
 prefix 호출 제거, masked Remember label 변경시 입력/logits 불변,
 fact->query gradient, parallel value+EOS EM,
-fixed_state/read=false 미래 token 불변, intermediate의 경로 기록,
+고정 state 읽기의 미래 token 불변, prefix/전체 segment 출력과 종료 state 일치,
 RoPE positions, state reset/BPTT 경계, boundary CE, token-weighted PPL, 재개.
 GPU 수렴/VRAM/throughput은 작은 CPU 검사와 구분하여 보고한다.
 
@@ -198,7 +196,7 @@ optimizer update 사이에는 graph를 보관하지 않는다. K=0이면 직전 
 마지막 짧은 segment도 boundary next-token target을 포함하고 실제 target 수를 token budget에 누적한다.
 update당 target 예산 상한은38400(256×150)이다. 10k의10000 updates는384M, 100k의100000 updates는3.84B이며 짧은 tail/reset을 반영한 실제 수를 기록한다. budget 이름은 update 수를 뜻한다.
 
-현재 checkpoint 형식은 `memory_experiment/3`이며 과거 형식 변환/읽기는 제공하지 않는다. checkpoint는 model/Adam/scheduler/RNG뿐 아니라 rank별 history, detached boundary states,
+현재 checkpoint 형식은 `memory_experiment/4`이며 과거 형식 변환/읽기는 제공하지 않는다. 고정 state 표준화 이전 config/checkpoint로 재개하지 않고 새 run을 사용한다. checkpoint는 model/Adam/scheduler/RNG뿐 아니라 rank별 history, detached boundary states,
 stream offset, 실제 target token 수, manifest와 best loss를 저장한다. 동일 설정/동일 world_size로만 재개한다.
 validation은 dropout off로 순차 state를 유지하고 training RNG를 보존한다. best는 validation mean NLL로 선택한다.
 DDP 학습은 stream을 rank별로 나누며 평가 전체 stream은 각 rank에서 동일하게 읽는다. 평가를 중복 합산하지 않는다.
@@ -232,11 +230,13 @@ Kaggle 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/10k/
 
 ## 9. 현재 검증과 해석 범위
 
+고정 state 표준화 후 관련 CPU 검사13개가 합계3.13초에 통과했다. read gate on/off 모두 미래 token 변경 불변성과 모든 prefix의 출력을 확인했고, 비영 초기 state·복수 segment·짧은 tail에서 layer별 읽기 source/토큰 attention 출력, 종료 candidate/write gate/저장 state를 병렬 실행과 대조했다. prefix 비교는 FP32의 연산 shape 차이를 고려해 rtol=1e-5/atol=1e-7을 사용했다. Remember masked slot/gradient/trace, replay detach/gradient 및 현재 형식의 Remember·WikiText 짧은 실행과 재개도 확인했다. GPU 수렴·VRAM·속도는 새 구조로 아직 실측하지 않았다.
+
 현재 코드 기준 관련 CPU 검사 54개가 9.16초에 통과했다(설정 선택·단일 파일 입력·형식 거부·짧은 실행/재개와 vendor 출처 검사). 전체 회귀나 GPU 수렴 검사 결과로 해석하지 않는다. 현재 카탈로그와 공통 NeoX 인코더·디코더 계약을 검사한다. 모델/과제 검사는 현재 preset에서 작은 CPU override를 적용하고, archive의 코드나 설정에 의존하지 않는다. config 단일 파일 입력과 현재 checkpoint 재개를 지원하며 옛 경로/형식은 거부한다.
 
 사용자가 제공한 tiny/smoke GPU 실행은 두 모델 모두 200 updates 완료했고 온라인 W&B도 failures=0, last_logged_step=200으로 종료했다. small BPE/T4 × 2 preflight는 두 모델 약0.48초/update였다. 이는 과거 관측이며 이번 코드 정리 후 GPU 실행을 다시 수행한 결과가 아니다. tiny/100k 수렴과 시간은 아직 확인하지 않았다.
 
-GRT intermediate의 teacher_forced_noncausal PPL을 autoregressive RMT PPL과 동일 조건으로 해석하지 않는다. 정확한 RMT 2022 Transformer-XL/adaptive-softmax 재현도 아니다.
+과거 중간 register 읽기 GRT 결과는 leakage 가능성이 있어 현재 autoregressive GRT/RMT 결과와 동일 조건으로 해석하지 않는다. 정확한 RMT 2022 Transformer-XL/adaptive-softmax 재현도 아니다.
 
 ## 10. 출처
 

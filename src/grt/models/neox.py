@@ -24,9 +24,15 @@ class RecurrentOutput(ModelOutput):
 
 
 class MemoryAttention(GPTNeoXAttention):
+    def attend(self, query, key, value, mask):
+        scores = query @ key.transpose(-1, -2) / self.norm_factor
+        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+        weights = self.attention_dropout(scores.float().softmax(-1).to(value.dtype))
+        return weights @ value
+
     def forward(self, hidden_states, attention_mask=None, position_ids=None,
                 head_mask=None, layer_past=None, use_cache=False,
-                output_attentions=False, fixed_memory=None, token_length=0, rotary_length=None):
+                output_attentions=False, read_state=None, token_length=0, rotary_length=None):
         if layer_past is not None or use_cache:
             raise ValueError("MemoryAttention uses explicit segment state, not KV cache")
         b, length, _ = hidden_states.shape
@@ -38,13 +44,11 @@ class MemoryAttention(GPTNeoXAttention):
             k[..., :self.rotary_ndims], cos, sin, position_ids)
         q = torch.cat([qr, q[..., self.rotary_ndims:]], -1)
         k = torch.cat([kr, k[..., self.rotary_ndims:]], -1)
-        scores = q @ k.transpose(-1, -2) / self.norm_factor
-        scores = scores.masked_fill(~attention_mask, torch.finfo(scores.dtype).min)
-        weights = self.attention_dropout(scores.float().softmax(-1).to(v.dtype))
-        attended = weights @ v
-        if fixed_memory is not None:
-            fixed = self.query_key_value(fixed_memory).view(
-                b, fixed_memory.shape[1], self.num_attention_heads, 3 * self.head_size)
+        if read_state is None:  # RMT has separate read and write blocks.
+            attended = self.attend(q, k, v, attention_mask)
+        else:
+            fixed = self.query_key_value(read_state).view(
+                b, read_state.shape[1], self.num_attention_heads, 3 * self.head_size)
             _, fk, fv = [x.permute(0, 2, 1, 3) for x in fixed.split(self.head_size, -1)]
             # Apply the same positional rotation to fixed-source register keys.
             dummy = torch.zeros_like(fk[..., :self.rotary_ndims])
@@ -53,11 +57,13 @@ class MemoryAttention(GPTNeoXAttention):
             fk = torch.cat([fkr, fk[..., self.rotary_ndims:]], -1)
             fixed_keys = torch.cat([k[:, :, :token_length], fk], 2)
             fixed_values = torch.cat([v[:, :, :token_length], fv], 2)
-            token_scores = q[:, :, :token_length] @ fixed_keys.transpose(-1, -2) / self.norm_factor
-            token_scores = token_scores.masked_fill(~attention_mask[:, :, :token_length],
-                torch.finfo(token_scores.dtype).min)
-            token_weights = self.attention_dropout(token_scores.float().softmax(-1).to(v.dtype))
-            attended = torch.cat([token_weights @ fixed_values, attended[:, :, token_length:]], 2)
+            # Token K/V always read the segment-start state. Candidate hidden
+            # states can collect the whole segment but are never read by tokens.
+            tokens = self.attend(q[:, :, :token_length], fixed_keys, fixed_values,
+                                 attention_mask[:, :, :token_length])
+            candidates = self.attend(q[:, :, token_length:], k, v,
+                                     attention_mask[:, :, token_length:])
+            attended = torch.cat([tokens, candidates], 2)
         out = attended.transpose(1, 2).reshape(b, length, self.hidden_size)
         return (self.dense(out), None)
 
@@ -88,14 +94,14 @@ class NeoXBackbone(nn.Module):
             if isinstance(module, nn.Linear) and module.bias is not None:
                 nn.init.zeros_(module.bias)
 
-    def forward(self, x, mask, fixed_memory=None, token_length=0,
+    def forward(self, x, mask, read_state=None, token_length=0,
                 position_ids=None, rotary_length=None):
         h = self.dropout(x)
         positions = torch.arange(h.shape[1], device=h.device)[None] if position_ids is None else position_ids
         for layer in self.layers:
             attn = layer.attention(layer.input_layernorm(h), attention_mask=mask,
                 position_ids=positions,
-                fixed_memory=layer.input_layernorm(fixed_memory) if fixed_memory is not None else None,
+                read_state=layer.input_layernorm(read_state) if read_state is not None else None,
                 token_length=token_length, rotary_length=rotary_length)[0]
             # NeoX parallel residual: both branches see the same layer input.
             h = h + layer.post_attention_dropout(attn) + layer.post_mlp_dropout(
@@ -149,13 +155,12 @@ class RecurrentNeoX(nn.Module):
         else:
             read, write, alpha = self.router(x, state)
             source = read * state if self.cfg.register.conditional_read else state
-            fixed = source if self.cfg.register_read_source == "fixed_state" else None
             # Reserve memory positions after a full segment even for a shorter prefix.
             # Otherwise future sequence length would change token-to-memory RoPE.
             positions = torch.cat([torch.arange(n, device=ids.device),
                 torch.arange(self.cfg.segment_len, self.cfg.segment_len+m, device=ids.device)])[None]
             h = self.backbone(torch.cat([x, source], 1),
-                self.attention_mask(n, ids.device), fixed, n, positions, self.cfg.segment_len+m)
+                self.attention_mask(n, ids.device), source, n, positions, self.cfg.segment_len+m)
             y, candidate = h[:, :n], h[:, n:]
             next_state = write_back(state, candidate, write)
             if trace is not None:

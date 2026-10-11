@@ -1,4 +1,4 @@
-"""New architecture contracts: masked retrieval, causal options, and stream resume."""
+"""Current architecture: fixed state reads, masked retrieval and stream resume."""
 import copy
 from pathlib import Path
 import torch
@@ -60,11 +60,12 @@ def test_parallel_query_has_no_answer_and_one_stack_per_segment(tmp_path, name):
     assert restored.backbone.embedding.weight is restored.backbone.lm_head.weight
 
 
-@pytest.mark.parametrize('name,source', [('rmt','intermediate'),('grt','fixed_state')])
-def test_decoder_causality_including_register_path(tmp_path,name,source):
+@pytest.mark.parametrize('name,read', [('rmt',False),('grt',False),('grt',True)])
+def test_decoder_causality_including_register_path(tmp_path,name,read):
     torch.manual_seed(19)
     cfg=config(tmp_path,name,'decoder')
-    cfg.model.register_read_source=source
+    if name == 'grt':
+        cfg.model.register.conditional_read=read
     cfg.model.segment_len=8
     model=create_model(cfg).eval()
     ids=torch.tensor([[1,2,3,4,5,6]])
@@ -79,22 +80,57 @@ def test_decoder_causality_including_register_path(tmp_path,name,source):
     assert not torch.allclose(model(ids).memory_state,model(altered).memory_state)
 
 
-def test_intermediate_decoder_keeps_encoder_register_interaction(tmp_path):
-    torch.manual_seed(19)
-    cfg=config(tmp_path,mode='decoder');cfg.model.segment_len=8
-    model=create_model(cfg).eval()
-    ids=torch.tensor([[1,2,3,4,5,6]])
-    altered=ids.clone();altered[:,3:]=torch.tensor([[9,10,11]])
-    assert not torch.allclose(model(ids).logits[:,:3],model(altered).logits[:,:3])
-
-
 def test_read_switch_and_fixed_state_candidate_gradient(tmp_path):
-    cfg=config(tmp_path);cfg.model.register_read_source='fixed_state'
+    cfg=config(tmp_path)
     cfg.model.register.conditional_read=True
     model=create_model(cfg)
     batch=next(iter(make_loader(cfg,make_dataset(cfg,'validation',1),vary=False)))
     out=forward_batch(model,batch,'cpu');out.loss.backward()
     assert model.router.mlp_r[-1].weight.grad.abs().sum()>0
+
+
+@pytest.mark.parametrize('read', [False, True])
+@torch.no_grad()
+def test_parallel_and_prefix_inference_match_layers_and_writebacks(tmp_path, monkeypatch, read):
+    from grt.models.neox import write_back
+    torch.manual_seed(19)
+    cfg=config(tmp_path,mode='decoder')
+    cfg.model.register.conditional_read=read
+    model=create_model(cfg).eval()
+    ids=torch.tensor([[1,2,3,4,5,6,7,8,9,10], [11,12,13,14,15,16,17,18,19,20]])
+    initial=torch.randn(2,cfg.model.num_registers,cfg.model.d_model)
+    attention, writes = [], []
+    def record_attention(module, args, kwargs, output):
+        attention.append((kwargs['read_state'].clone(),
+                          output[0][:,:kwargs['token_length']].clone()))
+    def record_write(state, candidate, gate):
+        result=write_back(state,candidate,gate)
+        writes.append(tuple(x.clone() for x in (state,candidate,gate,result)))
+        return result
+    hooks=[layer.attention.register_forward_hook(record_attention,with_kwargs=True)
+           for layer in model.backbone.layers]
+    monkeypatch.setattr('grt.models.neox.write_back',record_write)
+    parallel=model(ids,memory_state=initial)
+    parallel_attention, parallel_writes = attention.copy(), writes.copy()
+    assert len(parallel_writes)==3  # Two full segments and one shorter tail.
+    state, logits = initial.clone(), []
+    for index, segment in enumerate(ids.split(cfg.model.segment_len,1)):
+        for length in range(1,segment.shape[1]+1):
+            attention.clear();writes.clear()
+            prefix=model(segment[:,:length],memory_state=state)
+            logits.append(prefix.logits[:,-1:])
+            for layer, (source,tokens) in enumerate(attention):
+                expected=parallel_attention[index*cfg.model.alu.num_layers+layer]
+                torch.testing.assert_close(source,expected[0],rtol=1e-5,atol=1e-7)
+                torch.testing.assert_close(tokens,expected[1][:,:length],rtol=1e-5,atol=1e-7)
+        # Prefix write candidates are discarded; commit only at the boundary.
+        for actual, expected in zip(writes[0],parallel_writes[index]):
+            torch.testing.assert_close(actual,expected,rtol=1e-5,atol=1e-7)
+        state=prefix.memory_state
+    for hook in hooks:
+        hook.remove()
+    torch.testing.assert_close(torch.cat(logits,1),parallel.logits,rtol=1e-5,atol=1e-7)
+    torch.testing.assert_close(state,parallel.memory_state,rtol=1e-5,atol=1e-7)
 
 
 @pytest.mark.parametrize('name',['grt','rmt'])
@@ -126,7 +162,6 @@ def stream_config(tmp_path, name='grt'):
         (source/f'wiki.{split}.tokens').write_text('one two three <unk>\n'*60)
     prepared=tmp_path/'tokens';manifest=prepare(source,prepared,0)
     cfg=config(tmp_path/'run',name=name,mode='decoder')
-    cfg.model.register_read_source='fixed_state'
     cfg.model.vocab_size=manifest['vocab_size'];cfg.model.segment_len=4
     cfg.data.name='wikitext103';cfg.data.options={'path':str(prepared)}
     cfg.training.curriculum=[];cfg.training.bptt_segments=1
@@ -166,7 +201,6 @@ def test_word_stream_boundary_loss_and_exact_resume(tmp_path,monkeypatch,name):
 
 def test_replay_gradients_end_at_detached_state(tmp_path):
     cfg=config(tmp_path,mode='decoder')
-    cfg.model.register_read_source='fixed_state'
     model=create_model(cfg)
     old=model(torch.tensor([[1,2,3,4]]))
     old.memory_state.retain_grad()

@@ -39,7 +39,7 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --m
 
 `docs/archive/`에는 과거 설명·설계·검증 기록의 Markdown 문서만 둔다. notebook·zip·config·실행 코드와 archive 문서를 읽어서 작동하는 테스트는 두지 않는다. 현재 코드가 사용하는 vendor 블록·데이터 함수와 출처·라이선스는 별도 `src/grt/vendor/`에 유지한다.
 
-모델 factory는 현재 공통 NeoX만 구성한다. 과거 모델/wrapper 선택, legacy checkpoint 변환과 읽기 경로는 제거한다. 현재 checkpoint 형식은 `memory_experiment/3` 하나다. 예전 형식은 거부하며 변환 코드는 두지 않는다. 현재 run의 재개는 같은 최종 Config·world_size·데이터로 지원한다.
+모델 factory는 현재 공통 NeoX만 구성한다. 과거 모델/wrapper 선택, legacy checkpoint 변환과 읽기 경로는 제거한다. 현재 checkpoint 형식은 `memory_experiment/4` 하나다. 고정 state 표준화 이전 config/checkpoint로 재개하지 않고 새 run을 사용한다. 예전 형식은 거부하며 변환 코드는 두지 않는다. 현재 run의 재개는 같은 최종 Config·world_size·데이터로 지원한다.
 
 ## 노트북과 utils의 경계
 
@@ -56,7 +56,7 @@ job.train()
 job.report()
 ```
 
-`models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 3만 updates는 `steps=30000`으로 지정하고, read source 같은 조건은 `overrides={'model': {'register_read_source': 'fixed_state'}}`로 지정한다.
+`models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 3만 updates는 `steps=30000`으로 지정한다. GRT의 segment 시작 state 읽기는 표준이며 별도 override가 필요 없다. 중간 register 읽기 구현과 register_read_source 선택 필드는 제거한다.
 
 setup/다운로드/prepared hash 검사, torchrun 명령, 로그 tee/자식 종료, calibration, ETA, W&B 확인, summary/plot은 `src/grt/utils/kaggle.py`에서 관리한다. 추가 환경 기능은 utils를 확장한다. 노트북 cell 수나 복사한 helper 함수 수를 늘리지 않는다. 저수준 tokenizer 준비/다운로드 CLI는 계속 사용할 수 있다.
 
@@ -102,3 +102,5 @@ base/small/tiny와 RMT/GRT는 global256, Adam LR5e-4를 공유한다. 배치60�
 배치 자동 조정 추가에서는 관련 CPU 검사만 실행했다. 정책·예산 보존·보정 재사용과 Remember 실제 사전 측정 검사 15개가 1.98초에 통과했고, WikiText의 짧은 사전 측정·2 updates와 보정된 run 설정 재사용도 통과했다. CUDA OOM/rank별 제한은 모의 메모리·collective로 확인했으며 실제 GPU VRAM 조정과 성능은 아직 실측하지 않았다.
 
 T4 global256 설정 변경에서는 현재 카탈로그의36개 조합과 보정 재사용·실질 배치 보존 검사 총40개가0.71초에 통과했다. 노트북 JSON과 코드 문법도 확인했다. CPU 학습과 GPU 실험은 반복 실행하지 않았다.
+
+고정 state 표준화에서는 관련 CPU 검사13개만 실행했다(합계3.13초). read gate on/off의 미래 변경 불변성과 layer별 prefix/병렬 출력·segment 종료 write-back을 확인했고 Remember gradient/trace, replay gradient 및 현재 형식의 짧은 Remember·WikiText 재개를 확인했다. 이전 중간 register 읽기 구현을 실행하는 검사는 제거했다. GPU 실험은 아직 수행하지 않았다.
