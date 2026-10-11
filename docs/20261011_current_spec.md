@@ -131,6 +131,8 @@ GPT-2 BPE는 `openai-community/gpt2`의 50257 vocabulary를 사용한다. 각 �
 | max updates | 100000 |
 | validation / logging | 1000 / 10 updates (smoke: 20 / 10) |
 
+위 표는 기본 설정이다. Kaggle 노트북에서 segment_len·num_registers·bptt_segments를 RMT/GRT 공통 override로 지정한다. BPTT는 재계산할 이전 segment 수이며 전체 입력의 segment 수를 제한하지 않는다. WikiText는 문장별 truncation 없이 연속 stream을 끝까지 처리하고 마지막 짧은 segment도 사용한다. 길이를 바꿔도 BPTT segment 수·updates·배치·LR은 자동 변경하지 않는다.
+
 Kaggle T4 × 2는 microbatch32/accumulation4로 시작하며 auto_batch=true, memory_fraction=0.8로 global batch256을 유지해 조절한다. rank당 실질 배치128의 약수는 모두 2의 거듭제곱이므로 후보는128→64→32→16→8→4→2→1이다. 모든 크기와 두 모델에 같은 학습 설정을 사용한다. 공통 auto_batch 기본은 false이며 Kaggle runtime에서만 true로 켠다.
 LR은 이전 배치60의2.5e-4에서 제곱근 비례값 약5.16e-4를 반올림해5e-4로 정했다. 최적 LR을 실측한 결과는 아니며 자동 microbatch 보정은 LR을 바꾸지 않는다. warmup0/cosine/Adam/clip/dropout/평가 batch10은 유지한다.
 기존 FP32 경로를 기준으로 CPU 기능 검사를 준비한다.

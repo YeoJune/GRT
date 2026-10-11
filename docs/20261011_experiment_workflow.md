@@ -47,8 +47,13 @@ Kaggle 노트북에는 저장소 bootstrap, 선택한 실험 설정, 다음 호�
 
 ```python
 from grt.utils.kaggle import WikiTextRun
+segment_len = 150
+num_registers = 10
+bptt_segments = 3
 job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
-                  run_id='wiki_small_gpt2_bpe_10k_b256_seed54')
+                  overrides={'model': {'segment_len': segment_len,
+                                       'num_registers': num_registers},
+                             'training': {'bptt_segments': bptt_segments}})
 job.setup()
 job.prepare_data()
 job.preflight()
@@ -57,6 +62,14 @@ job.report()
 ```
 
 `models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 3만 updates는 `steps=30000`으로 지정한다. GRT의 segment 시작 state 읽기는 표준이며 별도 override가 필요 없다. 중간 register 읽기 구현과 register_read_source 선택 필드는 제거한다.
+
+Kaggle 노트북의 `segment_len`(기본150)과 `num_registers`(기본10)는 위 model override를 통해 선택한 모든 모델에 적용한다. Remember 템플릿도 같은 변수를 CLI `--set`으로 전달하며 기본값은4/32다. 두 값은 양의 정수다. RMT에서 num_registers는 read/write 블록 각각의 메모리 개수이며 GRT는 같은 개수의 저장 register를 사용한다. 별도 config 파일이나 utils 전용 설정 필드를 추가하지 않는다.
+
+길이를 바꿔도 배치·LR·updates·BPTT segment 수는 그대로다. WikiText target 토큰 예산 상한은 global batch×segment_len×updates, 이전 문맥의 BPTT 범위 상한은 bptt_segments×segment_len이다. ETA는 최종 Config의 segment 길이를 사용한다. 기본 run 이름의 hash에는 두 값도 포함되어 다른 조건의 결과를 구분한다. 직접 run_id를 지정했다면 조건 변경 시 새 이름을 사용한다.
+
+Kaggle 노트북의 `bptt_segments`(기본3, 0 이상의 정수)는 training override로 RMT/GRT에 공통 적용한다. 이전 segment 수를 의미하며, 현재 segment까지 최대 bptt_segments+1개를 재계산한다. 예를 들어 segment75에서 이전450 token에 걸쳐 gradient를 전달하려면 bptt_segments=6을 명시한다. 자동 환산은 하지 않는다.
+
+전체 segment 수는 입력/스트림 길이에 따라 정해진다. WikiText는 문장들을 연속 token stream으로 처리하며 문장 길이를 고정 segment 수로 제한하지 않는다. 마지막 짧은 segment도 학습·평가에 사용한다. BPTT 범위 밖 과거의 정보는 저장 state로 전달하며, epoch/split 경계에서 state를 초기화한다. batch_size로 스트림을 분할할 때 나누어떨어지지 않는 끝의 소수 token은 제외하고 metadata에 기록한다.
 
 setup/다운로드/prepared hash 검사, torchrun 명령, 로그 tee/자식 종료, calibration, ETA, W&B 확인, summary/plot은 `src/grt/utils/kaggle.py`에서 관리한다. 추가 환경 기능은 utils를 확장한다. 노트북 cell 수나 복사한 helper 함수 수를 늘리지 않는다. 저수준 tokenizer 준비/다운로드 CLI는 계속 사용할 수 있다.
 

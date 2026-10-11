@@ -24,8 +24,13 @@ RMT는 `--model rmt`로 선택한다. [로컬 템플릿](notebooks/template.ipyn
 기본은 tiny·smoke·RMT/GRT 각각 200 updates이며, small 1만 updates는 다음 선택으로 실행한다.
 
 ```python
+segment_len = 150
+num_registers = 10
+bptt_segments = 3
 job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
-                  run_id='wiki_small_gpt2_bpe_10k_b256_seed54')
+                  overrides={'model': {'segment_len': segment_len,
+                                       'num_registers': num_registers},
+                             'training': {'bptt_segments': bptt_segments}})
 ```
 
 | 선택 | 값 |
@@ -34,6 +39,11 @@ job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
 | budget | smoke 200 · 10k 10000 · 100k 100000 updates |
 | models | `('rmt',)` / `('grt',)` / `('rmt', 'grt')` 순차 실행 |
 | tokenization | gpt2_bpe(기본, 50257) / word(267735) |
+| segment_len | segment당 토큰 수, 기본150; RMT/GRT 공통 |
+| num_registers | 메모리 개수, 기본10; RMT는 같은 개수의 read/write 블록을 각각 사용 |
+| bptt_segments | gradient를 되돌릴 이전 segment 수, 기본3; 0 이상 |
+
+WikiText는 문장별 길이 제한 없이 연속 스트림으로 처리한다. 전체 segment 수는 스트림 길이와 segment_len에 따라 정해지며 마지막 짧은 segment도 사용한다. bptt_segments는 과거 토큰의 재계산·gradient 범위만 제한하며, 그 이전 문맥의 정보는 저장 state로 이어진다. 스트림 분할 시 batch_size로 나누어떨어지지 않는 끝의 소수 토큰은 제외하고 metadata에 기록한다.
 
 GPT-2 BPE backbone은 base 59.01M, small 17.60M, tiny 7.03M이며 router 크기는 별도다.
 원본은 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`, tokenizer는 `openai-community/gpt2`다.
@@ -42,7 +52,7 @@ Tokenizer만 다운로드하며 모델 weights는 새로 초기화한다. BPE-to
 `steps=30000` 또는 `overrides={'evaluation': {'every_steps': 1000}}`로 변경할 수 있다.
 이런 숫자 변경에는 새 YAML이나 노트북을 만들지 않는다. 모든 preset은 [단일 카탈로그](configs/experiments.yaml)에서 관리한다.
 Kaggle은 global batch256, microbatch32×accumulation4×GPU2, Adam LR5e-4로 시작한다. 자동 조정은 Kaggle에서 기본 on이며 목표 VRAM80% 안에서 microbatch128→64→32…를 선택해 global256을 유지한다. off는 config 배치를 그대로 쓴다. 사전 측정은 최종 Config와 ETA를 모델별로 저장한다.
-10k/100k은 validation1000/logging10 updates이며 target 예산 상한은 각각384M/3.84B token이다. 설정 변경 시 새 run을 사용한다.
+10k/100k은 validation1000/logging10 updates이며 segment150의 target 예산 상한은 각각384M/3.84B token이다. segment 길이 변경 시 토큰 예산은 global batch×segment_len×updates로 달라지며 LR·updates·BPTT segment 수는 자동 변경하지 않는다. 두 변수는 양의 정수이며 변경 시 기본 run 이름의 hash도 바뀐다. 설정 변경 시 새 run을 사용한다.
 CLI도 동일 카탈로그를 지원한다.
 
 ```bash
