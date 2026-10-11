@@ -81,3 +81,6 @@ def test_monitor_failure_leaves_readable_local_warning(tmp_path, monkeypatch):
         monitor.run is None
         and "offline test failure" in (tmp_path / "warnings.txt").read_text()
     )
+    import json
+    status = json.loads((tmp_path / 'wandb_status.json').read_text())
+    assert status['state'] == 'initialization_failed' and status['failures'] == 1

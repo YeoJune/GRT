@@ -90,6 +90,7 @@ def test_kaggle_notebook_cpu_preflight_training_and_resume(prepared, tmp_path, m
         json=json, hashlib=hashlib, yaml=yaml, torch=torch,
         REPO_DIR=REPO, RUN_DIR=root, PREPARED_DIR=destination, TOKENIZATION='gpt2_bpe',
         PREPARED_INPUT=destination, SOURCE_DIR=original,
+        MODEL_SIZE='small', EXPERIMENT='full', RUN_ID='cpu_notebook_test',
         WANDB=False, MAX_STEPS=2, MODELS=('rmt', 'grt'), TRAIN_MODEL='rmt',
         WORLD_SIZE=1, DEVICE='cpu', BENCHMARK_STEPS=1, MEMORY_FRACTION=.8)
     exec(compile(source(3), 'notebook_helpers', 'exec'), namespace)

@@ -1,0 +1,4 @@
+# Separate schedule for a functional experiment; not the full-run warmup.
+training: {max_steps: 200}
+evaluation: {every_steps: 20}
+wandb: {every_steps: 10}

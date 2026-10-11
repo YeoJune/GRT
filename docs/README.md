@@ -5,6 +5,7 @@
 현재 small D256의 직접 실행 결과는 [CPU 실험 보고서](20261011_small256_cpu.md)에 있다.
 Small WikiText-103의 T4 두 장 설정과 시간 계산은 [Kaggle 실행 안내](20261011_wikitext_kaggle.md)에 있다.
 추가 GPT-2 BPE 경로와 최신 노트북은 [BPE 안내](20261011_wikitext_bpe.md)를 따른다.
+base/small/tiny 선택과 200-update 동작 확인은 [preset 안내](20261011_wikitext_presets.md)를 따른다.
 
 이전 설계·검토·검증·환경별 실험 기록은 모두 `archive/`에 보존했다.
 아래 문서는 과거 기록이며 최신 실행 설정으로 사용하지 않는다.

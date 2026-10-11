@@ -25,7 +25,8 @@ small D256 그대로 직접 CPU 실험을 수행하는 명령과 결과는 [CPU 
 
 Small의 T4 × 2 설정·메모리·시간 계산과 실행 명령은 [Kaggle 안내](docs/20261011_wikitext_kaggle.md)를 따른다.
 GPT-2 BPE 50,257 옵션은 [BPE 안내](docs/20261011_wikitext_bpe.md)에 있다.
-[Kaggle 노트북](notebooks/kaggle.ipynb)은 small BPE가 기본이며 word-level도 선택할 수 있다.
+[Kaggle 노트북](notebooks/kaggle.ipynb)은 tiny BPE·200-update 동작 확인이 기본이며 word-level도 선택할 수 있다.
+[크기·예산 preset 안내](docs/20261011_wikitext_presets.md)에 base/small/tiny와 W&B 기록 조건을 정리했다.
 
 원래 tokenized v1 파일을 준비한다. `wikitext-103-raw`와 BPE는 이 설정과 다르다.
 
@@ -35,7 +36,8 @@ python scripts/train.py --config configs/base.yaml configs/neox.yaml configs/wik
 ```
 
 base는 D410/16층/10 heads/FF2100, small은 D256/6층/8 heads/FF1024이다.
-small을 쓸 때 `wikitext_small.yaml`을 `wikitext103.yaml` 뒤, 모델 선택 앞에 추가한다.
+tiny는 D128/3층/4 heads/FF512다. `wikitext_{base,small,tiny}.yaml` 중 하나를
+`wikitext103.yaml` 뒤, 모델 선택 앞에 추가한다. 기존 base 기본값은 CLI 호환을 위해 보존했다.
 RMT는 마지막 모델 파일을 `neox_rmt.yaml`로 바꾼다. tied vocabulary를 포함한 실제 backbone은
 base 148.18M, small 73.28M으로 두 모델에서 동일하다.
 
@@ -49,6 +51,9 @@ global batch60은 `microbatch × accumulation × world_size`로 유지해야 한
 BPE는 `prepare_wikitext_bpe.py`로 같은 원본 파일을 별도로 준비하고,
 `configs/wikitext_bpe.yaml`을 크기 설정 뒤에 추가한다. GPT-2 tokenizer만 사용하고 모델 weights는 새로 초기화한다.
 small BPE의 공통 backbone은 17.61M이다. BPE-token PPL을 word-level PPL과 직접 비교하지 않는다.
+base/small/tiny BPE backbone은 각각 59.01M/17.60M/7.03M이다.
+노트북의 `MODEL_SIZE`로 크기, `EXPERIMENT='smoke'/'full'`로 200/200000 updates를 선택한다.
+smoke는 두 모델을 각각 실행하며 평가20/학습 로그10 updates 주기다. full은 선택한 모델 하나씩 실행한다.
 Kaggle 노트북은 기본으로 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`과
 `openai-community/gpt2` tokenizer를 내려받는다. CLI에서는 `pip install -e '.[wikitext]'` 후
 `scripts/download_wikitext.py --output-dir data/wikitext103_hf_source`로 원본을 준비한다.
@@ -65,6 +70,8 @@ Remember는 stage별 checkpoint/metrics, WikiText는 실행 루트에 checkpoint
 두 경로 모두 `resolved_config.yaml`, `metadata.json`, `summary.json/.txt`, `evaluation.json/.txt`를 기록한다.
 Remember는 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
 W&B 기본은 off이며 연결 실패 시에도 로컬 결과를 유지한다.
+WikiText는 첫 step과 `wandb.every_steps`마다 학습 loss/LR/tokens/time/VRAM을 기록하며 평가 step에는 NLL/PPL을 추가한다.
+`wandb_status.json`에 연결 상태·URL·마지막 기록 step·실패 수를 남긴다. preflight는 W&B run을 생성하지 않는다.
 
 ```bash
 python scripts/evaluate.py --checkpoint runs/grt_wiki/best.pt --device cuda

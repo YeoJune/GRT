@@ -81,9 +81,14 @@ class Monitor:
         self.enabled = cfg.wandb.enabled
         if not self.enabled:
             return
+        self.status = dict(enabled=True, project=cfg.wandb.project, mode=cfg.wandb.mode, failures=0)
         try:
             with preserve_rng():
                 import wandb
+
+                previous = self.root / 'wandb_status.json'
+                if previous.exists():
+                    self.status['last_logged_step'] = json.loads(previous.read_text()).get('last_logged_step', 0)
 
                 path = self.root / "wandb_run.json"
                 identity = (
@@ -94,17 +99,29 @@ class Monitor:
                 write_json(path, identity)
                 self.run = wandb.init(
                     project=cfg.wandb.project,
-                    name=cfg.wandb.run_name,
+                    name=cfg.wandb.run_name or f'{cfg.data.name}-{cfg.model.name}-{self.root.name}',
                     id=identity["id"],
                     resume="allow",
                     mode=cfg.wandb.mode,
                     config=asdict(cfg),
                     dir=str(self.root),
                 )
+                mode = getattr(getattr(self.run, 'settings', None), 'mode', cfg.wandb.mode)
+                url = getattr(self.run, 'url', None) if mode == 'online' else None
+                self._status('connected', id=identity['id'], mode=mode, url=url)
+                print(f"W&B {mode}: {url or identity['id']}", flush=True)
         except Exception as error:
+            self._status('initialization_failed', error=str(error))
             self.warn(
                 f"W&B initialization failed; local results remain enabled: {error}"
             )
+
+    def _status(self, state, **details):
+        if state.endswith('_failed'):
+            self.status['failures'] += 1
+            self.status['last_error'] = details.get('error')
+        self.status.update(state=state, **details)
+        write_json(self.root / 'wandb_status.json', self.status)
 
     def warn(self, message):
         warnings.warn(message, RuntimeWarning)
@@ -117,7 +134,9 @@ class Monitor:
         try:
             with preserve_rng():
                 self.run.log({"global_step": step, **payload}, step=step)
+            self._status('active', last_logged_step=step, error=None)
         except Exception as error:
+            self._status('upload_failed', error=str(error))
             self.warn(f"W&B upload failed: {error}")
 
     def result(self, payload):
@@ -126,7 +145,9 @@ class Monitor:
         try:
             with preserve_rng():
                 self.run.summary.update(payload)
+            self._status('active', summary_updated=True)
         except Exception as error:
+            self._status('summary_failed', error=str(error))
             self.warn(f"W&B summary failed: {error}")
 
     def finish(self):
@@ -135,5 +156,7 @@ class Monitor:
         try:
             with preserve_rng():
                 self.run.finish()
+            self._status('finished')
         except Exception as error:
+            self._status('finish_failed', error=str(error))
             self.warn(f"W&B finalization failed: {error}")

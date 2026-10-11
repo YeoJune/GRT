@@ -1,0 +1,4 @@
+model:
+  d_model: 128
+  alu: {num_layers: 3, nhead: 4, d_ff: 512}
+  router: {pool_nhead: 4}

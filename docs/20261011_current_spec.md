@@ -21,17 +21,18 @@ GPT-NeoX 계열 Transformer, parallel residual, RoPE, tied embedding/출력 head
 동일 실험에서 RMT/GRT backbone의 구조와 차원을 일치시킨다.
 30M 예산과 router 크기 제한은 없다. 전체 parameter 수 차이는 기록한다.
 
-| 항목 | base | small |
-|---|---:|---:|
-| layers | 16 | 6 |
-| d_model | 410 | 256 |
-| heads | 10 | 8 |
-| head dimension | 41 | 32 |
-| FFN dimension | 2100 | 1024 |
+| 항목 | base | small | tiny |
+|---|---:|---:|---:|
+| layers | 16 | 6 | 3 |
+| d_model | 410 | 256 | 128 |
+| heads | 10 | 8 | 4 |
+| head dimension | 41 | 32 | 32 |
+| FFN dimension | 2100 | 1024 | 512 |
 
 RoPE rotary_pct=0.25, base=10000을 사용한다.
 base는 RMT 2022 WikiText의 차원을 맞춘 NeoX 변형이며 정확한 원문 모델 재현이 아니다.
 small은 후속 사용자 지시에 따라 D256으로 변경했고 FFN=4D(1024)를 유지한다. tied full softmax를 두 모델에 공통 적용한다.
+tiny와 200-update 동작 확인 조건, 크기/예산 선택과 W&B 로깅은 [preset 안내](20261011_wikitext_presets.md)를 따른다.
 WikiText word-level vocabulary는 267735, 별도 GPT-2 BPE 옵션은 50257이다. Remember는 기존 V128/token 규칙을 기반으로 한다.
 공통 NeoX 경로는 기존 vendor의 GELU, LayerNorm eps=1e-5, 선형/embedding 초기화 std=0.02를 계승한다.
 후보와 token hidden은 모두 final norm 뒤에서 추출한다. 새 비교 프로토콜을 추가한 것으로 해석하지 않는다.
@@ -216,6 +217,8 @@ AdamW/value clip/linear schedule/curriculum을 재사용한다. 두 과제의 op
 | WikiText base | 148175210 | 148179310 | 150378764 |
 | WikiText small | 73279232 | 73281792 | 74343956 |
 | WikiText small GPT-2 BPE | 17604864 | 17607424 | 18669588 |
+| WikiText base GPT-2 BPE | 59009230 | 59013330 | 61212784 |
+| WikiText tiny GPT-2 BPE | 7027968 | 7029248 | 7434900 |
 
 small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbone은 약 73.28M이다.
 30M 예산은 적용하지 않는다. full logits 한 segment만으로도 base global batch60에서
@@ -231,6 +234,7 @@ WikiText 자동 RTLA 샘플링과 인코더 MLM objective는 지원 범위 밖�
 공통 구조 구현 시 `python -m pytest -q`: **51 passed**, 93.96초(CPU). 새 경로 검사 18개를 포함한다.
 GPT-2 BPE와 WikiText Kaggle 노트북 추가 후 전체 CPU 회귀는 **54 passed**, 108.49초다.
 후속 Hugging Face 기본 다운로드 경로 변경에서는 사용자 지시에 따라 추가 학습·회귀 검사를 실행하지 않았다.
+tiny/smoke와 주기별 W&B 로깅 변경은 실제 tiny CPU2 updates·offline SDK 두 검사(3.96초), 실패 상태 기록 한 검사와 가벼운 preset routing 확인에 한정했다. 전체 회귀는 반복하지 않았다.
 추가 검사 범위와 실제 tokenizer/GPU 미검증 조건은 [BPE 안내](20261011_wikitext_bpe.md)의 검증 절을 따른다.
 
 - vendor 원본 hash와 저자 RMT loss/gradient/generate fixture 회귀.
@@ -249,7 +253,8 @@ GPT-2 BPE와 WikiText Kaggle 노트북 추가 후 전체 CPU 회귀는 **54 pass
 4 update의 exact match는 0으로, 이 검사는 학습 경로 확인이며 수렴 결과가 아니다.
 `git diff --check`와 Python compile 검사도 통과했다.
 
-GPU 수렴, 실제 WikiText-103 전체 데이터 학습, GPU VRAM/throughput은 아직 검증하지 않았다.
+GPU 수렴과 실제 WikiText-103 전체 데이터 학습은 아직 검증하지 않았다. 사용자가 제공한 small BPE/T4 두 장의
+preflight 시간·VRAM은 [preset 안내](20261011_wikitext_presets.md)에 기록했다. tiny/full 학습 실측과 온라인 W&B 업로드는 Kaggle에서 확인한다.
 기본 intermediate의 teacher-forced_noncausal PPL을 엄격한 autoregressive RMT PPL과
 동일 조건으로 해석해서는 안 된다. 정확한 RMT 2022 Transformer-XL/adaptive-softmax 재현도 아니다.
 

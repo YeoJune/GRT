@@ -69,7 +69,7 @@ weights+Adam 상태 checkpoint는 모델당 약 0.82–0.83 GiB/파일이다. be
 
 ## Kaggle 실행
 
-Accelerator를 T4 × 2로 선택하고 저장소 파일과 원래 `wiki.train.tokens`, `wiki.valid.tokens`, `wiki.test.tokens`를 준비한다. 아래는 `/kaggle/working/GRT`에서 실행한다. 이번 추가 파일이 포함된 checkout이 필요하다. 최신 `notebooks/kaggle.ipynb`에서 `TOKENIZATION='word'`를 선택하면 이 조건으로 실행한다. `configs/kaggle.yaml`과 archive의 이전 노트북은 Remember curriculum용이다.
+Accelerator를 T4 × 2로 선택하고 저장소 파일과 원래 `wiki.train.tokens`, `wiki.valid.tokens`, `wiki.test.tokens`를 준비한다. 아래는 `/kaggle/working/GRT`에서 실행한다. 이번 추가 파일이 포함된 checkout이 필요하다. 최신 `notebooks/kaggle.ipynb`에서 `MODEL_SIZE='small'`, `EXPERIMENT='full'`, `TOKENIZATION='word'`를 선택하면 이 조건으로 실행한다. `configs/kaggle.yaml`과 archive의 이전 노트북은 Remember curriculum용이다.
 
 ```bash
 python -m pip install -e '.[wandb]'

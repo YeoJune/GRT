@@ -1,3 +1,4 @@
+# Base defaults retained for earlier CLI commands; choose wikitext_{base,small,tiny} explicitly in new runs.
 model:
   vocab_size: 267735
   segment_len: 150

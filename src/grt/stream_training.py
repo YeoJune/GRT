@@ -129,23 +129,31 @@ def train_stream(adapter, cfg, device, monitor, ctx):
             torch.cuda.synchronize(device)
             peak = int(ctx.max(torch.cuda.max_memory_allocated(device)))
         loss_value = ctx.sum([batch_loss])[0]/ctx.world_size
-        if step % cfg.evaluation.every_steps == 0 or step == t.max_steps:
+        validation_due = step % cfg.evaluation.every_steps == 0 or step == t.max_steps
+        payload = {'train/loss':loss_value, 'train/lr':optimizer.param_groups[0]['lr'],
+            'train/target_tokens':tokens_seen,
+            'train/elapsed_seconds':elapsed+time.perf_counter()-started,
+            'train/peak_gpu_memory_bytes':peak}
+        if validation_due:
             last_validation = adapter.evaluate(model, cfg, validation, device)
             validation_step = step
             if last_validation['loss'] < best:
                 best = last_validation['loss']
                 save(root/'best.pt')
-            payload = {'train/loss':loss_value, 'train/lr':optimizer.param_groups[0]['lr'],
-                'train/target_tokens':tokens_seen, 'val/loss':last_validation['loss'],
-                'val/perplexity':last_validation['perplexity']}
+            payload.update({'val/loss':last_validation['loss'], 'val/perplexity':last_validation['perplexity']})
+        if validation_due or step == 1 or step % cfg.wandb.every_steps == 0:
             if ctx.main:
-                row = dict(step=step, validation=last_validation, **payload)
+                row = dict(step=step, **payload)
+                if validation_due:
+                    row['validation'] = last_validation
                 with (root/'metrics.jsonl').open('a') as f:
                     f.write(json.dumps(row)+'\n')
                 with (root/'metrics.txt').open('a') as f:
                     f.write(json.dumps(row)+'\n')
-                print(f"Step {step}: loss={loss_value:.5f}, val PPL={last_validation['perplexity']:.3f}", flush=True)
+                suffix = f", val PPL={last_validation['perplexity']:.3f}" if validation_due else ''
+                print(f"Step {step}: loss={loss_value:.5f}{suffix}", flush=True)
             monitor.log(step, payload)
+        if validation_due:
             save(path)
     if validation_step != step:
         last_validation = adapter.evaluate(model, cfg, validation, device)

@@ -1,0 +1,4 @@
+model:
+  d_model: 410
+  alu: {num_layers: 16, nhead: 10, d_ff: 2100}
+  router: {pool_nhead: 10}

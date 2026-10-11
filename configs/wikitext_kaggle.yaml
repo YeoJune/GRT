@@ -1,5 +1,5 @@
 # T4 x 2: initial preflight candidate, not a measured memory guarantee.
-# Apply after wikitext103.yaml, wikitext_small.yaml and the model selection.
+# Apply after wikitext103.yaml, the size preset and model selection.
 training:
   batch_size: 10
   grad_accum_steps: 3
