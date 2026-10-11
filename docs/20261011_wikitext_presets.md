@@ -21,6 +21,7 @@ GPT-2 BPE 50257 기준 factory의 고유 Parameter 수:
 | 실험 예산 | updates | validation | 학습 로그 | 의미 |
 |---|---:|---:|---:|---|
 | full | 200000 | 매4000 | 매50 + 첫/마지막 step | 기존 전체 조건 |
+| 20k | 20000 | 매4000 | 매50 + 첫/마지막 step | 중간 예산 실험 |
 | smoke | 200 | 매20 | 매10 + 첫/마지막 step | 실행·loss·저장·W&B 확인 |
 
 smoke는 `configs/wikitext_smoke.yaml`을 추가한다. cosine 기간도 200 updates인 별도 실험이다. vocabulary/BPTT/배치/optimizer/LR/dropout을 축소하지 않는다. target 상한은 모델당 1.8M BPE tokens다. 실제 WikiText의 전체 validation/test를 사용하며 수렴이나 성능 비교 결과로 해석하지 않는다. tiny가 full 예산을 반드시 써야 하는 것은 아니며 크기와 예산은 독립 선택이다.
@@ -29,8 +30,13 @@ Kaggle 기본은 `MODEL_SIZE='tiny'`, `EXPERIMENT='smoke'`이고 RMT/GRT 각각 
 
 ```python
 MODEL_SIZE = 'tiny'   # base / small / tiny
-EXPERIMENT = 'smoke'  # smoke / full
+EXPERIMENT = 'smoke'  # smoke / 20k / full
 ```
+
+small 20000 updates는 `MODEL_SIZE='small'`, `EXPERIMENT='20k'`로 선택한다.
+`configs/wikitext_20k.yaml`은 cosine 기간과 max_steps를 20000으로 설정하며 나머지는 full 조건을 유지한다.
+선택한 `TRAIN_MODEL` 하나씩 실행하고 별도 `wiki_small_gpt2_bpe_20k_seed54` 폴더를 사용한다.
+target 상한은 모델당 180M BPE tokens다. 제공된 small preflight로 평가 포함 약 RMT2.666시간/GRT2.675시간이며 준비·저장 I/O는 추가다.
 
 CLI도 동일한 preset 조합이다. 예를 들어 아래 tiny RMT 명령은 GPU 사전 측정이며, 본 학습에서는 출력 calibrated override를 추가하고 `--benchmark-steps`를 제거해 새 output 폴더를 쓴다. GRT는 모델 파일을 `neox_grt.yaml`로 변경한다.
 

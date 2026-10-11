@@ -52,7 +52,8 @@ BPE는 `prepare_wikitext_bpe.py`로 같은 원본 파일을 별도로 준비하�
 `configs/wikitext_bpe.yaml`을 크기 설정 뒤에 추가한다. GPT-2 tokenizer만 사용하고 모델 weights는 새로 초기화한다.
 small BPE의 공통 backbone은 17.61M이다. BPE-token PPL을 word-level PPL과 직접 비교하지 않는다.
 base/small/tiny BPE backbone은 각각 59.01M/17.60M/7.03M이다.
-노트북의 `MODEL_SIZE`로 크기, `EXPERIMENT='smoke'/'full'`로 200/200000 updates를 선택한다.
+노트북의 `MODEL_SIZE`로 크기, `EXPERIMENT='smoke'/'20k'/'full'`로 200/20000/200000 updates를 선택한다.
+small 2만 updates는 `MODEL_SIZE='small'`, `EXPERIMENT='20k'`이며 full의 평가/로그 주기를 유지한다.
 smoke는 두 모델을 각각 실행하며 평가20/학습 로그10 updates 주기다. full은 선택한 모델 하나씩 실행한다.
 Kaggle 노트북은 기본으로 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`과
 `openai-community/gpt2` tokenizer를 내려받는다. CLI에서는 `pip install -e '.[wikitext]'` 후
