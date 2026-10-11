@@ -1,6 +1,6 @@
 # 실험 설정과 노트북 운영 규칙
 
-현재 실행 규칙은 이 문서를 따른다. 모델/gradient/데이터 계약은 [통합 명세](20261011_current_spec.md)를 따른다. 구조 정리로 모델 차원, tokenizer, optimizer, batch, 평가, score_kind, checkpoint 형식을 변경하지 않는다.
+현재 실행 규칙은 이 문서를 따른다. 모델/gradient/데이터 계약은 [통합 명세](20261011_current_spec.md)를 따른다. 모델 구조와 실험 조건은 카탈로그와 명시 override로 관리하며 자동 조정은 확정된 실질 배치를 바꾸지 않는다.
 
 ## 설정의 역할과 확장
 
@@ -8,13 +8,13 @@
 
 | 영역 | 책임 |
 |---|---|
-| defaults | 공통 NeoX 구조, seed와 기본 logging |
+| defaults | 공통 NeoX 구조, seed, 기본 logging·배치 조정 정책 |
 | tasks | vocabulary/segment/memory, 데이터 objective, 과제별 optimizer·평가·학습 기본값 |
 | sizes | D/layers/heads/FF와 router pool heads; base/small/tiny |
 | models | RMT/GRT 이름과 router/register 계약 |
 | tokenizers | WikiText word/GPT-2 BPE vocabulary와 prepared 경로 |
 | budgets | smoke200 / 20k20000 / full200000, 평가·logging 주기 |
-| runtimes | GPU/CPU microbatch·accumulation과 W&B 기본 활성화 |
+| runtimes | GPU/CPU microbatch·accumulation·메모리 조정 정책과 W&B 기본 활성화 |
 
 적용 순서는 **defaults → task → size → model → tokenizer → budget → runtime → 명시 override**다. dict는 재귀 병합, list와 null은 교체한다. 모델 선택은 크기 뒤에 적용해 RMT의 router/register를 null로 정리한다. unknown key와 잘못된 값은 typed Config 검사가 거부한다.
 
@@ -47,7 +47,8 @@ Kaggle 노트북에는 저장소 bootstrap, 선택한 실험 설정, 다음 호�
 
 ```python
 from grt.utils.kaggle import WikiTextRun
-job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',))
+job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',),
+                  run_id='wiki_small_gpt2_bpe_20k_b256_seed54')
 job.setup()
 job.prepare_data()
 job.preflight()
@@ -69,7 +70,7 @@ W&B는 rank0만 생성하며 preflight에서는 생성하지 않는다. 본 학�
 
 ## GPU 배치 자동 조정
 
-DDP는 유지한다. 설정은 `training.auto_batch`(기본 false), `training.memory_fraction`(기본 0.8) 두 값으로 관리한다. off일 때 config의 batch_size/grad_accum_steps를 그대로 쓰며 OOM에서도 임의로 축소하지 않는다. CPU에서도 배치를 바꾸지 않는다.
+DDP는 유지한다. 설정은 `training.auto_batch`(공통 기본 false, Kaggle runtime true), `training.memory_fraction`(기본 0.8) 두 값으로 관리한다. off일 때 config의 batch_size/grad_accum_steps를 그대로 쓰며 OOM에서도 임의로 축소하지 않는다. CPU에서도 배치를 바꾸지 않는다. Kaggle에서는 overrides={'training': {'auto_batch': False}} 또는 CLI --set training.auto_batch=false로 끈다.
 
 on이면 CUDA 사전 측정에서 local effective batch의 약수만 큰 순서로 시도하고, 모든 rank에서 목표 peak reserved VRAM 이내인 가장 큰 microbatch를 선택한다. local effective=batch_size×grad_accum_steps, global effective=local×world_size를 고정한다. global_batch_size가 명시되면 이 값과 일치해야 하며 불일치는 조정으로 숨기지 않고 거부한다. accumulation=local/microbatch이므로 계산 microbatch는 rank당 effective batch를 넘지 않는다. 목표는 PyTorch가 예약한 VRAM의 상한이며 GPU 연산 가동률이나 정확한 점유율을 보장하지 않는다. 평가 batch·sequence length·BPTT·LR·updates는 변경하지 않는다.
 
@@ -82,7 +83,15 @@ job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',),
 
 CLI는 `--set training.auto_batch=true --set training.memory_fraction=0.8`을 사용한다. 신규 CUDA 학습은 필요한 사전 측정을 수행하고 같은 run의 측정 결과가 있으면 재사용한다. Kaggle의 기존 preflight 호출과 학습 사이에 동일 측정을 반복하지 않는다. 최종 batch/accumulation은 Config와 benchmark에 기록하며 현재 run 재개에서는 확정된 값을 유지한다. 다른 GPU에 맞춰 다시 조정하려면 새 run을 사용한다.
 
-예: GPU2개, micro10×accum3의 global60은 micro30×accum1 또는 micro5×accum6으로 바뀔 수 있다. global60을 초과하는 microbatch는 후보에 넣지 않는다. Remember curriculum도 stage마다 설정된 실질 배치를 유지한다.
+현재 Kaggle은 GPU2개, micro32×accum4의 global256으로 시작한다. rank당 실질 배치128의 약수를 찾으므로 micro128×accum1, micro64×accum2, micro32×accum4 등 후보가 모두 2의 거듭제곱이다. Remember curriculum도 선택한 runtime과 각 stage의 실질 배치를 유지한다.
+
+## T4 × 2의 WikiText 학습 조건
+
+base/small/tiny와 RMT/GRT는 global256, Adam LR5e-4를 공유한다. 배치60의 LR2.5e-4에 제곱근 scaling을 적용한 약5.16e-4를 반올림한 초기 설정이며 최적값을 실측한 것은 아니다. cosine/warmup0/clip0.25/dropout0.1/BPTT3/segment150/평가 batch10은 유지한다. auto_batch는 이 학습 조건을 바꾸지 않는다.
+
+20k/full의 validation은1000 updates, W&B logging은10 updates마다 수행한다. 이전4000/50 updates와 토큰 기준 간격이 비슷하도록 조정했다. smoke는200 updates와 validation20/logging10을 유지한다. budgets는 update 수로 정의하며20k=20000/full=200000을 유지한다. target 예산 상한은 smoke7.68M/20k768M/full7.68B이다. 이전 batch60 결과와 동일한 학습량은 아니므로 PPL 비교에 배치/LR/token 수를 함께 기록한다. 이전20k의180M token에 맞출 때는 steps=4688을 명시한다.
+
+기존 결과에 이어서 학습하지 않고 새 run_id를 사용한다. T4 GPU의 실제 메모리 적합성과 update 시간은 기존 preflight로 측정하고 ETA를 갱신한다. 기존 micro10 측정 시간을 새 microbatch/update 시간으로 단순 환산하지 않는다.
 
 ## 검증 범위
 
@@ -91,3 +100,5 @@ CLI는 `--set training.auto_batch=true --set training.memory_fraction=0.8`을 �
 현재 코드 정리 후 관련 CPU 검사 54개가 9.16초에 통과했다. 카탈로그 조합 36개, 단일 Config 파일/현재 checkpoint 형식, 짧은 LM preflight·2 updates, 현재 Remember/stream 실행·재개와 vendor hash를 확인했다. 전체 회귀·GPU 실험을 반복한 결과는 아니다.
 
 배치 자동 조정 추가에서는 관련 CPU 검사만 실행했다. 정책·예산 보존·보정 재사용과 Remember 실제 사전 측정 검사 15개가 1.98초에 통과했고, WikiText의 짧은 사전 측정·2 updates와 보정된 run 설정 재사용도 통과했다. CUDA OOM/rank별 제한은 모의 메모리·collective로 확인했으며 실제 GPU VRAM 조정과 성능은 아직 실측하지 않았다.
+
+T4 global256 설정 변경에서는 현재 카탈로그의36개 조합과 보정 재사용·실질 배치 보존 검사 총40개가0.71초에 통과했다. 노트북 JSON과 코드 문법도 확인했다. CPU 학습과 GPU 실험은 반복 실행하지 않았다.

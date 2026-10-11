@@ -125,14 +125,16 @@ GPT-2 BPE는 `openai-community/gpt2`의 50257 vocabulary를 사용한다. 각 �
 | segment length | 150 |
 | memory slots | 10 |
 | BPTT | 이전 3 segments |
-| global batch | 60 |
-| optimizer / LR | Adam / 2.5e-4 |
+| global batch | 256 |
+| optimizer / LR | Adam / 5e-4 |
 | scheduler | cosine, warmup 0 |
 | gradient clipping | global norm 0.25 |
 | dropout / attention dropout | 0.1 / 0 |
 | max updates | 200000 |
+| validation / logging | 1000 / 10 updates (smoke: 20 / 10) |
 
-Kaggle T4 × 2는 microbatch10/accumulation3으로 시작하며 메모리 사전 측정으로 global batch60을 유지해 조절한다.
+Kaggle T4 × 2는 microbatch32/accumulation4로 시작하며 auto_batch=true, memory_fraction=0.8로 global batch256을 유지해 조절한다. rank당 실질 배치128의 약수는 모두 2의 거듭제곱이므로 후보는128→64→32→16→8→4→2→1이다. 모든 크기와 두 모델에 같은 학습 설정을 사용한다. 공통 auto_batch 기본은 false이며 Kaggle runtime에서만 true로 켠다.
+LR은 이전 배치60의2.5e-4에서 제곱근 비례값 약5.16e-4를 반올림해5e-4로 정했다. 최적 LR을 실측한 결과는 아니며 자동 microbatch 보정은 LR을 바꾸지 않는다. warmup0/cosine/Adam/clip/dropout/평가 batch10은 유지한다.
 기존 FP32 경로를 기준으로 CPU 기능 검사를 준비한다.
 데이터 순서/target token 예산을 공유하고 모델 RNG와 데이터 RNG를 구분한다.
 연속 state의 입출력, stream ID/reset, BPTT detach 경계가 필요하다.
@@ -194,7 +196,7 @@ Kaggle 기본 입력은 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`�
 optimizer update 사이에는 graph를 보관하지 않는다. K=0이면 직전 detached state만 읽는다.
 이 경우 현재 write gate를 다음 segment의 loss로 학습할 경로도 끊기므로 GRT 학습의 기본 K=3을 유지한다.
 마지막 짧은 segment도 boundary next-token target을 포함하고 실제 target 수를 token budget에 누적한다.
-200000 updates의 target 예산 상한은 1.8B(60×150×200000)이며 짧은 tail/reset을 반영한 실제 수를 기록한다.
+update당 target 예산 상한은38400(256×150)이다. 20k의20000 updates는768M, full의200000 updates는7.68B로 이전 배치60 대비 약4.27배이며 짧은 tail/reset을 반영한 실제 수를 기록한다. budget 이름은 계속 update 수를 뜻한다. 이전20k의180M token과 비교하려면 steps=4688, 이전full의1.8B와 비교하려면 steps=46875를 명시하고 최종 실제 token 수를 확인한다.
 
 현재 checkpoint 형식은 `memory_experiment/3`이며 과거 형식 변환/읽기는 제공하지 않는다. checkpoint는 model/Adam/scheduler/RNG뿐 아니라 rank별 history, detached boundary states,
 stream offset, 실제 target token 수, manifest와 best loss를 저장한다. 동일 설정/동일 world_size로만 재개한다.
@@ -221,9 +223,8 @@ AdamW/value clip/linear schedule/curriculum을 재사용한다. 두 과제의 op
 | WikiText tiny GPT-2 BPE | 7027968 | 7029248 | 7434900 |
 
 small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbone은 약 73.28M이다.
-30M 예산은 적용하지 않는다. full logits 한 segment만으로도 base global batch60에서
-약 8.98 GiB(fp32)이며 gradient/activation/Adam은 추가다. preset microbatch60은 논리 배치 기준이고
-실제 GPU에서는 사전 측정과 accumulation override가 필요하다.
+30M 예산은 적용하지 않는다. word vocabulary의 full logits 한 segment만으로도 microbatch32에서
+약4.79 GiB(fp32)이며 gradient/activation/Adam/CE 중간 버퍼는 추가다. 단일 GPU의 논리 batch256을 한 번에 계산하면 logits만 약38.30 GiB이므로 실제 GPU에서는 사전 측정과 accumulation이 필요하다. GPT-2 BPE의 microbatch32 logits는 약0.90 GiB이다. T4 적합성과 속도는 실제 사전 측정으로 확인한다.
 
 새 GRT Remember에도 RTLA trace를 지원하며 query를 포함한 모든 segment의 stack 뒤 write-back을 기록한다.
 WikiText 자동 RTLA 샘플링과 인코더 MLM objective는 지원 범위 밖이며 해당 설정을 명시적으로 거부한다.

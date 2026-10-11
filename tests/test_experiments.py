@@ -25,7 +25,13 @@ def test_catalog_current_contract(model, size, budget, tokenization):
     assert (cfg.model.d_model, cfg.model.alu.num_layers, cfg.model.alu.nhead, cfg.model.alu.d_ff) == dimensions[size]
     assert cfg.model.vocab_size == {'word': 267735, 'gpt2_bpe': 50257}[tokenization]
     assert cfg.training.max_steps == {'smoke': 200, '20k': 20000, 'full': 200000}[budget]
-    assert cfg.training.batch_size * cfg.training.grad_accum_steps * 2 == cfg.training.global_batch_size == 60
+    assert cfg.training.batch_size * cfg.training.grad_accum_steps * 2 == cfg.training.global_batch_size == 256
+    assert cfg.training.auto_batch and cfg.training.memory_fraction == 0.8
+    assert cfg.training.lr == 0.0005
+    local_batch = cfg.training.batch_size * cfg.training.grad_accum_steps
+    assert local_batch == 128 and local_batch & (local_batch - 1) == 0
+    assert cfg.evaluation.every_steps == (20 if budget == 'smoke' else 1000)
+    assert cfg.wandb.every_steps == 10
     assert cfg.model.implementation == 'neox' and cfg.model.tie_word_embeddings
     assert cfg.model.segment_len == 150 and cfg.model.num_registers == 10
     assert cfg.training.bptt_segments == 3 and not cfg.training.curriculum
@@ -54,10 +60,10 @@ def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):
                       overrides={'training': {'auto_batch': True}})
     probe = job.run_dir / 'rmt_preflight'
     probe.mkdir(parents=True)
-    report = dict(model='rmt', world_size=2, global_batch_size=60, previous_segments=3,
-        target_tokens_per_update=9000,
+    report = dict(model='rmt', world_size=2, global_batch_size=256, previous_segments=3,
+        target_tokens_per_update=38400,
         batch_tuning=dict(enabled=True, applied=True, memory_fraction=0.8),
-        calibrated_override={'training': {'batch_size': 5, 'grad_accum_steps': 6}})
+        calibrated_override={'training': {'batch_size': 64, 'grad_accum_steps': 2}})
     (probe / 'benchmark.json').write_text(json.dumps(report))
     cfg = job.config('rmt')
     root = job.run_dir / 'rmt'
@@ -65,8 +71,8 @@ def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):
     (root / 'experiment_config.json').write_text(json.dumps(asdict(cfg)))
     restored = WikiTextRun(REPO, work_dir=tmp_path, run_id='existing', wandb=False,
                            overrides={'training': {'auto_batch': True}})
-    assert restored.config('rmt').training.batch_size == 5
-    assert restored.config('rmt').training.grad_accum_steps == 6
+    assert restored.config('rmt').training.batch_size == 64
+    assert restored.config('rmt').training.grad_accum_steps == 2
     restored.steps = 123
     with pytest.raises(ValueError, match='new run_id'):
         restored.config('rmt')

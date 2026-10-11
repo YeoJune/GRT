@@ -81,18 +81,18 @@ tasks:
     training:
       curriculum: []
       max_steps: 200000
-      batch_size: 60
+      batch_size: 256
       grad_accum_steps: 1
-      global_batch_size: 60
+      global_batch_size: 256
       bptt_segments: 3
-      lr: 0.00025
+      lr: 0.0005
       weight_decay: 0.0
       grad_clip: 0.25
       stop_on_convergence: false
       mixed_precision: fp32
     evaluation:
       batch_size: 10
-      every_steps: 4000
+      every_steps: 1000
 sizes:
   base:
     model:
@@ -166,23 +166,24 @@ budgets:
       max_steps: 20000
       curriculum: []
     evaluation:
-      every_steps: 4000
+      every_steps: 1000
     wandb:
-      every_steps: 50
+      every_steps: 10
   full:
     training:
       max_steps: 200000
       curriculum: []
     evaluation:
-      every_steps: 4000
+      every_steps: 1000
     wandb:
-      every_steps: 50
+      every_steps: 10
 runtimes:
   kaggle:
     training:
-      batch_size: 10
-      grad_accum_steps: 3
-      global_batch_size: 60
+      batch_size: 32
+      grad_accum_steps: 4
+      global_batch_size: 256
+      auto_batch: true
       max_seconds: null
     wandb:
       enabled: true

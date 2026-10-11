@@ -95,14 +95,14 @@ def test_preflight_and_resume_reuse_without_remeasurement(tmp_path, monkeypatch)
     probe = tmp_path / 'rmt_preflight'
     probe.mkdir()
     save_config(cfg, probe / 'resolved_config.yaml')
-    override = {'training': {'batch_size': 30, 'grad_accum_steps': 1}}
+    override = {'training': {'batch_size': 128, 'grad_accum_steps': 1}}
     (probe / 'benchmark.json').write_text(json.dumps(dict(world_size=2,
         batch_tuning={'applied': True}, calibrated_override=override)))
     def unexpected(*args):
         pytest.fail('Matching calibration must not be measured again')
     monkeypatch.setattr('grt.benchmark.benchmark', unexpected)
     resolved = prepare_batch(cfg, ctx)
-    assert resolved.training.batch_size == 30 and resolved.training.grad_accum_steps == 1
+    assert resolved.training.batch_size == 128 and resolved.training.grad_accum_steps == 1
     root = Path(cfg.run.output_dir)
     root.mkdir()
     (root / 'experiment_config.json').write_text(json.dumps(asdict(resolved)))
@@ -126,12 +126,12 @@ def test_fresh_cuda_training_prepares_batch_once(tmp_path, monkeypatch):
     def measure(requested, context):
         calls.append(Path(requested.run.output_dir))
         assert context is ctx
-        return {'calibrated_override': {'training': {'batch_size': 30, 'grad_accum_steps': 1}}}
+        return {'calibrated_override': {'training': {'batch_size': 128, 'grad_accum_steps': 1}}}
     monkeypatch.setattr('grt.benchmark.benchmark', measure)
     result = prepare_batch(cfg, ctx)
     assert calls == [tmp_path / 'rmt_preflight']
-    assert cfg.training.batch_size == 10  # Requested config is preserved.
-    assert result.training.batch_size * result.training.grad_accum_steps * ctx.world_size == 60
+    assert cfg.training.batch_size == 32  # Requested config is preserved.
+    assert result.training.batch_size * result.training.grad_accum_steps * ctx.world_size == 256
 
 
 def test_remember_cpu_preflight_keeps_config_batch(tmp_path):
