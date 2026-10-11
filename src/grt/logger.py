@@ -64,7 +64,13 @@ def metadata(model, cfg):
         "dtype": cfg.training.mixed_precision,
         "model_seed": cfg.training.model_seed,
         "data_seed": cfg.data.data_seed,
-        "sampling_rng": "author collator uses model-seeded global torch RNG; identical distribution, not guaranteed identical batch sequence across architectures",
+        "sampling_rng": ("ordered token streams; no shuffle" if cfg.data.name == "wikitext103" else
+            "data-seeded private collator RNG" if cfg.data.options.get("objective") == "parallel" else
+            "author collator uses model-seeded global torch RNG; identical distribution, not guaranteed identical batch sequence across architectures"),
+        "implementation": cfg.model.implementation,
+        "attention_mode": cfg.model.attention_mode,
+        "register_read_source": cfg.model.register_read_source,
+        "objective": cfg.data.options.get("objective", "next_token"),
     }
 
 

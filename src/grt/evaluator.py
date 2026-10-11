@@ -9,6 +9,8 @@ from grt.data import get_adapter, make_loader, forward_batch
 def evaluate(model, cfg, dataset, device, vary=False, distributed=None):
     ce = correct = count = 0
     adapter = get_adapter(cfg.data.name)
+    if hasattr(adapter, "evaluate"):
+        return adapter.evaluate(model, cfg, dataset, device)
     with evaluation_context(model):
         world_size = distributed.world_size if distributed else 1
         rank = distributed.rank if distributed else 0

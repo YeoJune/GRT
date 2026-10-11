@@ -133,6 +133,9 @@ def benchmark(cfg, ctx, steps=3, memory_fraction=0.8):
     from grt.config import validate_config
 
     validate_config(cfg)
+    adapter = get_adapter(cfg.data.name)
+    if hasattr(adapter, "benchmark"):
+        return adapter.benchmark(cfg, ctx, steps, memory_fraction)
     root = Path(cfg.run.output_dir)
     if ctx.main:
         root.mkdir(parents=True, exist_ok=True)

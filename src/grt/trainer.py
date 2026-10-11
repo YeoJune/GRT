@@ -16,7 +16,7 @@ from grt.checkpoint import (
     atomic_save,
     CHECKPOINT_FORMAT,
 )
-from grt.config import save_config, validate_config
+from grt.config import Config, build_config, save_config, validate_config
 from grt.logger import metadata, write_json, write_result_files, append_metrics, Monitor
 from grt.models.factory import create_model
 from grt.models.rmt import REFERENCE_COMMIT as COMMIT
@@ -33,7 +33,7 @@ def run(cfg, device, distributed=None):
     root.mkdir(parents=True, exist_ok=True)
     # Check configuration before initializing optional external monitoring.
     stored = root / "experiment_config.json"
-    if ctx.main and stored.exists() and json.loads(stored.read_text()) != asdict(cfg):
+    if ctx.main and stored.exists() and asdict(build_config(Config, json.loads(stored.read_text()))) != asdict(cfg):
         raise ValueError("Configuration changed; use a new output directory")
     if ctx.main and not stored.exists() and any(root.iterdir()):
         raise ValueError("Nonempty output directory without experiment configuration")
@@ -51,6 +51,9 @@ def run(cfg, device, distributed=None):
 
 
 def _run(cfg, device, monitor, ctx):
+    adapter = get_adapter(cfg.data.name)
+    if hasattr(adapter, "train_stream"):
+        return adapter.train_stream(cfg, device, monitor, ctx)
     if cfg.training.mixed_precision != "fp32":
         raise ValueError("The author reference path currently requires fp32")
     root = Path(cfg.run.output_dir)
@@ -121,9 +124,10 @@ def _run(cfg, device, monitor, ctx):
         provenance["reference_source"] = json.loads(
             (Path(__file__).parent / "vendor/armt/SOURCE.json").read_text()
         )
+        provenance["loss_convention"] = ("raw labels aligned to masked answer slots; no shift"
+            if current.data.options.get("objective") == "parallel" else "raw labels and shifted predictor mask")
         if ctx.main and not (root / "metadata.json").exists():
             write_json(root / "metadata.json", provenance)
-        provenance["loss_convention"] = "raw labels and shifted predictor mask"
         if ctx.main and not (stage_dir / "metadata.json").exists():
             write_json(stage_dir / "metadata.json", provenance)
         monitor.result({"metadata": provenance})
@@ -179,12 +183,15 @@ def _run(cfg, device, monitor, ctx):
             for _ in range(epoch_batch):
                 next(iterator)
             restore_rng(rng)
+        if path.exists() and hasattr(loader.collate_fn, "generator"):
+            loader.collate_fn.generator.set_state(state["data_rng"])
 
         def save(target, done_flag):
             states = ctx.rng_states(capture_rng())
             if ctx.main:
                 atomic_save(
                     {
+                        "data_rng": loader.collate_fn.generator.get_state() if hasattr(loader.collate_fn, "generator") else None,
                         "format": CHECKPOINT_FORMAT,
                         "reference_commit": COMMIT,
                         "model": model.state_dict(),

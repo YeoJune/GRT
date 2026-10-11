@@ -12,6 +12,7 @@ from grt.checkpoint import preserve_rng
 
 class TrainingOutput(NamedTuple):
     loss: torch.Tensor
+    memory_state: torch.Tensor | None = None
 
 
 class _LossOnly(torch.nn.Module):
@@ -22,7 +23,9 @@ class _LossOnly(torch.nn.Module):
         self.model = model
 
     def forward(self, **kwargs):
-        return TrainingOutput(self.model(**kwargs).loss)
+        out = self.model(**kwargs)
+        state = getattr(out, "memory_state", None)
+        return TrainingOutput(out.loss, state.detach() if state is not None else None)
 
 
 class DistributedContext:

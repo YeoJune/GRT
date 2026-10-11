@@ -36,6 +36,12 @@ class RegisterConfig:
 @dataclass
 class ModelConfig:
     name: str = "rmt"
+    implementation: str = "legacy"
+    attention_mode: str = "decoder"
+    register_read_source: str = "intermediate"
+    rotary_pct: float = 0.25
+    rotary_base: int = 10000
+    attention_dropout: float = 0.0
     vocab_size: int = 128
     segment_len: int = 4
     num_registers: int = 32
@@ -73,6 +79,7 @@ class CurriculumStage:
 @dataclass
 class TrainingConfig:
     model_seed: int = 54
+    bptt_segments: int = 3
     batch_size: int = 512
     grad_accum_steps: int = 1
     global_batch_size: int | None = None
@@ -203,6 +210,26 @@ def validate_model(m):
         raise ValueError("Invalid model dimensions")
     if not 0 <= m.alu.dropout <= 1 or m.alu.activation != "gelu":
         raise ValueError("Invalid ALU settings")
+    if m.implementation not in ("legacy", "neox"):
+        raise ValueError("Unknown model implementation")
+    if m.implementation == "neox":
+        rotary_dim = int((m.d_model // m.alu.nhead) * m.rotary_pct)
+        if (m.attention_mode not in ("encoder", "decoder")
+            or m.register_read_source not in ("intermediate", "fixed_state")
+            or not m.tie_word_embeddings or m.position_capacity is not None
+            or rotary_dim <= 0 or rotary_dim % 2 or not 0 < m.rotary_pct <= 1
+            or m.rotary_base <= 0 or not 0 <= m.attention_dropout <= 1):
+            raise ValueError("Invalid common NeoX backbone settings")
+        if m.name == "grt":
+            m.router = m.router or RouterConfig()
+            m.register = m.register or RegisterConfig()
+            if (m.router.pool_nhead <= 0 or m.d_model % m.router.pool_nhead or m.router.mlp_hidden <= 0
+                or not m.register.s0_learnable or not 0 <= m.register.dropout_prob <= 1
+                or not math.isfinite(m.register.write_gate_bias_init)):
+                raise ValueError("Invalid GRT register/router settings")
+        elif m.router or m.register:
+            raise ValueError("RMT has no router/register gates")
+        return m
     if m.name == "rmt":
         if (
             m.tie_word_embeddings
@@ -260,6 +287,8 @@ def validate_config(cfg, require_output=True):
         or not 0 < t.convergence_exact_match <= 1
     ):
         raise ValueError("Invalid training settings")
+    if t.bptt_segments < 0:
+        raise ValueError("bptt_segments must be nonnegative")
     if t.model_seed < 0 or t.mixed_precision != "fp32":
         raise ValueError(
             "This reference experiment requires nonnegative seeds and fp32"

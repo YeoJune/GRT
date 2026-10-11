@@ -20,6 +20,13 @@ class DatasetAdapter(Protocol):
 class RememberAdapter:
     def validate(self, cfg):
         d = cfg.data
+        if d.options.get('objective', 'next_token') not in ('next_token', 'parallel'):
+            raise ValueError('Unknown Remember objective')
+        if d.options.get("objective") == "parallel" and (
+            cfg.model.implementation != "neox" or cfg.model.attention_mode != "encoder"):
+            raise ValueError("Parallel Remember requires the new encoder")
+        if cfg.model.implementation == "neox" and cfg.model.attention_mode == "encoder" and d.options.get("objective") != "parallel":
+            raise ValueError("Remember encoder requires masked parallel answer slots")
         if (
             d.key_size <= 0
             or d.value_size <= 0
@@ -68,9 +75,28 @@ class RememberAdapter:
             return ARDataset(cfg.data.key_size, cfg.data.value_size, pairs, size)
 
     def collator(self, cfg, vary):
-        return make_collator(
+        author_collate = make_collator(
             SimpleNamespace(vary_n_segments=vary, value_size=cfg.data.value_size)
         )
+        if cfg.data.options.get("objective") != "parallel":
+            return author_collate
+        # Independent RNG prevents model initialization from changing selected queries.
+        generator = torch.Generator().manual_seed(cfg.data.data_seed + int(vary))
+        def collate(batch):
+            with torch.random.fork_rng(devices=[]):
+                torch.set_rng_state(generator.get_state())
+                result = author_collate(batch)
+                generator.set_state(torch.get_rng_state())
+            n = cfg.data.value_size + 1
+            mask = torch.zeros_like(result["input_ids"], dtype=torch.bool)
+            mask[:, -n:] = True
+            ids = result["input_ids"].clone()
+            ids[:, -n:] = 103  # Reserved V128 symbol; one shared masked answer token.
+            result.update(input_ids=ids, input_ids_generate=ids.clone(), labels_mask=mask,
+                attention_mask_generate=torch.ones_like(ids, dtype=torch.bool))
+            return result
+        collate.generator = generator
+        return collate
 
     def generation_kwargs(self, cfg):
         return dict(
@@ -84,6 +110,11 @@ class RememberAdapter:
 _ADAPTERS = {"remember": RememberAdapter()}
 
 
+def register_builtin_adapters():
+    from grt.wikitext import WikiTextAdapter
+    _ADAPTERS.setdefault("wikitext103", WikiTextAdapter())
+
+
 def register_adapter(name, adapter):
     if name in _ADAPTERS:
         raise ValueError(f"Dataset adapter already registered: {name}")
@@ -91,6 +122,8 @@ def register_adapter(name, adapter):
 
 
 def get_adapter(name):
+    if name == "wikitext103":
+        register_builtin_adapters()
     if name in _ADAPTERS:
         return _ADAPTERS[name]
     if ":" in name:

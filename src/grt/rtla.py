@@ -89,7 +89,7 @@ def analyze(model, batch, path, metadata):
             "N": model.cfg.segment_len,
             "M": model.cfg.num_registers,
             "D": model.cfg.d_model,
-            "trace_scope": "committed fact updates only; query prefix recomputation excluded",
+            "trace_scope": getattr(model, 'trace_scope', "committed fact updates only; query prefix recomputation excluded"),
         },
     )
     from grt.plots import plot_trace

@@ -1,0 +1,228 @@
+"""Shared NeoX blocks with explicit memory masks; legacy vendor code stays intact."""
+from dataclasses import dataclass
+import torch
+from torch import nn
+import torch.nn.functional as F
+from transformers import GPTNeoXConfig
+from transformers.utils import ModelOutput
+from grt.vendor.armt.modeling_gpt_neox import (
+    GPTNeoXAttention, GPTNeoXLayer, apply_rotary_pos_emb,
+)
+from .router import GlobalRouterUnit
+from .grt import write_back
+from grt.metrics import causal_loss
+
+
+@dataclass
+class RecurrentOutput(ModelOutput):
+    loss: torch.Tensor | None = None
+    logits: torch.Tensor | None = None
+    memory_state: torch.Tensor | None = None
+
+
+class MemoryAttention(GPTNeoXAttention):
+    def forward(self, hidden_states, attention_mask=None, position_ids=None,
+                head_mask=None, layer_past=None, use_cache=False,
+                output_attentions=False, fixed_memory=None, token_length=0, rotary_length=None):
+        if layer_past is not None or use_cache:
+            raise ValueError("MemoryAttention uses explicit segment state, not KV cache")
+        b, length, _ = hidden_states.shape
+        qkv = self.query_key_value(hidden_states).view(
+            b, length, self.num_attention_heads, 3 * self.head_size)
+        q, k, v = [x.permute(0, 2, 1, 3) for x in qkv.split(self.head_size, -1)]
+        cos, sin = self.rotary_emb(v, seq_len=rotary_length or length)
+        qr, kr = apply_rotary_pos_emb(q[..., :self.rotary_ndims],
+            k[..., :self.rotary_ndims], cos, sin, position_ids)
+        q = torch.cat([qr, q[..., self.rotary_ndims:]], -1)
+        k = torch.cat([kr, k[..., self.rotary_ndims:]], -1)
+        scores = q @ k.transpose(-1, -2) / self.norm_factor
+        scores = scores.masked_fill(~attention_mask, torch.finfo(scores.dtype).min)
+        weights = self.attention_dropout(scores.float().softmax(-1).to(v.dtype))
+        attended = weights @ v
+        if fixed_memory is not None:
+            fixed = self.query_key_value(fixed_memory).view(
+                b, fixed_memory.shape[1], self.num_attention_heads, 3 * self.head_size)
+            _, fk, fv = [x.permute(0, 2, 1, 3) for x in fixed.split(self.head_size, -1)]
+            # Apply the same positional rotation to fixed-source register keys.
+            dummy = torch.zeros_like(fk[..., :self.rotary_ndims])
+            _, fkr = apply_rotary_pos_emb(dummy, fk[..., :self.rotary_ndims],
+                cos, sin, position_ids[:, token_length:])
+            fk = torch.cat([fkr, fk[..., self.rotary_ndims:]], -1)
+            fixed_keys = torch.cat([k[:, :, :token_length], fk], 2)
+            fixed_values = torch.cat([v[:, :, :token_length], fv], 2)
+            token_scores = q[:, :, :token_length] @ fixed_keys.transpose(-1, -2) / self.norm_factor
+            token_scores = token_scores.masked_fill(~attention_mask[:, :, :token_length],
+                torch.finfo(token_scores.dtype).min)
+            token_weights = self.attention_dropout(token_scores.float().softmax(-1).to(v.dtype))
+            attended = torch.cat([token_weights @ fixed_values, attended[:, :, token_length:]], 2)
+        out = attended.transpose(1, 2).reshape(b, length, self.hidden_size)
+        return (self.dense(out), None)
+
+
+class NeoXBackbone(nn.Module):
+    def __init__(self, m):
+        super().__init__()
+        config = GPTNeoXConfig(hidden_size=m.d_model, num_hidden_layers=m.alu.num_layers,
+            num_attention_heads=m.alu.nhead, intermediate_size=m.alu.d_ff,
+            hidden_act=m.alu.activation, hidden_dropout=m.alu.dropout,
+            attention_dropout=m.attention_dropout, rotary_pct=m.rotary_pct,
+            rotary_emb_base=m.rotary_base, max_position_embeddings=2048,
+            layer_norm_eps=1e-5, use_parallel_residual=True)
+        self.embedding = nn.Embedding(m.vocab_size, m.d_model)
+        self.layers = nn.ModuleList([GPTNeoXLayer(config) for _ in range(m.alu.num_layers)])
+        for layer in self.layers:
+            layer.attention = MemoryAttention(config)
+        self.final_norm = nn.LayerNorm(m.d_model, eps=config.layer_norm_eps)
+        self.dropout = nn.Dropout(m.alu.dropout)
+        self.lm_head = nn.Linear(m.d_model, m.vocab_size, bias=False)
+        self.lm_head.weight = self.embedding.weight
+        self.apply(self._initialize)
+
+    @staticmethod
+    def _initialize(module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            nn.init.normal_(module.weight, std=0.02)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+    def forward(self, x, mask, fixed_memory=None, token_length=0,
+                position_ids=None, rotary_length=None):
+        h = self.dropout(x)
+        positions = torch.arange(h.shape[1], device=h.device)[None] if position_ids is None else position_ids
+        for layer in self.layers:
+            attn = layer.attention(layer.input_layernorm(h), attention_mask=mask,
+                position_ids=positions,
+                fixed_memory=layer.input_layernorm(fixed_memory) if fixed_memory is not None else None,
+                token_length=token_length, rotary_length=rotary_length)[0]
+            # NeoX parallel residual: both branches see the same layer input.
+            h = h + layer.post_attention_dropout(attn) + layer.post_mlp_dropout(
+                layer.mlp(layer.post_attention_layernorm(h)))
+        return self.final_norm(h)
+
+
+class RecurrentNeoX(nn.Module):
+    trace_scope = "all segment write-backs, including masked query; once after the stack"
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg.model
+        self.objective = cfg.data.options.get("objective", "next_token")
+        self.backbone = NeoXBackbone(self.cfg)
+        m = self.cfg
+        self.initial_memory = nn.Parameter(torch.zeros(1, m.num_registers, m.d_model))
+        if m.name == "rmt":
+            nn.init.normal_(self.initial_memory, std=0.02)
+        else:
+            self.router = GlobalRouterUnit(m.router, m.num_registers, m.d_model,
+                m.register.write_gate_bias_init, m.register.dropout_prob)
+
+    def initial_state(self, batch_size):
+        return self.initial_memory.expand(batch_size, -1, -1)
+
+    def attention_mask(self, n, device):
+        m = self.cfg.num_registers
+        rmt = self.cfg.name == "rmt"
+        length = n + (2 * m if rmt else m)
+        mask = torch.ones(length, length, dtype=torch.bool, device=device)
+        if self.cfg.attention_mode == "decoder":
+            start = m if rmt else 0
+            mask[start:start+n, start:start+n] = torch.ones(n, n,
+                dtype=torch.bool, device=device).tril()
+            if rmt:
+                # Read block cannot see this segment; tokens cannot see write block.
+                mask[:m, m:] = False
+                mask[m:m+n, m+n:] = False
+        return mask[None, None]
+
+    def cell(self, ids, state, trace=None):
+        if not 0 < ids.shape[1] <= self.cfg.segment_len:
+            raise ValueError("Cell length must be within segment_len")
+        x = self.backbone.embedding(ids)
+        n, m = ids.shape[1], self.cfg.num_registers
+        if self.cfg.name == "rmt":
+            h = self.backbone(torch.cat([state, x, state], 1),
+                self.attention_mask(n, ids.device))
+            y, candidate = h[:, m:m+n], h[:, -m:]
+            next_state = candidate
+        else:
+            read, write, alpha = self.router(x, state)
+            source = read * state if self.cfg.register.conditional_read else state
+            fixed = source if self.cfg.register_read_source == "fixed_state" else None
+            # Reserve memory positions after a full segment even for a shorter prefix.
+            # Otherwise future sequence length would change token-to-memory RoPE.
+            positions = torch.cat([torch.arange(n, device=ids.device),
+                torch.arange(self.cfg.segment_len, self.cfg.segment_len+m, device=ids.device)])[None]
+            h = self.backbone(torch.cat([x, source], 1),
+                self.attention_mask(n, ids.device), fixed, n, positions, self.cfg.segment_len+m)
+            y, candidate = h[:, :n], h[:, n:]
+            next_state = write_back(state, candidate, write)
+            if trace is not None:
+                trace.record(read, write, state, candidate, alpha)
+        return y, next_state
+
+    def forward(self, input_ids, attention_mask=None, labels=None, labels_mask=None,
+                memory_state=None, target_ids=None, _trace=None):
+        if input_ids.ndim != 2 or input_ids.dtype != torch.long:
+            raise ValueError("Expected int64 [B,L] IDs")
+        if not input_ids.numel():
+            raise ValueError("Expected a nonempty token batch")
+        if attention_mask is not None and (attention_mask.shape != input_ids.shape
+                or attention_mask.dtype != torch.bool or not attention_mask.all()):
+            raise ValueError("Explicit stream batches are unpadded")
+        if labels is not None and target_ids is not None:
+            raise ValueError("Choose raw labels or adapter-aligned target_ids")
+        state = self.initial_state(input_ids.shape[0]) if memory_state is None else memory_state
+        if state.shape != (input_ids.shape[0], self.cfg.num_registers, self.cfg.d_model):
+            raise ValueError("Invalid segment memory state shape")
+        hidden = []
+        for segment in input_ids.split(self.cfg.segment_len, 1):
+            y, state = self.cell(segment, state, _trace)
+            hidden.append(y)
+        combined = torch.cat(hidden, 1)
+        if target_ids is not None:
+            if target_ids.shape != input_ids.shape or target_ids.dtype != torch.long:
+                raise ValueError("Aligned targets must be int64 [B,L]")
+            valid = target_ids != -100
+            if not valid.any():
+                raise ValueError("At least one aligned target is required")
+            logits = self.backbone.lm_head(combined[valid])
+            loss = F.cross_entropy(logits, target_ids[valid])
+            return RecurrentOutput(loss=loss, memory_state=state)
+        logits = self.backbone.lm_head(combined)
+        loss = None
+        if labels is not None:
+            if self.objective == "parallel":
+                if labels_mask is None or not labels_mask.any():
+                    raise ValueError("Parallel targets require aligned slot mask")
+                loss = F.cross_entropy(logits[labels_mask], labels[labels_mask])
+            else:
+                loss = causal_loss(logits, labels, labels_mask)
+        return RecurrentOutput(loss=loss, logits=logits, memory_state=state)
+
+    def forward_with_trace(self, **kwargs):
+        if self.cfg.name != "grt":
+            raise ValueError("RMT has no gate trace")
+        from grt.rtla import TraceBuffer
+        trace = TraceBuffer(read_active=self.cfg.register.conditional_read)
+        return self(**kwargs, _trace=trace), trace
+
+    @torch.no_grad()
+    def generate(self, input_ids, attention_mask=None, max_new_tokens=2,
+                 pad_token_id=0, eos_token_id=None):
+        if max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be positive")
+        if self.objective == "parallel":
+            return self(input_ids, attention_mask).logits[:, -max_new_tokens:].argmax(-1)
+        # Slow reference generation without a KV cache; no per-position training reruns.
+        if self.cfg.attention_mode != "decoder":
+            raise ValueError("Encoder generation requires a parallel-slot objective")
+        prompt = input_ids
+        result = []
+        finished = torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)
+        for _ in range(max_new_tokens):
+            token = self(prompt).logits[:, -1].argmax(-1)
+            token = torch.where(finished, pad_token_id, token)
+            result.append(token)
+            if eos_token_id is not None:
+                finished |= token == eos_token_id
+            prompt = torch.cat([prompt, token[:, None]], 1)
+        return torch.stack(result, 1)

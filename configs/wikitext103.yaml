@@ -1,0 +1,24 @@
+model:
+  vocab_size: 267735
+  segment_len: 150
+  num_registers: 10
+  attention_mode: decoder
+  alu: {num_layers: 16, nhead: 10, d_ff: 2100, dropout: 0.1, activation: gelu}
+  d_model: 410
+  router: {pool_nhead: 10, mlp_hidden: 512}
+data:
+  name: wikitext103
+  options: {path: data/wikitext103, objective: next_token}
+training:
+  curriculum: []
+  max_steps: 200000
+  batch_size: 60
+  grad_accum_steps: 1
+  global_batch_size: 60
+  bptt_segments: 3
+  lr: 0.00025
+  weight_decay: 0.0
+  grad_clip: 0.25
+  stop_on_convergence: false
+  mixed_precision: fp32
+evaluation: {batch_size: 10, every_steps: 4000}

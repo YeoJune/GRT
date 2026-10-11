@@ -1,44 +1,70 @@
 # GRT
 
-ARMT 논문의 Remember 과제에서 저자 RMT baseline과 GRT를 비교한다. 두 모델은 같은 데이터 adapter, 학습·생성 평가, curriculum과 checkpoint 경로를 사용한다. GRT의 router·ALU·gated write-back을 유지하며 query는 허용된 prefix만 처리한다.
+GRT와 RMT를 공통 GPT-NeoX backbone에서 비교한다. 인코더·디코더, Remember, WikiText-103을 지원한다.
+현재 설계와 세부 설정은 [최신 통합 명세](docs/20261011_current_spec.md)를 따른다.
+이전 설계·실험 기록은 [archive 목록](docs/README.md)에 보존했다.
 
-## 실행
+## 설치와 CPU 검사
 
-Python 3.10+와 PyTorch를 사용한다.
+Python 3.10+, PyTorch를 사용한다.
 
 ```bash
 python -m pip install -e '.[dev]'
 python -m pytest -q
-python scripts/train.py --config configs/base.yaml configs/rmt.yaml configs/cpu.yaml --output-dir runs/rmt_cpu --device cpu
+python scripts/train.py --config configs/base.yaml configs/neox.yaml configs/remember_encoder.yaml configs/neox_cpu.yaml configs/neox_grt.yaml --output-dir runs/grt_encoder_cpu --device cpu
 ```
 
-모델 선택은 `configs/rmt.yaml` 또는 `configs/grt.yaml`이다. `cpu.yaml`은 작은 실행 검사, `t4.yaml`은 T4 실험 override다.
+위 명령의 마지막 모델 파일을 `configs/neox_rmt.yaml`로 바꾸면 동일 backbone의 RMT 인코더다.
+Remember 인코더는 정답을 가린 slot에서 value+EOS를 병렬 예측한다. 정답을 입력에 넣지 않는다.
+새 디코더 Remember는 `remember_encoder.yaml`을 빼고 실행한다.
+설정은 왼쪽부터 병합하므로 모델 선택 파일을 크기 설정 뒤에 둔다.
+
+small D256 그대로 직접 CPU 실험을 수행하는 명령과 결과는 [CPU 실험 보고서](docs/20261011_small256_cpu.md)에 있다.
+
+## WikiText-103
+
+원래 tokenized v1 파일을 준비한다. `wikitext-103-raw`와 BPE는 이 설정과 다르다.
 
 ```bash
-python scripts/train.py --config configs/base.yaml configs/rmt.yaml configs/t4.yaml --output-dir runs/rmt_t4 --device cuda
-python scripts/evaluate.py --checkpoint runs/rmt_t4/stage_02_pairs2_key1/best.pt --device cuda
+python scripts/prepare_wikitext.py --source /path/to/wikitext-103 --output-dir data/wikitext103
+python scripts/train.py --config configs/base.yaml configs/neox.yaml configs/wikitext103.yaml configs/neox_grt.yaml --output-dir runs/grt_wiki_preflight --device cuda --batch-size 1 --grad-accum-steps 60 --benchmark-steps 3
 ```
 
-같은 설정·출력 경로로 재실행하면 `last.pt`에서 재개한다. 설정이 바뀌면 새 경로를 사용한다. Colab은 [최신 노트북](notebooks/colab.ipynb)의 `MODEL`, `RUN_DIR`만 선택해 실행하면 된다. [템플릿](notebooks/template.ipynb)은 새 실험용이며 기본은 CPU 검사다.
+base는 D410/16층/10 heads/FF2100, small은 D256/6층/8 heads/FF1024이다.
+small을 쓸 때 `wikitext_small.yaml`을 `wikitext103.yaml` 뒤, 모델 선택 앞에 추가한다.
+RMT는 마지막 모델 파일을 `neox_rmt.yaml`로 바꾼다. tied vocabulary를 포함한 실제 backbone은
+base 148.18M, small 73.28M으로 두 모델에서 동일하다.
 
-단일 T4용 `configs/t4.yaml`은 D128 / 4층 / FF128 / memory32 / FP32, batch2048, 1쌍 최대500 → 2쌍 최대2500 update다. 데이터는 train100만 / validation1천 / test1만이며 고정 길이 생성 exact match99%에서 단계 전환한다. 논문 전체 capacity 실험 재현이 아닌 1→2쌍 기능 검사다. GRT의 GPU 메모리·처리량·수렴은 별도 실험에서 확인한다.
+사전 측정의 `benchmark.json`에 update 시간·peak VRAM·`calibrated_override`가 저장된다.
+그 override를 YAML로 저장해 학습 명령 마지막에 추가하고 `--benchmark-steps`를 제거한다.
+본 학습은 사전 측정 폴더와 별개로 `--output-dir runs/grt_wiki` 등 새 경로에서 시작한다.
+global batch60은 `microbatch × accumulation × world_size`로 유지해야 한다.
+단일 GPU 위 예시는 1×60이다. GPU 용량에 맞춰 사전 측정으로 조절한다.
+데이터 경로는 별도 YAML의 `data.options.path`로 덮어쓸 수 있다.
 
-Kaggle 설정은 원본 global batch512와 1→2→3→5→10→20→40쌍 후보 중 시간 안에 원본 업데이트 예산을 완료할 공통 범위를 사전 측정으로 선택한다(기본 예상20쌍). 실제 forward/backward 사전 측정으로 GPU별 microbatch를 조정하고 accumulation으로 global batch를 유지한다. 두 모델 합계15시간, 모델별 학습6.5시간·측정/최종 평가 포함7시간 상한이며 완료 범위와 중단 사유를 기록한다. 세부 조건과 원본 대비 차이는 [실험 기록](docs/20261010_kaggle.md)에 있다.
+GRT는 `intermediate` register 읽기, read gate off가 기본이다. token-token만 causal하며
+층간 register 경로로 미래 정보가 전달되므로 결과는 `teacher_forced_noncausal`로 기록한다.
+엄격한 causal 비교 조건은 `configs/fixed_state.yaml`을 추가하고 read gate를 끈 상태다.
+RMT decoder 결과는 `autoregressive`로 기록한다. WikiText 인코더 next-token 학습은 거부한다.
 
-## 결과와 모니터링
+## 결과와 재개
 
-실행 루트의 `summary.json/.txt`, `evaluation.json/.txt`, `convergence.png`(노트북 생성)와 각 stage의 `metrics.jsonl`, `metrics.txt`, `resolved_config.yaml`, `metadata.json`, `last.pt`, `best.pt`를 확인한다. CE는 value+EOS의 teacher forcing, exact match는 실제 생성 지표다. `train/loss`는 해당 update의 배치 값이다.
-
-공통 설정의 W&B 기본값은 `false`이며 Kaggle 설정·노트북은 `true`로 활성화한다. 사용할 때 `pip install -e '.[wandb]'` 후 `wandb.enabled: true`로 설정하거나 노트북의 `WANDB=True`를 선택한다. 한 curriculum을 하나의 run으로 기록하며 재개 시 저장된 run ID를 사용한다. 로그인 키는 환경에서 제공한다. 연결에 실패해도 로컬 로그를 유지한다.
-
-GRT trace는 `rtla.enabled: true`로 학습 중 수집하거나 아래 명령으로 확인한다.
+같은 설정·출력 경로로 다시 실행하면 `last.pt`에서 재개한다. 설정이 바뀌면 새 경로를 쓴다.
+Remember는 stage별 checkpoint/metrics, WikiText는 실행 루트에 checkpoint/metrics를 저장한다.
+두 경로 모두 `resolved_config.yaml`, `metadata.json`, `summary.json/.txt`, `evaluation.json/.txt`를 기록한다.
+Remember는 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
+W&B 기본은 off이며 연결 실패 시에도 로컬 결과를 유지한다.
 
 ```bash
-python scripts/analyze.py --checkpoint runs/grt_cpu/stage_02_pairs2_key1/best.pt --output-dir runs/grt_trace --device cpu
+python scripts/evaluate.py --checkpoint runs/grt_wiki/best.pt --device cuda
+python scripts/evaluate.py --checkpoint runs/grt_encoder_cpu/stage_01_pairs1_key1/best.pt --samples 8 --batch-size 4 --device cpu
 ```
 
-## 기준과 기록
+WikiText CPU 부분 검사는 `--tokens N`으로 지정한다. 평가 batch를 바꾸면 stream partition도 달라지므로
+두 모델 비교에는 동일한 batch를 사용한다. 평가 명령의 결과는 기본으로 checkpoint 폴더에 기록된다.
 
-[설계 기준](docs/20261010_design.md)에 데이터·모델 계약과 출처, 원본과의 차이를 기록했다. [문서 목록](docs/README.md)에서 날짜별 기록을 확인할 수 있다. 원본 코드와 hash는 `src/grt/vendor/armt/`, 출처와 라이선스는 [NOTICE](third_party/NOTICE.md)에 있다.
-
-진행 중인 이전 RMT 실험은 `cbc3f36` checkout에서 마친다. 새 코드는 이전 native `author_rmt/1` checkpoint의 읽기·평가를 지원하며 기존 실행을 자동 변환해 재개하지 않는다. `scripts/evaluate.py --samples 64 --batch-size 8 --device cpu`로 짧게 평가할 수 있다. 구형 Copy 모델 checkpoint는 현재 경로에서 사용하지 않는다.
+새 Remember GRT의 gate/state trace도 `scripts/analyze.py`로 기록할 수 있다.
+기존 `configs/rmt.yaml`, `grt.yaml`, `cpu.yaml`, `t4.yaml`, `kaggle.yaml`과
+[노트북](notebooks/kaggle.ipynb)은 legacy 참조 실험용으로 보존했다.
+legacy/native `author_rmt/1` checkpoint 읽기·평가와 vendor fixture를 유지하며 새 구조로 자동 변환하지 않는다.
+원본 출처·hash는 `src/grt/vendor/armt/`, 라이선스는 [NOTICE](third_party/NOTICE.md)에 있다.
