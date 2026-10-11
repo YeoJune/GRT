@@ -5,6 +5,8 @@ defaults:
     model_seed: 54
     batch_size: 512
     grad_accum_steps: 1
+    auto_batch: false
+    memory_fraction: 0.8
     lr: 0.0003
     weight_decay: 0.001
     adam_beta2: 0.999

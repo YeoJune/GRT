@@ -28,9 +28,8 @@ def main():
     parser.add_argument("--grad-accum-steps", type=int)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--benchmark-steps", type=int, default=0)
-    parser.add_argument("--memory-fraction", type=float, default=0.8)
     args = parser.parse_args()
-    if args.benchmark_steps < 0 or not 0 < args.memory_fraction < 1:
+    if args.benchmark_steps < 0:
         parser.error("Invalid benchmark settings")
     from grt.experiments import load_experiment, parse_overrides
     overrides = parse_overrides(args.set)
@@ -58,7 +57,7 @@ def main():
         if args.benchmark_steps:
             from grt.benchmark import benchmark
 
-            benchmark(cfg, ctx, args.benchmark_steps, args.memory_fraction)
+            benchmark(cfg, ctx, args.benchmark_steps)
         else:
             run(cfg, ctx.device, ctx)
     finally:

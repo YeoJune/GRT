@@ -15,6 +15,7 @@ from grt.checkpoint import (CHECKPOINT_FORMAT, seed_all, capture_rng, restore_rn
 from grt.config import save_config
 from grt.logger import metadata, write_json, write_result_files
 from grt.models.factory import create_model
+from grt.utils.batching import calibrate_batch, peak_fraction
 
 
 def train_stream(adapter, cfg, device, monitor, ctx):
@@ -174,7 +175,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
     return summary
 
 
-def benchmark_stream(adapter, cfg, ctx, steps, memory_fraction):
+def benchmark_stream(adapter, cfg, ctx, steps):
     """Measure the same replay, full-softmax, Adam and clipping as stream training."""
     current = copy.deepcopy(cfg)
     t, device = current.training, ctx.device
@@ -221,37 +222,18 @@ def benchmark_stream(adapter, cfg, ctx, steps, memory_fraction):
             torch.cuda.synchronize(device)
 
     with preserve_rng():
-        while True:
-            seed_all(t.model_seed)
-            model = optimizer = None
-            if device.type == 'cuda':
-                torch.cuda.reset_peak_memory_stats(device)
-            error = False
-            try:
-                model = create_model(current).to(device)
-                optimizer = torch.optim.Adam(model.parameters(), lr=t.lr,
-                    betas=(0.9, t.adam_beta2), weight_decay=t.weight_decay)
-                update(model, model, optimizer, False)
-                eval_segment(model)
-            except torch.cuda.OutOfMemoryError:
-                error = True
-            peak = torch.cuda.max_memory_allocated(device) if device.type == 'cuda' else 0
-            fraction = peak/torch.cuda.get_device_properties(device).total_memory if peak else 0
-            if not ctx.max(error or fraction > memory_fraction):
-                break
-            del model, optimizer
-            gc.collect()
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
-            if t.batch_size == 1:
-                raise RuntimeError('Preflight cannot fit microbatch 1 or the configured evaluation batch')
-            t.batch_size //= 2
-            while local_batch % t.batch_size:
-                t.batch_size -= 1
-            t.grad_accum_steps = local_batch//t.batch_size
-            if ctx.main:
-                print(f'Preflight: microbatch={t.batch_size}, accumulation={t.grad_accum_steps}', flush=True)
+        def optimizer_factory(model, config):
+            return torch.optim.Adam(model.parameters(), lr=t.lr,
+                betas=(0.9, t.adam_beta2), weight_decay=t.weight_decay)
+        policy = calibrate_batch(current, ctx, optimizer_factory, update, eval_segment)
+        seed_all(t.model_seed)
+        model = create_model(current).to(device)
+        optimizer = optimizer_factory(model, current)
+        if device.type == 'cuda':
+            torch.cuda.reset_peak_memory_stats(device)
         wrapped = ctx.wrap(model)
+        update(model, wrapped, optimizer, True)
+        eval_segment(model)
         synchronize()
         started = time.perf_counter()
         for _ in range(steps):
@@ -265,21 +247,27 @@ def benchmark_stream(adapter, cfg, ctx, steps, memory_fraction):
         eval_seconds = ctx.max((time.perf_counter()-started)/steps)
         peak = int(ctx.max(torch.cuda.max_memory_allocated(device))) if device.type == 'cuda' else 0
         reserved = int(ctx.max(torch.cuda.max_memory_reserved(device))) if device.type == 'cuda' else 0
+        fraction = peak_fraction(ctx)
+        if policy['applied'] and fraction > t.memory_fraction:
+            raise RuntimeError('Measured DDP peak exceeds the VRAM target; calibration cannot be used')
         eval_batches = math.ceil((validation.shape[1]-1)/cfg.model.segment_len)
         validations = math.ceil(t.max_steps/cfg.evaluation.every_steps)
         result = dict(model=cfg.model.name, objective='next_token', score_kind=adapter.score_kind(cfg),
-            microbatch_per_gpu=t.batch_size, accumulation=t.grad_accum_steps, world_size=ctx.world_size,
+            batch_tuning=policy, microbatch_per_gpu=t.batch_size, accumulation=t.grad_accum_steps, world_size=ctx.world_size,
             global_batch_size=global_batch, previous_segments=t.bptt_segments,
             replay_tokens_per_stream=length, target_tokens_per_update=global_batch*cfg.model.segment_len,
             update_seconds=update_seconds, evaluation_segment_seconds=eval_seconds,
-            peak_bytes_per_gpu=peak, reserved_bytes_per_gpu=reserved,
+            peak_bytes_per_gpu=peak, reserved_bytes_per_gpu=reserved, peak_reserved_fraction=fraction,
             estimated_training_seconds=update_seconds*t.max_steps,
             estimated_validation_seconds=eval_seconds*eval_batches*validations,
             estimate_note='Steady-state replay; excludes preparation, checkpoint I/O and final test. Evaluation repeats the full stream on each rank.',
-            calibrated_override={'training':{'batch_size':t.batch_size,'grad_accum_steps':t.grad_accum_steps}})
+            calibrated_override=({'training':{'batch_size':t.batch_size,'grad_accum_steps':t.grad_accum_steps}}
+                                 if policy['applied'] else {}))
         if ctx.main:
             write_result_files(root, 'benchmark', result)
-            print(f'Preflight: {update_seconds:.3f}s/update, peak {peak/2**30:.2f} GiB', flush=True)
+            print(f'Preflight: {update_seconds:.3f}s/update, microbatch={t.batch_size}, '
+                  f'accumulation={t.grad_accum_steps}, global={global_batch}, '
+                  f'peak {peak/2**30:.2f} GiB, reserved {fraction:.1%}', flush=True)
         del wrapped, model, optimizer
         gc.collect()
         if device.type == 'cuda':

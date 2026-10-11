@@ -13,6 +13,7 @@ from grt.config import save_config
 from grt.data import get_adapter, make_dataset, make_loader, forward_batch
 from grt.models.factory import create_model
 from grt.logger import write_result_files
+from grt.utils.batching import calibrate_batch, peak_fraction
 
 
 def _optimizer(model, cfg):
@@ -75,13 +76,13 @@ def _eval_time(model, batch, cfg, ctx, steps):
     return ctx.max((time.perf_counter() - start) / steps)
 
 
-def benchmark(cfg, ctx, steps=3, memory_fraction=0.8):
+def benchmark(cfg, ctx, steps=3):
     from grt.config import validate_config
 
     validate_config(cfg)
     adapter = get_adapter(cfg.data.name)
     if hasattr(adapter, "benchmark"):
-        return adapter.benchmark(cfg, ctx, steps, memory_fraction)
+        return adapter.benchmark(cfg, ctx, steps)
     root = Path(cfg.run.output_dir)
     if ctx.main:
         root.mkdir(parents=True, exist_ok=True)
@@ -151,62 +152,23 @@ def benchmark(cfg, ctx, steps=3, memory_fraction=0.8):
                 eval_batches.append(
                     {k: v[ctx.rank :: ctx.world_size] for k, v in batch.items()}
                 )
-            while True:
-                seed_all(current.training.model_seed)
-                model = create_model(current).to(ctx.device)
-                optimizer = _optimizer(model, current)
-                if ctx.device.type == "cuda":
-                    torch.cuda.reset_peak_memory_stats(ctx.device)
-                error = None
-                try:
-                    _update(
-                        model,
-                        batches[-1],
-                        optimizer,
-                        current,
-                        SimpleNamespace(
-                            device=ctx.device, synchronize=lambda *args: nullcontext()
-                        ),
-                    )
-                except torch.cuda.OutOfMemoryError:
-                    error = "out_of_memory"
-                except RuntimeError as e:
-                    if ctx.device.type == "cuda" and "out of memory" in str(e).lower():
-                        error = "out_of_memory"
-                    else:
-                        raise
-                peak = (
-                    torch.cuda.max_memory_allocated(ctx.device)
-                    if ctx.device.type == "cuda"
-                    else 0
-                )
-                fraction = (
-                    peak / torch.cuda.get_device_properties(ctx.device).total_memory
-                    if ctx.device.type == "cuda"
-                    else 0
-                )
-                retry = ctx.max(error is not None or fraction > memory_fraction) > 0
-                if not retry:
-                    break
-                del model, optimizer
-                gc.collect()
-                if ctx.device.type == "cuda":
-                    torch.cuda.empty_cache()
-                if current.training.batch_size == 1:
-                    raise RuntimeError(
-                        "Preflight cannot fit the effective batch at microbatch1"
-                    )
-                current.training.batch_size //= 2
-                while local_batch % current.training.batch_size:
-                    current.training.batch_size -= 1
-                current.training.grad_accum_steps = (
-                    local_batch // current.training.batch_size
-                )
-                if ctx.main:
-                    print(
-                        f"Preflight {cfg.model.name} pairs{stage.num_pairs}: reduce microbatch to{current.training.batch_size}",
-                        flush=True,
-                    )
+            def update(model, wrapped, optimizer, distributed):
+                context = ctx if distributed else SimpleNamespace(
+                    device=ctx.device, synchronize=lambda *args: nullcontext())
+                _update(wrapped, batches[-1], optimizer, current, context)
+            def evaluate_probe(model):
+                with evaluation_context(model):
+                    for batch in eval_batches:
+                        forward_batch(model, batch, ctx.device)
+                        model.generate(batch['input_ids_generate'].to(ctx.device),
+                            attention_mask=batch['attention_mask_generate'].to(ctx.device),
+                            **adapter.generation_kwargs(current))
+            policy = calibrate_batch(current, ctx, _optimizer, update, evaluate_probe)
+            seed_all(current.training.model_seed)
+            model = create_model(current).to(ctx.device)
+            optimizer = _optimizer(model, current)
+            if ctx.device.type == 'cuda':
+                torch.cuda.reset_peak_memory_stats(ctx.device)
             trained = ctx.wrap(model)
             short_time = _time_update(
                 trained, batches[0], optimizer, current, ctx, steps
@@ -221,6 +183,9 @@ def benchmark(cfg, ctx, steps=3, memory_fraction=0.8):
                 if ctx.device.type == "cuda"
                 else 0
             )
+            fraction = peak_fraction(ctx)
+            if policy['applied'] and fraction > current.training.memory_fraction:
+                raise RuntimeError('Measured DDP peak exceeds the VRAM target; calibration cannot be used')
             expected = (short_time + full_time + sum(collate_times)) / 2
             validations = math.ceil(stage.max_steps / current.evaluation.every_steps)
             evaluation_cost = (
@@ -236,6 +201,8 @@ def benchmark(cfg, ctx, steps=3, memory_fraction=0.8):
                     "num_pairs": stage.num_pairs,
                     "key_size": stage.key_size,
                     "max_steps": stage.max_steps,
+                    "batch_tuning": policy,
+                    "peak_reserved_fraction": fraction,
                     "microbatch_per_gpu": current.training.batch_size,
                     "accumulation": current.training.grad_accum_steps,
                     "world_size": ctx.world_size,
@@ -262,22 +229,31 @@ def benchmark(cfg, ctx, steps=3, memory_fraction=0.8):
             )
             if ctx.main:
                 print(
-                    f"Preflight {cfg.model.name} pairs{stage.num_pairs}: max {full_time:.3f}s/update, peak {peak / 2**30:.2f}GiB",
+                    f"Preflight {cfg.model.name} pairs{stage.num_pairs}: max {full_time:.3f}s/update, "
+                    f"microbatch={current.training.batch_size}, accumulation={current.training.grad_accum_steps}, "
+                    f"global={global_batch}, peak {peak / 2**30:.2f}GiB, reserved {fraction:.1%}",
                     flush=True,
                 )
             del trained, model, optimizer, dataset, data, batches, eval_batches
             gc.collect()
             if ctx.device.type == "cuda":
                 torch.cuda.empty_cache()
+    override = ({'training': {'curriculum': calibrated}} if cfg.training.curriculum else
+                {'training': {'batch_size': current.training.batch_size,
+                              'grad_accum_steps': current.training.grad_accum_steps}})
     result = {
         "model": cfg.model.name,
+        "world_size": ctx.world_size,
+        "batch_tuning": dict(enabled=cfg.training.auto_batch,
+                             applied=cfg.training.auto_batch and ctx.device.type == 'cuda',
+                             memory_fraction=cfg.training.memory_fraction),
         "stages": rows,
         "estimated_training_and_validation_seconds": sum(
             r["estimated_training_seconds"] + r["estimated_validation_seconds"]
             for r in rows
         ),
         "estimate_note": "Linear interpolation between one and maximum pairs; data preparation, checkpoint I/O and final tests excluded. Wall-time caps remain authoritative.",
-        "calibrated_override": {"training": {"curriculum": calibrated}},
+        "calibrated_override": override if cfg.training.auto_batch and ctx.device.type == "cuda" else {},
     }
     if ctx.main:
         write_result_files(root, "benchmark", result)

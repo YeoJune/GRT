@@ -82,6 +82,8 @@ class TrainingConfig:
     batch_size: int = 512
     grad_accum_steps: int = 1
     global_batch_size: int | None = None
+    auto_batch: bool = False
+    memory_fraction: float = 0.8
     max_steps: int = 2000
     lr: float = 0.0003
     weight_decay: float = 0.001
@@ -247,6 +249,8 @@ def validate_config(cfg, require_output=True):
         raise ValueError("Counts must be positive integers")
     if t.global_batch_size is not None and t.global_batch_size <= 0:
         raise ValueError("global_batch_size must be positive")
+    if not 0 < t.memory_fraction < 1:
+        raise ValueError("training.memory_fraction must be between 0 and 1")
     if (
         t.lr <= 0
         or t.weight_decay < 0

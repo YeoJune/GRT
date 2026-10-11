@@ -84,14 +84,13 @@ class WikiTextRun:
     world_size: int = 2
     device: str = 'cuda'
     benchmark_steps: int = 10
-    memory_fraction: float = 0.8
     overrides: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.repo_dir, self.work_dir = Path(self.repo_dir), Path(self.work_dir)
         if not self.models or len(set(self.models)) != len(self.models) or any(m not in ('rmt', 'grt') for m in self.models):
             raise ValueError('Select rmt/grt once each')
-        if self.world_size <= 0 or self.benchmark_steps <= 0 or not 0 < self.memory_fraction < 1:
+        if self.world_size <= 0 or self.benchmark_steps <= 0:
             raise ValueError('Invalid execution settings')
         name = self.run_id or f'wiki_{self.size}_{self.tokenization}_{self.budget}_seed{self.seed}'
         if not self.run_id and (self.steps is not None or self.overrides):
@@ -105,7 +104,8 @@ class WikiTextRun:
             self.prepared_dir = Path(cfg.data.options['path'])
 
     def config(self, model, *, calibrated=True):
-        from grt.config import build_config, Config, merge_dicts, validate_config
+        from grt.config import merge_dicts
+        from grt.utils.batching import apply_batch_override
         from grt.experiments import load_experiment
         environment = {'data': {'options': {'path': str(self.prepared_dir)}, 'data_seed': self.seed},
             'training': {'model_seed': self.seed},
@@ -117,16 +117,18 @@ class WikiTextRun:
         if cfg.model.name != model:
             raise ValueError('Select the model through models, not overrides')
         benchmark = self.run_dir / (model + '_preflight') / 'benchmark.json'
-        if calibrated and benchmark.exists():
+        if calibrated and cfg.training.auto_batch and benchmark.exists():
             report = json.loads(benchmark.read_text())
             expected_batch = cfg.training.batch_size * cfg.training.grad_accum_steps * self.world_size
             if (report['model'] != model or report['world_size'] != self.world_size
                 or report['global_batch_size'] != expected_batch
                 or report['previous_segments'] != cfg.training.bptt_segments
-                or report['target_tokens_per_update'] != expected_batch * cfg.model.segment_len):
+                or report['target_tokens_per_update'] != expected_batch * cfg.model.segment_len
+                or report['batch_tuning']['enabled'] != cfg.training.auto_batch
+                or report['batch_tuning']['memory_fraction'] != cfg.training.memory_fraction
+                or (self.device == 'cuda' and not report['batch_tuning']['applied'])):
                 raise ValueError('Preflight conditions changed; use a new run_id')
-            cfg = build_config(Config, merge_dicts(asdict(cfg), report['calibrated_override']))
-            validate_config(cfg)
+            cfg = apply_batch_override(cfg, report['calibrated_override'], self.world_size)
         effective = cfg.training.batch_size * cfg.training.grad_accum_steps * self.world_size
         if cfg.training.global_batch_size is not None and effective != cfg.training.global_batch_size:
             raise ValueError('microbatch × accumulation × world_size must equal global batch')
@@ -212,29 +214,28 @@ class WikiTextRun:
         from grt.config import save_config
         self.run_dir.mkdir(parents=True, exist_ok=True)
         path = self.run_dir / (model + '_config.yaml')
-        save_config(self.config(model), path)
+        save_config(self.config(model, calibrated=not benchmark), path)
         command = [sys.executable, '-u']
         if self.world_size > 1:
             command += ['-m', 'torch.distributed.run', '--standalone', f'--nproc_per_node={self.world_size}']
         command += ['scripts/train.py', '--config', path, '--output-dir', output, '--device', self.device]
         if benchmark:
-            command += ['--benchmark-steps', str(self.benchmark_steps), '--memory-fraction', str(self.memory_fraction)]
+            command += ['--benchmark-steps', str(self.benchmark_steps)]
         self._logged(command, model + ('_preflight_console.txt' if benchmark else '_train_console.txt'))
 
     def preflight(self):
         from grt.config import save_config
-        import torch
         reports = {}
         manifest = json.loads((self.prepared_dir / 'manifest.json').read_text())
         for model in self.models:
             probe = self.run_dir / (model + '_preflight')
-            self._launch(model, probe, benchmark=True)
+            if not (self.run_dir / model / 'experiment_config.json').exists():
+                self._launch(model, probe, benchmark=True)
             report = json.loads((probe / 'benchmark.json').read_text())
-            if self.device == 'cuda':
-                capacity = min(torch.cuda.get_device_properties(rank).total_memory for rank in range(self.world_size))
-                if report['peak_bytes_per_gpu'] > self.memory_fraction * capacity:
-                    raise RuntimeError('Final DDP peak exceeds the memory limit; reduce microbatch and remeasure')
             cfg = self.config(model)
+            if self.device == 'cuda' and cfg.training.auto_batch:
+                if report['peak_reserved_fraction'] > cfg.training.memory_fraction:
+                    raise RuntimeError('Final DDP peak exceeds the memory limit; reduce microbatch and remeasure')
             save_config(cfg, self.run_dir / (model + '_config.yaml'))
             eta = estimate_time(report, manifest, steps=cfg.training.max_steps,
                 eval_every=cfg.evaluation.every_steps, eval_batch=cfg.evaluation.batch_size,

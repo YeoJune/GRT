@@ -28,6 +28,7 @@
 - 새 데이터셋은 adapter를 통해 같은 배치 계약에 연결한다. trainer/evaluator에 과제·모델별 분기를 추가하지 않는다. 인터페이스 변경은 데이터 경계·모델 factory에서 명시한다.
 - 원본 collator는 전역 Torch RNG를 사용한다. 같은 dataset/seed라도 모델 초기화에 따라 길이·질의 선택 순서가 다를 수 있다. 이를 동일 배치 비교로 표현하거나 정리 작업 중 몰래 바꾸지 않는다.
 - 설정은 `docs/20261011_experiment_workflow.md`의 역할·병합 순서를 따른다. 신규 크기/고정 비교 조건은 카탈로그에 추가하고 숫자 변경은 `--steps`/`--set`을 쓴다. 실험별 flat YAML과 노트북 helper 코드를 복사하지 않고 utils를 확장한다. 목록과 null은 교체한다. 실제 조건은 resolved config와 metadata로 확인한다. 설정이 바뀌면 새 run을 사용하고 기존 결과를 보존한다.
+- CUDA 배치 자동 조정은 `training.auto_batch`/`memory_fraction`과 공통 `utils/batching.py`에서 관리한다. off/CPU에서는 config 배치를 유지하고, on에서도 microbatch×accumulation×world_size와 평가 batch를 바꾸지 않는다. 현재 run의 보정 배치를 재개 시 재사용한다.
 - W&B 공통 기본은 false이며 Kaggle 실험은 true로 설정한다. 비활성 시 import·연결하지 않는다. 모니터링이 모델 RNG에 영향을 주지 않게 한다. 로컬 TXT/JSON 기록을 항상 유지한다.
 - 임시 문서는 제거하고 기록 문서는 `YYYYMMDD_이름`으로 보존하며 목록을 갱신한다. archive에는 Markdown 문서만 보존한다. config·notebook·zip·실행 코드를 보관하거나 archive를 읽는 실행/테스트 경로를 추가하지 않는다. 하위 호환성 코드는 유지하지 않는다.
 

@@ -129,7 +129,8 @@ def test_cli_distributed_preflight_preserves_batch(tmp_path, model):
             == 8
         )
         assert row["maximum_step_seconds"] > 0
-    assert report["calibrated_override"]["training"]["curriculum"][1]["key_size"] == 2
+    assert report["calibrated_override"] == {}
+    assert not report["batch_tuning"]["enabled"]
 
 
 def test_cli_distributed_time_budget_synchronizes_stop(tmp_path):

@@ -202,7 +202,7 @@ validation은 dropout off로 순차 state를 유지하고 training RNG를 보존
 DDP 학습은 stream을 rank별로 나누며 평가 전체 stream은 각 rank에서 동일하게 읽는다. 평가를 중복 합산하지 않는다.
 
 `--benchmark-steps`는 WikiText에서도 실제 replay/full softmax/Adam/gradient norm clip을 측정한다.
-microbatch를 줄일 때 accumulation을 늘려 global batch를 유지한다. 출력 calibrated_override를
+`training.auto_batch=false`는 config 배치를 그대로 사용한다. true는 GPU별 peak reserved VRAM을 측정해 목표 `training.memory_fraction`(기본0.8) 안에서 microbatch를 늘리거나 줄이고 accumulation으로 global batch를 유지한다. rank당 실질 배치를 넘지 않으며 평가 batch는 고정한다. 출력 calibrated_override를
 utils에서 적용해 모델당 최종 Config YAML 하나를 저장하고 본 학습에 사용한다. 환경·logging·보정용 YAML을 별도로 늘리지 않는다.
 평가 batch는 자동으로 변경하지 않으며 평가에서도 메모리 여유 조건을 만족해야 한다.
 utils의 예상 시간은 학습·주기별 validation·마지막 test를 포함하며 checkpoint I/O·데이터 준비·시작 시간은 제외한다.

@@ -48,9 +48,9 @@ class WikiTextAdapter:
         from grt.stream_training import train_stream
         return train_stream(self, cfg, device, monitor, ctx)
 
-    def benchmark(self, cfg, ctx, steps, memory_fraction):
+    def benchmark(self, cfg, ctx, steps):
         from grt.stream_training import benchmark_stream
-        return benchmark_stream(self, cfg, ctx, steps, memory_fraction)
+        return benchmark_stream(self, cfg, ctx, steps)
 
     @staticmethod
     def streams(tokens, batch_size):

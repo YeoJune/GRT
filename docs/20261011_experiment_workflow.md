@@ -67,8 +67,27 @@ prepare_data는 기존 prepared 데이터와 tokenizer를 재사용한다. 다�
 
 W&B는 rank0만 생성하며 preflight에서는 생성하지 않는다. 본 학습의 주기별 metrics와 `wandb_status.json`은 유지한다. 온라인 모드에서는 종료 상태·실패 수·마지막 step·run URL을 확인한다. disabled/offline을 선택한 경우 그 모드대로 확인한다.
 
+## GPU 배치 자동 조정
+
+DDP는 유지한다. 설정은 `training.auto_batch`(기본 false), `training.memory_fraction`(기본 0.8) 두 값으로 관리한다. off일 때 config의 batch_size/grad_accum_steps를 그대로 쓰며 OOM에서도 임의로 축소하지 않는다. CPU에서도 배치를 바꾸지 않는다.
+
+on이면 CUDA 사전 측정에서 local effective batch의 약수만 큰 순서로 시도하고, 모든 rank에서 목표 peak reserved VRAM 이내인 가장 큰 microbatch를 선택한다. local effective=batch_size×grad_accum_steps, global effective=local×world_size를 고정한다. global_batch_size가 명시되면 이 값과 일치해야 하며 불일치는 조정으로 숨기지 않고 거부한다. accumulation=local/microbatch이므로 계산 microbatch는 rank당 effective batch를 넘지 않는다. 목표는 PyTorch가 예약한 VRAM의 상한이며 GPU 연산 가동률이나 정확한 점유율을 보장하지 않는다. 평가 batch·sequence length·BPTT·LR·updates는 변경하지 않는다.
+
+실제 forward/backward/optimizer와 평가로 측정하며 DDP bucket 메모리도 확인한다. 실패 후보는 모든 rank에서 함께 낮춘다. microbatch1도 목표/평가 메모리를 만족하지 못하면 오류로 보고한다. 실질 배치 상한이나 약수 간격 때문에 목표 점유율보다 낮을 수 있다.
+
+```python
+job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('rmt',),
+                  overrides={'training': {'auto_batch': True, 'memory_fraction': 0.8}})
+```
+
+CLI는 `--set training.auto_batch=true --set training.memory_fraction=0.8`을 사용한다. 신규 CUDA 학습은 필요한 사전 측정을 수행하고 같은 run의 측정 결과가 있으면 재사용한다. Kaggle의 기존 preflight 호출과 학습 사이에 동일 측정을 반복하지 않는다. 최종 batch/accumulation은 Config와 benchmark에 기록하며 현재 run 재개에서는 확정된 값을 유지한다. 다른 GPU에 맞춰 다시 조정하려면 새 run을 사용한다.
+
+예: GPU2개, micro10×accum3의 global60은 micro30×accum1 또는 micro5×accum6으로 바뀔 수 있다. global60을 초과하는 microbatch는 후보에 넣지 않는다. Remember curriculum도 stage마다 설정된 실질 배치를 유지한다.
+
 ## 검증 범위
 
 현재 카탈로그 선택·typed Config 검증, config 단일 파일 입력, 현재 checkpoint 형식, 작은 CPU 실행과 재개 조건을 확인한다. 과거 YAML/fixture/archive notebook과 대조하는 호환성 검사는 유지하지 않는다. 전체 학습과 GPU 수렴을 반복 검사하지 않는다.
 
 현재 코드 정리 후 관련 CPU 검사 54개가 9.16초에 통과했다. 카탈로그 조합 36개, 단일 Config 파일/현재 checkpoint 형식, 짧은 LM preflight·2 updates, 현재 Remember/stream 실행·재개와 vendor hash를 확인했다. 전체 회귀·GPU 실험을 반복한 결과는 아니다.
+
+배치 자동 조정 추가에서는 관련 CPU 검사만 실행했다. 정책·예산 보존·보정 재사용과 Remember 실제 사전 측정 검사 15개가 1.98초에 통과했고, WikiText의 짧은 사전 측정·2 updates와 보정된 run 설정 재사용도 통과했다. CUDA OOM/rank별 제한은 모의 메모리·collective로 확인했으며 실제 GPU VRAM 조정과 성능은 아직 실측하지 않았다.

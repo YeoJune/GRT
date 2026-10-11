@@ -50,18 +50,21 @@ def test_explicit_values_and_invalid_choices():
 
 
 def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):
-    job = WikiTextRun(REPO, work_dir=tmp_path, run_id='existing', wandb=False)
+    job = WikiTextRun(REPO, work_dir=tmp_path, run_id='existing', wandb=False,
+                      overrides={'training': {'auto_batch': True}})
     probe = job.run_dir / 'rmt_preflight'
     probe.mkdir(parents=True)
     report = dict(model='rmt', world_size=2, global_batch_size=60, previous_segments=3,
         target_tokens_per_update=9000,
+        batch_tuning=dict(enabled=True, applied=True, memory_fraction=0.8),
         calibrated_override={'training': {'batch_size': 5, 'grad_accum_steps': 6}})
     (probe / 'benchmark.json').write_text(json.dumps(report))
     cfg = job.config('rmt')
     root = job.run_dir / 'rmt'
     root.mkdir()
     (root / 'experiment_config.json').write_text(json.dumps(asdict(cfg)))
-    restored = WikiTextRun(REPO, work_dir=tmp_path, run_id='existing', wandb=False)
+    restored = WikiTextRun(REPO, work_dir=tmp_path, run_id='existing', wandb=False,
+                           overrides={'training': {'auto_batch': True}})
     assert restored.config('rmt').training.batch_size == 5
     assert restored.config('rmt').training.grad_accum_steps == 6
     restored.steps = 123

@@ -29,6 +29,8 @@ def run(cfg, device, distributed=None):
     ctx = distributed or DistributedContext(device)
     device = ctx.device
     validate_config(cfg)
+    from grt.utils.batching import prepare_batch
+    cfg = prepare_batch(cfg, ctx)
     root = Path(cfg.run.output_dir)
     root.mkdir(parents=True, exist_ok=True)
     # Check configuration before initializing optional external monitoring.
