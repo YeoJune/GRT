@@ -32,7 +32,7 @@ GPT-NeoX 계열 Transformer, parallel residual, RoPE, tied embedding/출력 head
 RoPE rotary_pct=0.25, base=10000을 사용한다.
 base는 RMT 2022 WikiText의 차원을 맞춘 NeoX 변형이며 정확한 원문 모델 재현이 아니다.
 small은 후속 사용자 지시에 따라 D256으로 변경했고 FFN=4D(1024)를 유지한다. tied full softmax를 두 모델에 공통 적용한다.
-WikiText vocabulary는 267735, Remember는 기존 V128/token 규칙을 기반으로 한다.
+WikiText word-level vocabulary는 267735, 별도 GPT-2 BPE 옵션은 50257이다. Remember는 기존 V128/token 규칙을 기반으로 한다.
 공통 NeoX 경로는 기존 vendor의 GELU, LayerNorm eps=1e-5, 선형/embedding 초기화 std=0.02를 계승한다.
 후보와 token hidden은 모두 final norm 뒤에서 추출한다. 새 비교 프로토콜을 추가한 것으로 해석하지 않는다.
 위치는 각 segment에서 reset한다. RMT는 [read;tokens;write] 순서로 0부터 매겨 본문이 M부터 시작한다.
@@ -116,6 +116,8 @@ RMT encoder 비교에도 동일 query 입력/labels/loss를 적용한다.
 
 원문 word tokenizer와 데이터 처리, vocabulary 267735.
 full softmax는 원문 adaptive softmax와 다르며 메모리 비용을 실제 측정한다.
+추가 GPT-2 BPE 실험은 [BPE 계약과 Kaggle 안내](20261011_wikitext_bpe.md)를 따른다.
+단어 기준 원문 조건과 구분하며 BPE-token PPL을 기록한다.
 
 | 항목 | 설정 |
 |---|---|
@@ -174,7 +176,10 @@ Remember 병렬 generate는 answer slot argmax를 한 번 읽는다. 디코더 g
 WikiText 준비는 원래 tokenized `wiki.train/valid/test.tokens` 파일에서 수행한다.
 train 단어 빈도 순 vocabulary, EOS 우선, line별 EOS, 대소문자 유지, unknown은 train `<unk>`로 매핑한다.
 train vocabulary 267735가 아니면 기본 준비 명령이 실패한다. raw/BPE 데이터로 자동 대체하지 않는다.
-manifest에 split token 수, 원본/준비 파일/vocabulary SHA256을 저장한다. 자동 다운로드는 없다.
+manifest에 split token 수, 원본/준비 파일/vocabulary SHA256을 저장한다.
+Kaggle 기본 입력은 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`이며
+`scripts/download_wikitext.py`로 원본 text rows를 내보낸 뒤 같은 준비 경로를 사용한다.
+로컬 원본 파일도 계속 지원한다. BPE tokenizer는 `openai-community/gpt2`에서 내려받는다.
 
 각 split을 B개의 연속 stream으로 나누고 끝의 B 미만 token만 버린다. 각 stream 첫 token은 입력만으로
 쓰이므로 평가 target 수는 `B*(floor(N/B)-1)`이다. batch partition 경계는 연결하지 않는다.
@@ -210,6 +215,7 @@ AdamW/value clip/linear schedule/curriculum을 재사용한다. 두 과제의 op
 |---|---:|---:|---:|
 | WikiText base | 148175210 | 148179310 | 150378764 |
 | WikiText small | 73279232 | 73281792 | 74343956 |
+| WikiText small GPT-2 BPE | 17604864 | 17607424 | 18669588 |
 
 small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbone은 약 73.28M이다.
 30M 예산은 적용하지 않는다. full logits 한 segment만으로도 base global batch60에서
@@ -218,11 +224,14 @@ small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbo
 
 새 GRT Remember에도 RTLA trace를 지원하며 query를 포함한 모든 segment의 stack 뒤 write-back을 기록한다.
 WikiText 자동 RTLA 샘플링과 인코더 MLM objective는 지원 범위 밖이며 해당 설정을 명시적으로 거부한다.
-기존 노트북은 legacy 실험 기록용이고 새 경로는 저장소 README의 공통 CLI로 실행한다.
+최신 Kaggle 노트북은 small WikiText의 GPT-2 BPE/word-level 실행용이다. 기존 Remember 노트북은 archive에 보존한다.
 
 ## 9. 검증 결과와 실행 전 남은 항목
 
-최종 `python -m pytest -q`: **51 passed**, 93.96초(CPU). 새 경로 검사 18개를 포함한다.
+공통 구조 구현 시 `python -m pytest -q`: **51 passed**, 93.96초(CPU). 새 경로 검사 18개를 포함한다.
+GPT-2 BPE와 WikiText Kaggle 노트북 추가 후 전체 CPU 회귀는 **54 passed**, 108.49초다.
+후속 Hugging Face 기본 다운로드 경로 변경에서는 사용자 지시에 따라 추가 학습·회귀 검사를 실행하지 않았다.
+추가 검사 범위와 실제 tokenizer/GPU 미검증 조건은 [BPE 안내](20261011_wikitext_bpe.md)의 검증 절을 따른다.
 
 - vendor 원본 hash와 저자 RMT loss/gradient/generate fixture 회귀.
 - 두 모델 backbone 초기 weight 일치, tied Parameter 공유 및 save/load 후 유지.

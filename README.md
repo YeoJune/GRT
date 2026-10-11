@@ -23,6 +23,10 @@ small D256 그대로 직접 CPU 실험을 수행하는 명령과 결과는 [CPU 
 
 ## WikiText-103
 
+Small의 T4 × 2 설정·메모리·시간 계산과 실행 명령은 [Kaggle 안내](docs/20261011_wikitext_kaggle.md)를 따른다.
+GPT-2 BPE 50,257 옵션은 [BPE 안내](docs/20261011_wikitext_bpe.md)에 있다.
+[Kaggle 노트북](notebooks/kaggle.ipynb)은 small BPE가 기본이며 word-level도 선택할 수 있다.
+
 원래 tokenized v1 파일을 준비한다. `wikitext-103-raw`와 BPE는 이 설정과 다르다.
 
 ```bash
@@ -41,6 +45,13 @@ base 148.18M, small 73.28M으로 두 모델에서 동일하다.
 global batch60은 `microbatch × accumulation × world_size`로 유지해야 한다.
 단일 GPU 위 예시는 1×60이다. GPU 용량에 맞춰 사전 측정으로 조절한다.
 데이터 경로는 별도 YAML의 `data.options.path`로 덮어쓸 수 있다.
+
+BPE는 `prepare_wikitext_bpe.py`로 같은 원본 파일을 별도로 준비하고,
+`configs/wikitext_bpe.yaml`을 크기 설정 뒤에 추가한다. GPT-2 tokenizer만 사용하고 모델 weights는 새로 초기화한다.
+small BPE의 공통 backbone은 17.61M이다. BPE-token PPL을 word-level PPL과 직접 비교하지 않는다.
+Kaggle 노트북은 기본으로 Hugging Face `Salesforce/wikitext`의 `wikitext-103-v1`과
+`openai-community/gpt2` tokenizer를 내려받는다. CLI에서는 `pip install -e '.[wikitext]'` 후
+`scripts/download_wikitext.py --output-dir data/wikitext103_hf_source`로 원본을 준비한다.
 
 GRT는 `intermediate` register 읽기, read gate off가 기본이다. token-token만 causal하며
 층간 register 경로로 미래 정보가 전달되므로 결과는 `teacher_forced_noncausal`로 기록한다.

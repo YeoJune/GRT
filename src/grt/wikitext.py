@@ -1,4 +1,4 @@
-"""Word-level WikiText files and ordered, boundary-preserving token streams."""
+"""Prepared word/BPE WikiText files and ordered token streams."""
 from pathlib import Path
 import hashlib
 import json
@@ -15,7 +15,7 @@ class WikiTextAdapter:
         if cfg.training.curriculum:
             raise ValueError("WikiText uses max_steps, not the Remember pair curriculum")
         if not cfg.data.options.get("path"):
-            raise ValueError("WikiText requires data.options.path to prepared word-token streams")
+            raise ValueError("WikiText requires data.options.path to prepared token streams")
         if cfg.rtla.enabled:
             raise ValueError("Automatic RTLA dataset sampling supports Remember; WikiText segment traces need an explicit batch")
         if cfg.training.global_batch_size is not None and cfg.training.global_batch_size <= 0:
@@ -26,6 +26,12 @@ class WikiTextAdapter:
         manifest = json.loads((path / 'manifest.json').read_text())
         if manifest['vocab_size'] != cfg.model.vocab_size:
             raise ValueError("Prepared vocabulary does not match model.vocab_size")
+        expected = cfg.data.options.get('tokenization')
+        if expected and manifest.get('tokenization', 'word') != expected:
+            raise ValueError('Prepared tokenization does not match data.options.tokenization')
+        for relative, expected_hash in manifest.get('prepared_artifacts_sha256', {}).items():
+            if hashlib.sha256((path / relative).read_bytes()).hexdigest() != expected_hash:
+                raise ValueError('Prepared tokenizer artifact hash mismatch')
         filename = path / f"{split}.pt"
         digest = hashlib.sha256()
         with filename.open('rb') as stream:
@@ -35,7 +41,7 @@ class WikiTextAdapter:
             raise ValueError("Token stream hash mismatch")
         tokens = torch.load(filename, weights_only=True, mmap=True)
         if tokens.ndim != 1 or tokens.dtype != torch.long or tokens.numel() < 2 or tokens.min() < 0 or tokens.max() >= cfg.model.vocab_size:
-            raise ValueError("Invalid prepared word-token stream")
+            raise ValueError("Invalid prepared token stream")
         return tokens
 
     def train_stream(self, cfg, device, monitor, ctx):
@@ -77,4 +83,6 @@ class WikiTextAdapter:
         mean = nll / count
         return dict(loss=mean, perplexity=math.exp(mean), nll_sum=nll,
             target_tokens=count, discarded_tail_tokens=tokens.numel()-stream.numel(),
+            tokenization=cfg.data.options.get('tokenization', 'word'),
+            perplexity_unit='bpe_token' if cfg.data.options.get('tokenization') == 'gpt2_bpe' else 'word_token',
             score_kind=self.score_kind(cfg))

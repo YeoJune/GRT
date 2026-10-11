@@ -48,6 +48,8 @@ def prepare(source, destination, expected_vocab=267735):
     manifest = dict(tokenizer='word, case-sensitive, line EOS, train-only vocabulary',
         dataset='wikitext-103-v1 tokenized', vocab_size=len(words), sha256=hashes,
         source_sha256=raw_hashes, token_counts=counts, vocab_sha256=sha256(vocab_path))
+    if (source / 'download_manifest.json').exists():
+        manifest['source_dataset'] = json.loads((source / 'download_manifest.json').read_text())
     (destination / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     return manifest
 

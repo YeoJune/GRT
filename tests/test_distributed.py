@@ -193,7 +193,7 @@ def test_notebook_watchdog_terminates_child_group_and_accounts_time(tmp_path):
     import signal
     import time
 
-    nb = json.loads((REPO / "notebooks/kaggle.ipynb").read_text())
+    nb = json.loads((REPO / "docs/archive/20261011_kaggle_remember.ipynb").read_text())
     source = "".join(nb["cells"][2]["source"])
     budget = {"started_at": time.time(), "used": {}, "executions": [], "active": None}
     namespace = dict(
@@ -358,7 +358,7 @@ def test_latest_notebook_orchestration_runs_actual_cli_on_cpu(tmp_path):
         load_config=load_config,
         validate_config=validate_config,
     )
-    nb = json.loads((REPO / "notebooks/kaggle.ipynb").read_text())
+    nb = json.loads((REPO / "docs/archive/20261011_kaggle_remember.ipynb").read_text())
     exec(compile("".join(nb["cells"][2]["source"]), "watchdog", "exec"), namespace)
     source = "".join(nb["cells"][4]["source"]).replace(
         "'--device', 'cuda'", "'--device', 'cpu'"

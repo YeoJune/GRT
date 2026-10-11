@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 wandb = ["wandb>=0.17"]
+wikitext = ["datasets>=3.0,<4"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
