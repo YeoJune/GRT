@@ -75,6 +75,8 @@ setup/다운로드/prepared hash 검사, torchrun 명령, 로그 tee/자식 종�
 
 Colab은 `notebooks/colab.ipynb`에서 같은 WikiTextRun을 사용한다. `runtime='colab'`, `world_size=1`, `work_dir=Path('/content')`를 명시한다. colab runtime은 micro32×accum8×GPU1로 Kaggle과 동일한 global256을 유지하고 배치 자동 조정을 켠다. LR·예산·평가 batch·모델·RTLA 조건은 공유하며 학습 함수나 wrapper를 복사하지 않는다. GPU 런타임을 선택하고 Colab Secrets에 `WANDB_API_KEY`를 등록해 노트북 접근을 허용한다. 환경변수가 있으면 우선 사용하고, 없으면 Colab의 userdata에서 읽는다. prepared_input/resume_input으로 기존 데이터/결과를 복원할 수 있지만 world_size가 다른 Kaggle checkpoint를 재개하지는 않는다.
 
+Colab W&B 인증은 [W&B 인증 페이지](https://wandb.ai/authorize)에서 API key 준비 → 왼쪽 열쇠 아이콘에서 이름 WANDB_API_KEY의 secret 추가 → 해당 secret의 Notebook access 활성화 → runtime='colab'·wandb=True에서 job.setup() 실행 순서다. SecretNotFoundError는 secret 이름/등록 여부, NotebookAccessError는 접근 스위치를 확인한다. utils 모듈 이름은 kaggle이지만 Colab은 google.colab.userdata, Kaggle은 kaggle_secrets.UserSecretsClient를 사용한다.
+
 run 이름에는 size/tokenization/budget/seed가 들어간다. custom steps/override는 별도 이름으로 구분한다. 최종 full Config YAML은 모델당 하나만 run 폴더에 남긴다. 환경·W&B·calibration 때문에 사용자용 YAML을 여러 개 만들지 않는다. calibration은 benchmark 결과에서 읽어 최종 설정에 적용한다.
 
 prepare_data는 기존 prepared 데이터와 tokenizer를 재사용한다. 다른 세션의 결과/데이터는 `resume_input`, `prepared_input`으로 원래 working 경로에 복사한다. 기존 출력의 Config가 달라지면 학습 전에 거부하며 checkpoint의 world_size/data manifest 검사도 유지한다. 현재 run의 보정된 microbatch/accumulation을 그대로 복원한다. 과거 실행 형식을 자동 변환하지 않는다.
