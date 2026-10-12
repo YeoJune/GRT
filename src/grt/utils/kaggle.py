@@ -1,4 +1,4 @@
-"""WikiText execution shared by the notebook and small local workflow checks."""
+"""Shared WikiText notebook execution for Kaggle and Colab."""
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
@@ -66,7 +66,7 @@ def estimate_time(benchmark, manifest, *, steps, eval_every, eval_batch, segment
         final_test_hours=test / 3600, total_compute_hours=(training + validation + test) / 3600,
         peak_gib_per_gpu=benchmark['peak_bytes_per_gpu'] / 2**30,
         reserved_gib_per_gpu=benchmark['reserved_bytes_per_gpu'] / 2**30,
-        note='Excludes preparation, checkpoint I/O and startup. Full evaluation repeats on each rank; tail segments approximated as full segments.')
+        note='Excludes preparation, checkpoint I/O, startup and RTLA probes. Full evaluation repeats on each rank; tail segments approximated as full segments.')
 
 
 @dataclass
@@ -75,6 +75,7 @@ class WikiTextRun:
     size: str = 'small'
     budget: str = '10k'
     models: tuple = ('rmt',)
+    runtime: str = 'kaggle'
     tokenization: str = 'gpt2_bpe'
     steps: int | None = None
     seed: int = 54
@@ -111,7 +112,7 @@ class WikiTextRun:
             'training': {'model_seed': self.seed},
             'wandb': {'enabled': self.wandb, 'run_name': self.run_dir.name + '-' + model}}
         cfg = load_experiment(task='wikitext103', model=model, size=self.size,
-            tokenization=self.tokenization, budget=self.budget, runtime='kaggle', steps=self.steps,
+            tokenization=self.tokenization, budget=self.budget, runtime=self.runtime, steps=self.steps,
             overrides=merge_dicts(environment, self.overrides), output_dir=self.run_dir / model,
             catalog_path=self.repo_dir / 'configs/experiments.yaml')
         if cfg.model.name != model:
@@ -156,6 +157,9 @@ class WikiTextRun:
             import wandb
             if os.environ.get('WANDB_API_KEY'):
                 wandb.login()
+            elif self.runtime == 'colab':
+                from google.colab import userdata
+                wandb.login(key=userdata.get('WANDB_API_KEY'))
             else:
                 from kaggle_secrets import UserSecretsClient
                 wandb.login(key=UserSecretsClient().get_secret('WANDB_API_KEY'))

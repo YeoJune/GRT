@@ -17,6 +17,8 @@ python scripts/train.py --task remember --model grt --size tiny --budget smoke -
 Remember 인코더는 정답을 가린 slot에서 value+EOS를 병렬 예측한다. 디코더는 두 `--set` 옵션을 제거한다.
 RMT는 `--model rmt`로 선택한다. [로컬 템플릿](notebooks/template.ipynb)도 같은 인터페이스를 사용한다.
 
+Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타임과 Colab Secrets의 `WANDB_API_KEY` 접근을 설정한다. Kaggle과 같은 WikiTextRun을 사용하며 GPU1개에서 micro32×accum8로 global256을 유지한다. 모델·예산·segment/register/BPTT·RTLA 선택은 Kaggle과 같다.
+
 ## WikiText-103 · Kaggle T4 × 2
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
@@ -65,6 +67,14 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py --task wikitext103 --m
 공통 `training.auto_batch` 기본은 false이며 Kaggle runtime에서 true로 켠다. 노트북은 `overrides={'training': {'auto_batch': False}}`, CLI는 `--set training.auto_batch=false`로 끈다. 목표는 `training.memory_fraction`(기본0.8)으로 지정한다. on이면 신규 CUDA 학습에서 필요한 사전 측정을 수행하고, 기존 측정/현재 run의 보정 배치를 재사용한다. 실질 배치와 평가 batch는 유지하며 CPU와 off에서는 자동 조정하지 않는다.
 GRT는 segment 시작 state를 읽는 구조가 유일한 표준이며 read gate는 기본 off다. gate를 켜도 segment 시작 state만으로 계산하므로 GRT/RMT decoder는 모두 `autoregressive`다. candidate와 write gate는 전체 segment로 계산해 stack 종료 후 다음 state에만 반영한다.
 이전 중간 register 읽기 방식은 병렬 학습에서 미래 정보 leakage가 발생할 수 있어 제거했다. 설계 이유는 [통합 명세](docs/20261011_current_spec.md)에만 기록한다. 읽기 source 선택 옵션과 이전 실행 설정의 호환 경로는 없다. 변경된 모델은 새 run으로 실행한다.
+
+## Register 사용 분석
+
+Kaggle/Colab의 `rtla_enabled=True`는 GRT validation마다 고정 probe의 정상·초기화·문맥 교환 NLL과 state 갱신량을 W&B/로컬에 기록한다. RMT는 생략한다. 사후에는 다음 명령으로 token 위치·slot별 기여와 메모리 개입의 지속 범위를 분석한다. 설정과 해석은 [RTLA 운영 규칙](docs/20261011_experiment_workflow.md#rtla-학습-중-모니터링과-사후-분석)을 따른다.
+
+```bash
+python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/wiki/grt/memory_analysis --device cuda --split validation --segments 64 --slots --horizon 4
+```
 
 ## 결과와 재개
 

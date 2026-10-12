@@ -2,6 +2,8 @@
 from dataclasses import asdict
 import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -55,6 +57,31 @@ def test_explicit_values_and_invalid_choices():
         load_experiment(task='wikitext103', steps='200')
     with pytest.raises(ValueError, match='Unknown keys'):
         load_experiment(task='wikitext103', overrides={'model': {'register_read_source': 'fixed_state'}})
+
+
+def test_colab_shared_budget_and_secret_setup(tmp_path, monkeypatch):
+    colab = WikiTextRun(REPO, runtime='colab', world_size=1, work_dir=tmp_path,
+                       models=('rmt', 'grt'), device='cpu')
+    kaggle = WikiTextRun(REPO, work_dir=tmp_path, models=('rmt', 'grt'))
+    for model in colab.models:
+        a, b = colab.config(model), kaggle.config(model)
+        assert a.training.batch_size == b.training.batch_size == 32
+        assert a.training.grad_accum_steps == 8 and b.training.grad_accum_steps == 4
+        assert a.training.batch_size*a.training.grad_accum_steps == a.training.global_batch_size == 256
+        assert a.training.lr == b.training.lr and a.training.max_steps == b.training.max_steps
+        assert a.model == b.model and a.evaluation == b.evaluation and a.rtla == b.rtla
+        assert a.data.options['path'].startswith(str(tmp_path))
+    monkeypatch.delenv('WANDB_API_KEY', raising=False)
+    monkeypatch.setenv('HF_HOME', str(tmp_path/'hf'))
+    keys, calls = [], []
+    def get(name):
+        keys.append(name)
+        return 'mock-colab-key'
+    monkeypatch.setitem(sys.modules, 'google.colab', SimpleNamespace(userdata=SimpleNamespace(get=get)))
+    monkeypatch.setitem(sys.modules, 'wandb', SimpleNamespace(login=lambda **kwargs: calls.append(kwargs)))
+    monkeypatch.setattr('grt.utils.kaggle.subprocess.run', lambda *args, **kwargs: None)
+    colab.setup()
+    assert keys == ['WANDB_API_KEY'] and calls == [{'key': 'mock-colab-key'}]
 
 
 def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):

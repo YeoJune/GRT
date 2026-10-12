@@ -107,6 +107,8 @@ class EvaluationConfig:
 class RTLAConfig:
     enabled: bool = False
     batch_size: int = 8
+    segments: int = 8
+    warmup_segments: int = 3
 
 
 @dataclass
@@ -241,6 +243,8 @@ def validate_config(cfg, require_output=True):
         cfg.evaluation.batch_size,
         cfg.evaluation.every_steps,
         cfg.rtla.batch_size,
+        cfg.rtla.segments,
+        cfg.rtla.warmup_segments,
         cfg.wandb.every_steps,
     )
     if any(type(v) is not int or v <= 0 for v in counts):

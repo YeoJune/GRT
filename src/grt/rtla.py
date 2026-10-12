@@ -1,16 +1,11 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
 import json
 import numpy as np
 import torch
 from grt.checkpoint import evaluation_context
 from grt.config import EXPERIMENT_VERSION
 from grt.data import make_loader, move_batch
-
-if TYPE_CHECKING:
-    pass
-
 
 @dataclass
 class TraceBuffer:
@@ -22,22 +17,34 @@ class TraceBuffer:
                 "r_gates",
                 "w_gates",
                 "s_norms",
+                "candidate_distances",
                 "update_distances",
-                "attn_weights",
+                "relative_updates",
+                "slot_cosines",
+                "write_pool_attention",
             )
         }
     )
 
     def record(self, read, write, state, candidate, attention):
         with torch.no_grad():
+            state, candidate, write = state.float(), candidate.float(), write.float()
+            norms = state.norm(dim=-1)
+            delta = candidate - state
+            update = (write * delta).norm(dim=-1)
+            unit = torch.nn.functional.normalize(state, dim=-1)
+            cosine = unit @ unit.transpose(-1, -2)
+            slots = state.shape[1]
+            off_diagonal = ~torch.eye(slots, dtype=torch.bool, device=state.device)
             values = {
                 "r_gates": read.float().squeeze(-1).mean(0),
                 "w_gates": write.float().squeeze(-1).mean(0),
-                "s_norms": state.float().norm(dim=-1).mean(0),
-                "update_distances": (candidate.float() - state.float())
-                .norm(dim=-1)
-                .mean(0),
-                "attn_weights": attention.float().mean(0),
+                "s_norms": norms.mean(0),
+                "candidate_distances": delta.norm(dim=-1).mean(0),
+                "update_distances": update.mean(0),
+                "relative_updates": (update / (norms+candidate.norm(dim=-1)).clamp_min(1e-8)).mean(0),
+                "slot_cosines": cosine[:, off_diagonal].mean() if slots > 1 else state.new_tensor(0.),
+                "write_pool_attention": attention.float().mean(0),
             }
             for key, value in values.items():
                 self.records[key].append(value.detach().cpu())
@@ -45,10 +52,14 @@ class TraceBuffer:
     def to_numpy(self):
         if not self.records["w_gates"]:
             raise ValueError("Empty trace")
-        return {
-            key: torch.stack(values).numpy().astype(np.float32)
-            for key, values in self.records.items()
-        }
+        arrays = {}
+        for key, values in self.records.items():
+            if key == 'write_pool_attention':
+                width = max(value.numel() for value in values)
+                values = [torch.nn.functional.pad(value, (0, width-value.numel()), value=float('nan'))
+                          for value in values]
+            arrays[key] = torch.stack(values).numpy().astype(np.float32)
+        return arrays
 
     def save(self, path, metadata):
         path = Path(path)
@@ -102,6 +113,8 @@ def analyze(model, batch, path, metadata):
 def log_trace(model, cfg, dataset, device, stage_dir, step):
     from torch.utils.data import Subset
 
+    if cfg.model.name != 'grt':
+        return {}
     count = min(cfg.rtla.batch_size, len(dataset))
     path = stage_dir / "rtla" / f"step_{step:06d}.npz"
     if path.exists():
@@ -110,8 +123,18 @@ def log_trace(model, cfg, dataset, device, stage_dir, step):
         batch = next(iter(make_loader(cfg, Subset(dataset, range(count)), vary=False)))
         trace, _ = analyze(model, batch, path, {"step": step, "split": "validation"})
     arrays = trace.to_numpy()
-    return {
+    return trace_metrics(arrays, trace.read_active)
+
+
+def trace_metrics(arrays, read_active):
+    metrics = {
         "grt/write_mean": float(arrays["w_gates"].mean()),
         "grt/register_norm": float(arrays["s_norms"].mean()),
         "grt/update_distance": float(arrays["update_distances"].mean()),
+        "grt/candidate_distance": float(arrays["candidate_distances"].mean()),
+        "grt/relative_update": float(arrays["relative_updates"].mean()),
+        "grt/slot_cosine": float(arrays["slot_cosines"].mean()),
     }
+    if read_active:
+        metrics['grt/read_mean'] = float(arrays['r_gates'].mean())
+    return metrics

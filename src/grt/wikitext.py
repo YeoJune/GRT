@@ -16,8 +16,8 @@ class WikiTextAdapter:
             raise ValueError("WikiText uses max_steps, not the Remember pair curriculum")
         if not cfg.data.options.get("path"):
             raise ValueError("WikiText requires data.options.path to prepared token streams")
-        if cfg.rtla.enabled:
-            raise ValueError("Automatic RTLA dataset sampling supports Remember; WikiText segment traces need an explicit batch")
+        if cfg.rtla.enabled and cfg.model.name == 'grt' and cfg.rtla.batch_size < 2:
+            raise ValueError('WikiText RTLA state exchange requires batch_size >= 2')
         if cfg.training.global_batch_size is not None and cfg.training.global_batch_size <= 0:
             raise ValueError("Invalid global batch")
 
@@ -51,6 +51,18 @@ class WikiTextAdapter:
     def benchmark(self, cfg, ctx, steps):
         from grt.stream_training import benchmark_stream
         return benchmark_stream(self, cfg, ctx, steps)
+
+    def log_analysis(self, model, cfg, tokens, root, step):
+        from grt.memory_analysis import log_stream_analysis
+        return log_stream_analysis(model, cfg, tokens, root, step)
+
+    def analyze_memory(self, model, cfg, tokens, root, metadata, **options):
+        from grt.memory_analysis import analyze_stream, save_analysis
+        summary, arrays = analyze_stream(model, cfg, tokens, **options)
+        metadata = {**metadata, 'dataset_manifest': json.loads(
+            (Path(cfg.data.options['path'])/'manifest.json').read_text())}
+        save_analysis(root, summary, arrays, metadata, plots=True)
+        return summary
 
     @staticmethod
     def streams(tokens, batch_size):

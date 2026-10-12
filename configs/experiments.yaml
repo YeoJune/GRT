@@ -18,6 +18,8 @@ defaults:
   rtla:
     enabled: false
     batch_size: 8
+    segments: 8
+    warmup_segments: 3
   wandb:
     enabled: false
     project: grt-research
@@ -181,6 +183,15 @@ runtimes:
     training:
       batch_size: 32
       grad_accum_steps: 4
+      global_batch_size: 256
+      auto_batch: true
+      max_seconds: null
+    wandb:
+      enabled: true
+  colab:
+    training:
+      batch_size: 32
+      grad_accum_steps: 8
       global_batch_size: 256
       auto_batch: true
       max_seconds: null

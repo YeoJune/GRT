@@ -73,6 +73,8 @@ Kaggle 노트북의 `bptt_segments`(기본3, 0 이상의 정수)는 training ove
 
 setup/다운로드/prepared hash 검사, torchrun 명령, 로그 tee/자식 종료, calibration, ETA, W&B 확인, summary/plot은 `src/grt/utils/kaggle.py`에서 관리한다. 추가 환경 기능은 utils를 확장한다. 노트북 cell 수나 복사한 helper 함수 수를 늘리지 않는다. 저수준 tokenizer 준비/다운로드 CLI는 계속 사용할 수 있다.
 
+Colab은 `notebooks/colab.ipynb`에서 같은 WikiTextRun을 사용한다. `runtime='colab'`, `world_size=1`, `work_dir=Path('/content')`를 명시한다. colab runtime은 micro32×accum8×GPU1로 Kaggle과 동일한 global256을 유지하고 배치 자동 조정을 켠다. LR·예산·평가 batch·모델·RTLA 조건은 공유하며 학습 함수나 wrapper를 복사하지 않는다. GPU 런타임을 선택하고 Colab Secrets에 `WANDB_API_KEY`를 등록해 노트북 접근을 허용한다. 환경변수가 있으면 우선 사용하고, 없으면 Colab의 userdata에서 읽는다. prepared_input/resume_input으로 기존 데이터/결과를 복원할 수 있지만 world_size가 다른 Kaggle checkpoint를 재개하지는 않는다.
+
 run 이름에는 size/tokenization/budget/seed가 들어간다. custom steps/override는 별도 이름으로 구분한다. 최종 full Config YAML은 모델당 하나만 run 폴더에 남긴다. 환경·W&B·calibration 때문에 사용자용 YAML을 여러 개 만들지 않는다. calibration은 benchmark 결과에서 읽어 최종 설정에 적용한다.
 
 prepare_data는 기존 prepared 데이터와 tokenizer를 재사용한다. 다른 세션의 결과/데이터는 `resume_input`, `prepared_input`으로 원래 working 경로에 복사한다. 기존 출력의 Config가 달라지면 학습 전에 거부하며 checkpoint의 world_size/data manifest 검사도 유지한다. 현재 run의 보정된 microbatch/accumulation을 그대로 복원한다. 과거 실행 형식을 자동 변환하지 않는다.
@@ -106,6 +108,37 @@ base/small/tiny와 RMT/GRT는 global256, Adam LR5e-4를 공유한다. 배치60�
 
 기존 결과에 이어서 학습하지 않고 새 run_id를 사용한다. T4 GPU의 실제 메모리 적합성과 update 시간은 기존 preflight로 측정하고 ETA를 갱신한다. 기존 micro10 측정 시간을 새 microbatch/update 시간으로 단순 환산하지 않는다.
 
+## RTLA: 학습 중 모니터링과 사후 분석
+
+목표는 register의 변화뿐 아니라 과거 state가 다음 token 예측을 개선하는지 확인하는 것이다. 같은 checkpoint·token·segment 경계에서 정상 state와 개입 state의 NLL을 비교한다. 양의 delta NLL은 개입으로 예측이 나빠졌다는 뜻이며 메모리 사용의 근거다. 단독으로 메모리 없는 모델 대비 성능 우위를 증명하지는 않는다.
+
+| 구분 | 학습 중 W&B 및 로컬 기록 | 사후 checkpoint 분석 |
+|---|---|---|
+| 조건 | 정상 / 학습된 S0로 초기화 / 다른 스트림의 state로 교환 | 같은 세 조건 + 선택적 slot별 초기화 |
+| 지표 | probe NLL/PPL, 초기화·교환 delta NLL, 위치별 효과의 앞/뒤 요약 | token 위치별 delta NLL, segment별 결과, slot별 기여 |
+| state 동작 | write gate, state norm, 실제 update norm/relative update, slot cosine | 같은 trace와 그래프 |
+| 지속 범위 | 실행하지 않음 | 한 경계에서만 state 교환 후 정상 write-back을 이어가며 horizon별 delta NLL |
+
+`rtla.enabled` 공통 기본은 false다. Kaggle 선택 셀은 `rtla_enabled`로 켜고 끄며 RMT는 분석을 생략한다. WikiText는 validation마다 rank0에서만 고정 probe를 실행한다. `rtla.batch_size=8`, `rtla.segments=8`, `rtla.warmup_segments=3`이 기본이며 모두 명시 override로 변경한다. batch는 문맥 교환을 위해2 이상이고, warmup은1 이상이어야 한다. 원래 validation NLL/PPL은 전체 stream 평가이고 RTLA 지표는 고정된 별도 probe이므로 구분한다. probe가 부족하면 segment 수를 가용 범위로 줄이되 warmup 뒤 측정 segment가 없으면 오류로 보고한다.
+
+정상 state는 warmup을 포함한 실제 과거를 순서대로 처리해 만든다. 각 측정 segment의 초기화·교환·slot 개입은 정상 trajectory의 동일 시작 state에서 별도로 계산하고 다음 정상 segment에 반영하지 않는다. 교환은 같은 시점에서 batch를1칸 순환시켜 자기 자신의 state를 받지 않게 한다. 미래 state를 주입하지 않는다. 지속 범위 분석만 개입 state를 이후 segment로 이어가며 현재 token 입력은 정상과 동일하게 유지한다.
+
+gate·norm·cosine은 동작 진단이며 인과적 기여의 증거는 개입 NLL 차이다. relative update는 실제 갱신 norm/(이전 state norm+candidate norm)이며 초기 state가0이어도 유한하도록 분모에 epsilon을 둔다. read gate off에서는 read gate 평균을 W&B에 보내지 않는다. write pooling attention은 register 읽기 attention이 아니다. 전체 head attention 저장·slot 조합 탐색·자연어 entity 분류는 이번 최소 구현에 포함하지 않는다.
+
+```python
+# 기존 notebook overrides의 rtla 항목
+{'rtla': {'enabled': True, 'batch_size': 8, 'segments': 8, 'warmup_segments': 3}}
+```
+
+학습 중 결과는 `run/rtla/step_XXXXXX/summary.json`과 `arrays.npz`, 개입 scalar는 `grt/rtla/*`, state 동작 scalar는 기존 `grt/*` W&B metric과 metrics JSONL에 남긴다. trace는 batch 평균이며 위치별 값은 유효 token 수로 가중한다. Remember의 기존 trace 실행도 유지한다.
+사전 측정 ETA에는 RTLA probe의 추가 시간이 포함되지 않으며 실제 학습 wall time에는 포함된다.
+
+```bash
+python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/wiki/grt/memory_analysis --device cuda --split validation --segments 64 --slots --horizon 4
+```
+
+사후 분석의 batch/warmup은 checkpoint의 RTLA 설정을 기본으로 쓰고 `--batch-size`/`--warmup-segments`로 바꾼다. 기본 horizon은3이며0은 지속 범위 분석을 끈다. slot별 초기화는 `--slots`일 때만 실행한다. summary JSON/TXT, 원본 배열 NPZ, 위치·slot·지속 범위 그래프와 trace PNG를 저장한다. checkpoint/data 식별 정보와 실제 probe 크기도 함께 기록한다. 비용은 measured segments×(정상+초기화+교환+선택한 slots+후속 horizon) forward이며 학습을 수행하지 않는다.
+
 ## 검증 범위
 
 현재 카탈로그 선택·typed Config 검증, config 단일 파일 입력, 현재 checkpoint 형식, 작은 CPU 실행과 재개 조건을 확인한다. 과거 YAML/fixture/archive notebook과 대조하는 호환성 검사는 유지하지 않는다. 전체 학습과 GPU 수렴을 반복 검사하지 않는다.
@@ -117,3 +150,7 @@ base/small/tiny와 RMT/GRT는 global256, Adam LR5e-4를 공유한다. 배치60�
 T4 global256 설정 변경에서는 현재 카탈로그의36개 조합과 보정 재사용·실질 배치 보존 검사 총40개가0.71초에 통과했다. 노트북 JSON과 코드 문법도 확인했다. CPU 학습과 GPU 실험은 반복 실행하지 않았다.
 
 고정 state 표준화에서는 관련 CPU 검사13개만 실행했다(합계3.13초). read gate on/off의 미래 변경 불변성과 layer별 prefix/병렬 출력·segment 종료 write-back을 확인했고 Remember gradient/trace, replay gradient 및 현재 형식의 짧은 Remember·WikiText 재개를 확인했다. 이전 중간 register 읽기 구현을 실행하는 검사는 제거했다. GPU 실험은 아직 수행하지 않았다.
+
+20261012 RTLA 추가에서는 관련 CPU 검사5개가6.01초에 통과했다. 메모리 의존/무시 예제의 개입 NLL, 짧은 tail의 token 가중·이후 회복, 실제 gate 적용 갱신량, 분석 on/off의 실제 GRT2-update 최종 가중치/RNG 동일성을 확인했다. W&B 전달은 모의 클라이언트로 확인했고 동일 checkpoint의 사후 CLI·JSON/NPZ/PNG 저장도 실행했다. Remember trace와 노트북 설정 전달을 확인했다. 실제 온라인 W&B 업로드와 GPU/DDP 분석 비용·실제 WikiText 사용 효과는 아직 실측하지 않았다.
+
+Colab 추가에서는 runtime의 global256·동일 학습 조건과 Secrets 인증 분기 검사1개가0.40초에 통과했다. Kaggle/Colab 선택 cell을 직접 호출해 GPU2/1의 실질 배치와 모델·RTLA 설정을 확인했으며 전체 학습 검사는 반복하지 않았다. 실제 Colab GPU·Secrets 연결은 미실측이다.

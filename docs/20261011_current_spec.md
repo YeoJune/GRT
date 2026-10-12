@@ -133,7 +133,7 @@ GPT-2 BPE는 `openai-community/gpt2`의 50257 vocabulary를 사용한다. 각 �
 
 위 표는 기본 설정이다. Kaggle 노트북에서 segment_len·num_registers·bptt_segments를 RMT/GRT 공통 override로 지정한다. BPTT는 재계산할 이전 segment 수이며 전체 입력의 segment 수를 제한하지 않는다. WikiText는 문장별 truncation 없이 연속 stream을 끝까지 처리하고 마지막 짧은 segment도 사용한다. 길이를 바꿔도 BPTT segment 수·updates·배치·LR은 자동 변경하지 않는다.
 
-Kaggle T4 × 2는 microbatch32/accumulation4로 시작하며 auto_batch=true, memory_fraction=0.8로 global batch256을 유지해 조절한다. rank당 실질 배치128의 약수는 모두 2의 거듭제곱이므로 후보는128→64→32→16→8→4→2→1이다. 모든 크기와 두 모델에 같은 학습 설정을 사용한다. 공통 auto_batch 기본은 false이며 Kaggle runtime에서만 true로 켠다.
+Kaggle T4 × 2는 microbatch32/accumulation4로 시작하며 auto_batch=true, memory_fraction=0.8로 global batch256을 유지해 조절한다. rank당 실질 배치128의 약수는 모두 2의 거듭제곱이므로 후보는128→64→32→16→8→4→2→1이다. 모든 크기와 두 모델에 같은 학습 설정을 사용한다. 공통 auto_batch 기본은 false이며 Kaggle/Colab runtime에서 true로 켠다. Colab GPU1개는 micro32/accumulation8로 같은 global256을 유지한다.
 LR은 이전 배치60의2.5e-4에서 제곱근 비례값 약5.16e-4를 반올림해5e-4로 정했다. 최적 LR을 실측한 결과는 아니며 자동 microbatch 보정은 LR을 바꾸지 않는다. warmup0/cosine/Adam/clip/dropout/평가 batch10은 유지한다.
 기존 FP32 경로를 기준으로 CPU 기능 검사를 준비한다.
 데이터 순서/target token 예산을 공유하고 모델 RNG와 데이터 RNG를 구분한다.
@@ -227,10 +227,13 @@ small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbo
 약4.79 GiB(fp32)이며 gradient/activation/Adam/CE 중간 버퍼는 추가다. 단일 GPU의 논리 batch256을 한 번에 계산하면 logits만 약38.30 GiB이므로 실제 GPU에서는 사전 측정과 accumulation이 필요하다. GPT-2 BPE의 microbatch32 logits는 약0.90 GiB이다. T4 적합성과 속도는 실제 사전 측정으로 확인한다.
 
 새 GRT Remember에도 RTLA trace를 지원하며 query를 포함한 모든 segment의 stack 뒤 write-back을 기록한다.
-WikiText 자동 RTLA 샘플링과 인코더 MLM objective는 지원 범위 밖이며 해당 설정을 명시적으로 거부한다.
-Kaggle 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/10k/100k 예산을 선택한다. 기본은 tiny/smoke/RMT·GRT 두 모델이다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
+GRT WikiText RTLA는 학습 중 고정 validation probe와 사후 checkpoint 개입 분석을 지원한다. 학습 중에는 gate/state/실제 write-back 변화량과 정상·초기화·문맥 교환의 token NLL을 기록한다. 사후에는 같은 분석에 slot별 초기화와 한 번 교환한 state의 이후 segment 영향을 추가한다. 입력·target·segment 경계는 동일하며 dropout off, gradient off, RNG와 model mode 복원으로 학습 경로에 영향을 주지 않는다. 자세한 설정·해석은 실험 workflow의 RTLA 절을 따른다.
+read gate off의 계산값은 읽기량으로 해석하지 않으며 write pooling attention과 token-to-register attention은 구분한다. candidate distance와 gate 적용 후 실제 state update norm을 별도 기록한다. WikiText 인코더 MLM objective는 지원 범위 밖이다.
+Kaggle/Colab 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/10k/100k 예산을 선택한다. 기본은 tiny/smoke/RMT·GRT 두 모델이다. 데이터·학습·분석은 같은 WikiTextRun을 사용한다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
 
 ## 9. 현재 검증과 해석 범위
+
+20261012 RTLA 개입 분석 추가는 관련 CPU 검사5개와 사후 CLI 실행으로 확인했다. 메모리 사용/무시 예제, token 가중·짧은 tail·개입 후 회복, 실제 갱신량 및 분석 on/off의 실제 GRT 가중치/RNG 동일성을 검사했다. W&B payload는 모의 클라이언트로 확인했으며 온라인 업로드·GPU 비용·실제 WikiText 메모리 효과는 아직 실측하지 않았다.
 
 고정 state 표준화 후 관련 CPU 검사13개가 합계3.13초에 통과했다. read gate on/off 모두 미래 token 변경 불변성과 모든 prefix의 출력을 확인했고, 비영 초기 state·복수 segment·짧은 tail에서 layer별 읽기 source/토큰 attention 출력, 종료 candidate/write gate/저장 state를 병렬 실행과 대조했다. prefix 비교는 FP32의 연산 shape 차이를 고려해 rtol=1e-5/atol=1e-7을 사용했다. Remember masked slot/gradient/trace, replay detach/gradient 및 현재 형식의 Remember·WikiText 짧은 실행과 재개도 확인했다. GPU 수렴·VRAM·속도는 새 구조로 아직 실측하지 않았다.
 

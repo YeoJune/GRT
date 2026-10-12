@@ -5,7 +5,7 @@
 - [통합 명세](20261011_current_spec.md): 모델 구조, 데이터·학습 계약.
 - [실험 workflow](20261011_experiment_workflow.md): 설정 카탈로그, CLI, 노트북/utils, 확장 규칙.
 
-실행 시작점은 [저장소 README](../README.md)와 [Kaggle 노트북](../notebooks/kaggle.ipynb)이다.
+실행 시작점은 [저장소 README](../README.md), [Kaggle 노트북](../notebooks/kaggle.ipynb), [Colab 노트북](../notebooks/colab.ipynb)이다.
 
 이전 설계·검토·검증 기록은 `archive/`의 Markdown 문서로만 보존한다. 실행 코드와 config는 보관하지 않는다.
 아래 문서는 과거 기록이며 최신 실행 설정으로 사용하지 않는다.

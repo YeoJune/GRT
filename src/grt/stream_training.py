@@ -142,6 +142,8 @@ def train_stream(adapter, cfg, device, monitor, ctx):
                 best = last_validation['loss']
                 save(root/'best.pt')
             payload.update({'val/loss':last_validation['loss'], 'val/perplexity':last_validation['perplexity']})
+            if ctx.main and cfg.rtla.enabled:
+                payload.update(adapter.log_analysis(model, cfg, validation, root, step))
         if validation_due or step == 1 or step % cfg.wandb.every_steps == 0:
             if ctx.main:
                 row = dict(step=step, **payload)
@@ -260,7 +262,7 @@ def benchmark_stream(adapter, cfg, ctx, steps):
             peak_bytes_per_gpu=peak, reserved_bytes_per_gpu=reserved, peak_reserved_fraction=fraction,
             estimated_training_seconds=update_seconds*t.max_steps,
             estimated_validation_seconds=eval_seconds*eval_batches*validations,
-            estimate_note='Steady-state replay; excludes preparation, checkpoint I/O and final test. Evaluation repeats the full stream on each rank.',
+            estimate_note='Steady-state replay; excludes preparation, checkpoint I/O, RTLA probes and final test. Evaluation repeats the full stream on each rank.',
             calibrated_override=({'training':{'batch_size':t.batch_size,'grad_accum_steps':t.grad_accum_steps}}
                                  if policy['applied'] else {}))
         if ctx.main:
