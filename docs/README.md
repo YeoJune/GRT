@@ -1,9 +1,13 @@
 # 문서 목록
 
-현재 문서는 다음 두 개다.
+현재 운영 기준은 다음 두 문서다.
 
 - [통합 명세](20261011_current_spec.md): 모델 구조, 데이터·학습 계약.
 - [실험 workflow](20261011_experiment_workflow.md): 설정 카탈로그, CLI, 노트북/utils, 확장 규칙.
+
+검토 보고서:
+
+- [GRT 하이퍼파라미터 탐색](20261012_hyperparameter_search_report.md): PPL·RTLA 지표, 데이터/size/baseline, 탐색 순서와 도구 비교. 제안 단계이며 실행 조건은 미확정이다.
 
 실행 시작점은 [저장소 README](../README.md), [Kaggle 노트북](../notebooks/kaggle.ipynb), [Colab 노트북](../notebooks/colab.ipynb)이다.
 
