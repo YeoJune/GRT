@@ -1,6 +1,6 @@
 # small 기준 실험 계획과 결과표
 
-갱신일: 2026-10-13 · 상태: 구현·CPU 검증 후 최종 검토용, GPU 결과 미기입
+갱신일: 2026-10-13 · 상태: B0 NeoX baseline 완료, B1 RMT baseline 대기
 
 **메모리 없는 NeoX와 RMT baseline을 먼저 학습한다. 이후 GRT의 레지스터 수만 탐색하고, 선택한 레지스터 수를 고정한 뒤 라우터 MLP hidden만 탐색한다.** 어텐션은 backbone에 맞춰 고정한다. 각 실험은 같은 Kaggle/Colab 노트북에서 값을 바꿔 하나씩 실행한다.
 
@@ -48,15 +48,15 @@ memory_fraction = 0.95
 
 마지막 `job.report(download=True)`는 **이번 실험의 experiment_report.json 파일 하나**를 내보낸다. best checkpoint의 validation/RTLA, 최종 Config, 데이터 hash, GPU·소프트웨어 환경, 실제 batch·VRAM·시간, 학습 곡선·RTLA 요약, 상태·경고를 함께 담는다. 여러 모델을 선택했다면 이번에 선택한 모델들이 같은 파일에 들어간다. 다른 실험/환경 결과는 누적하지 않는다.
 
-이 파일을 보내면 에이전트가 [results/](../results/README.md)에 `<report_id>.json`으로 보관하고 아래 결과표의 한 행씩 갱신한다. 같은 report_id의 재개 결과는 step을 확인해 갱신한다. 보고서를 반복 실행해도 한 파일과 같은 report_id를 유지한다. 실제 GPU 결과는 아직 없으며 원본 파일과 결과 칸만 준비했다.
+이 파일을 보내면 에이전트가 [results/](../results/README.md)에 `<report_id>.json`으로 보관하고 아래 결과표의 한 행씩 갱신한다. 같은 report_id의 재개 결과는 step을 확인해 갱신한다. 보고서를 반복 실행해도 한 파일과 같은 report_id를 유지한다. B0 NeoX의 첫 GPU 결과를 받아 원본과 요약을 기록했다.
 
 ## 4. 결과 기록
 
-GPU 실험은 아직 실행하지 않았다. 완료 전 값은 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
+B0 NeoX baseline은 사용자 제공 GPU 보고서로 완료를 확인했다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
 
 | ID | 모델 | M | MLP hidden | best val PPL | swap ΔNLL | reset ΔNLL | VRAM GiB¹ | 시간 h | 상태 / 원본 보고서 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| B0 | NeoX | 0 | — | | — | — | | | 대기 |
+| B0 | NeoX | 0 | — | 37.9590 | — | — | 6.899 | 2.610 | 완료 · [원본](../results/0f4be0ee5d5c4a77b8ce50d591932c69.json) |
 | B1 | RMT | 10 | — | | — | — | | | 대기 |
 | R0 | GRT | 10 | 512 | | | | | | 대기 |
 | R1 | GRT | 40 | 512 | | | | | | 대기 |
@@ -69,12 +69,50 @@ GPU 실험은 아직 실행하지 않았다. 완료 전 값은 빈칸으로 두�
 
 ¹ 본 학습 peak allocated GiB를 적고 preflight reserved GiB는 JSON에서 함께 확인한다. 시간은 준비·분석 포함 여부가 다른 ETA와 구분한다.
 
+### B0: NeoX baseline · 2026-10-13 수신
+
+[원본 JSON](../results/0f4be0ee5d5c4a77b8ce50d591932c69.json) · [학습 코드](https://github.com/YeoJune/GRT/commit/e238ac356bbfcbf5766fc20466105617a7944354) · [W&B](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/633dd52b)
+
+| 항목 | 확인된 결과 / 조건 |
+|---|---|
+| 선택 checkpoint | best.pt, step10,000; 마지막 checkpoint와 validation 지표 동일 |
+| 품질 | validation NLL **3.636507**, PPL **37.9590**; GPT-2 BPE token 기준 |
+| 실제 학습량 | 10,000 updates, 383,917,824 target tokens (약383.918M) |
+| 평가 범위 | validation target 248,420개, batch10; test 미평가 |
+| 모델 | small D256/layers6/heads8/FF1024, 17,604,864 parameters; M0/K0, memory 없음 |
+| 환경 / 배치 | Kaggle, Tesla T4×2, FP32; micro64×accum2×GPU2=global256 |
+| optimizer / seed | Adam LR5e-4, beta2=.999, decay0, cosine/warmup0, clip.25, dropout.1; model/data seed54 |
+| 소프트웨어 | Python 3.13.15, PyTorch 2.11.0+cu128, Transformers 4.45.2, CUDA 12.8 |
+| 시간 | 9395.66초 = **2.610h**, 자원 환산 **5.220 GPU-hours** |
+| VRAM | 본 학습 peak allocated **6.899 GiB/GPU**; preflight reserved 8.686 GiB, 예약 비율59.64% |
+| preflight와 실측 | preflight 0.782초/update, ETA 2.186h; 1k→10k의 평가·저장 포함 경과시간 약0.940초/update |
+| 보고서 상태 | completed, W&B finished/실패0/step10k; 경고·metrics 파싱 오류 없음 |
+
+실행 시간은 학습·평가·checkpoint 저장 등을 포함하고 환경 준비와 preflight는 제외한다. GPU-hours는 경과시간×GPU 수의 계산값이며 Kaggle quota 차감을 뜻하지 않는다. VRAM95%는 설정 목표로, 이번에 측정된 예약 비율은59.64%다. RTLA 설정은 켜져 있었지만 NeoX는 분석 대상이 아니므로 메모리 delta는 미측정으로 둔다.
+
+| update | validation NLL | validation PPL |
+|---:|---:|---:|
+| 1,000 | 4.504925 | 90.4616 |
+| 2,000 | 4.130438 | 62.2051 |
+| 3,000 | 3.927304 | 50.7699 |
+| 4,000 | 3.831173 | 46.1166 |
+| 5,000 | 3.763982 | 43.1198 |
+| 6,000 | 3.706069 | 40.6935 |
+| 7,000 | 3.671761 | 39.3211 |
+| 8,000 | 3.653824 | 38.6221 |
+| 9,000 | 3.639824 | 38.0851 |
+| 10,000 | 3.636507 | 37.9590 |
+
+후반 PPL 감소는 8k→9k **0.5369**, 9k→10k **0.1261**다. 현재 예산에서는 개선이 완만해졌지만 마지막 LR이0인 cosine 결과여서 장기 수렴을 확정하지 않는다. 이 값을 **10k 고정 예산의 메모리 없는 baseline**으로 사용하며, seed1개 결과의 작은 차이는 반복 검증 전까지 확정하지 않는다. 앞서 받은 Colab T4 단일 GPU 속도 로그와 이번 Kaggle2GPU 결과는 별도 실행 조건이다.
+
+후속 RMT/GRT는 동일 BPE artifact, segment150/global256/10k/seed54 및 validation batch10을 확인한다. 데이터 식별값은 train `2e43bd7c329c`, validation `a2bc335cb8a1`, tokenizer `1fe93b615295` (앞12자; 전체 hash는 원본). 다음 실험은 **B1: RMT M10/K3**이며, 그 결과를 받은 후 레지스터 sweep을 진행한다.
+
 | 결정 / 메모 | 기록할 내용 |
 |---|---|
 | R단계 선택 M | |
 | 선택 이유: 품질·활용성·비용 | |
 | H단계 선택 hidden | |
-| 다음 실험 ID / 변경할 값 | |
+| 다음 실험 ID / 변경할 값 | B1 · `models=('rmt',)`, M10/K3, small/segment150/10k/FP32 유지 |
 | 실패 원인 / 추가 관측 | |
 
 ## 5. 운영과 검토 범위
@@ -85,6 +123,6 @@ GPU 실험은 아직 실행하지 않았다. 완료 전 값은 빈칸으로 두�
 - 기존 `max_seconds`는 누적 상한이어서 매일4h씩 이어가는 session 제한으로 쓰지 않는다. 긴 run은 세션/저장 계획을 확인한 뒤 실행한다.
 - 이번 구현은 메모리 없는 NeoX, 노트북 수동 설정, test 격리·동일 checkpoint 평가, 단일 JSON 내보내기와 Markdown 결과 기록을 포함한다. 장시간 GPU 학습·실제 T4 VRAM/수렴은 사용자 실행 단계다.
 
-검증: 메모리 없는 동작·loss/gradient·재개, test 격리, 고정 attention의 수동 sweep, 동일 checkpoint 지표, 실험별 JSON 분리·재보고 ID 유지·중단 로그·다운로드 호출과 노트북 선택 셀을 CPU에서 확인했다. 기존 모델의 causal/prefix·replay 검사도 통과했다. CPU 두 프로세스 검사는 localhost 소켓 권한 제한으로 미완료이며, 실제 T4/온라인 W&B는 미실측이다.
+검증: 메모리 없는 동작·loss/gradient·재개, test 격리, 고정 attention의 수동 sweep, 동일 checkpoint 지표, 실험별 JSON 분리·재보고 ID 유지·중단 로그·다운로드 호출과 노트북 선택 셀을 CPU에서 확인했다. 기존 모델의 causal/prefix·replay 검사도 통과했다. CPU 두 프로세스 검사는 localhost 소켓 권한 제한으로 미완료이며, 사용자 제공 B0 보고서에서 Kaggle T4×2/온라인 W&B 완료를 확인했다. 다른 모델/환경의 GPU 수렴은 아직 미확인이다.
 
 최종 검토 대상은 **위 공통 설정, R단계 용량 후보, R단계 뒤에 진행하는 MLP 후보**다. 더 넓은 탐색 아이디어는 [이전 검토 보고서](20261012_hyperparameter_search_report.md)에 보존한다.
