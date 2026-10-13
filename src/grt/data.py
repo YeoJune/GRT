@@ -19,6 +19,8 @@ class DatasetAdapter(Protocol):
 
 class RememberAdapter:
     def validate(self, cfg):
+        if cfg.model.name == 'neox':
+            raise ValueError('The memory-free NeoX baseline is supported for WikiText only')
         d = cfg.data
         if d.options.get('objective', 'next_token') not in ('next_token', 'parallel'):
             raise ValueError('Unknown Remember objective')

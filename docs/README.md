@@ -7,7 +7,8 @@
 
 검토 보고서:
 
-- [메모리 활용성 우선 실험 계획](20261012_experiment_plan.md): small·segment150·10k baseline에서 시작하는 단계별 탐색, 무료/유료 자원 배분, WB·극대 메모리 후보와 추가 결정 사항. 사용자 후속 지시를 반영한 최신 계획이다.
+- [small 기준 실험 계획과 결과표](20261012_experiment_plan.md): NeoX/RMT baseline → 레지스터 sweep → 선택 레지스터의 MLP sweep. 노트북 수동 설정과 결과 기록을 위한 최신 검토안이다.
+- [받은 실험 결과 보관](../results/README.md): report에서 내보낸 실험별 JSON 원본을 보관하고 위 Markdown 결과표에 정리한다.
 - [GRT 하이퍼파라미터 탐색](20261012_hyperparameter_search_report.md): PPL·RTLA 지표, 데이터/size/baseline, 탐색 순서와 도구 비교. 제안 단계이며 실행 조건은 미확정이다.
 
 실행 시작점은 [저장소 README](../README.md), [Kaggle 노트북](../notebooks/kaggle.ipynb), [Colab 노트북](../notebooks/colab.ipynb)이다.

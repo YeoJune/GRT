@@ -16,7 +16,7 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--config", help="One resolved Config YAML")
     source.add_argument("--task", help='Task preset from configs/experiments.yaml')
-    parser.add_argument('--model', choices=['rmt', 'grt'])
+    parser.add_argument('--model', choices=['neox', 'rmt', 'grt'])
     parser.add_argument('--size')
     parser.add_argument('--tokenization')
     parser.add_argument('--budget')

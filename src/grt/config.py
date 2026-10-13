@@ -99,6 +99,7 @@ class TrainingConfig:
 class EvaluationConfig:
     batch_size: int = 512
     every_steps: int = 250
+    test_at_end: bool = True
     pair_counts: list[int] = field(default_factory=list)
     generalization_samples: int = 1000
 
@@ -197,12 +198,11 @@ def merge_dicts(base, override):
 
 def validate_model(m):
     build_config(ModelConfig, asdict(m))
-    if m.name not in ("rmt", "grt"):
-        raise ValueError("model.name must be rmt or grt")
+    if m.name not in ("neox", "rmt", "grt"):
+        raise ValueError("model.name must be neox, rmt or grt")
     dims = (
         m.vocab_size,
         m.segment_len,
-        m.num_registers,
         m.d_model,
         m.alu.num_layers,
         m.alu.nhead,
@@ -210,6 +210,10 @@ def validate_model(m):
     )
     if any(type(v) is not int or v <= 0 for v in dims) or m.d_model % m.alu.nhead:
         raise ValueError("Invalid model dimensions")
+    if type(m.num_registers) is not int or (m.num_registers != 0 if m.name == 'neox' else m.num_registers <= 0):
+        raise ValueError('NeoX requires zero registers; RMT/GRT require positive registers')
+    if m.name == 'neox' and m.attention_mode != 'decoder':
+        raise ValueError('The memory-free NeoX baseline requires decoder attention')
     if not 0 <= m.alu.dropout <= 1 or m.alu.activation != "gelu":
         raise ValueError("Invalid ALU settings")
     if m.implementation != "neox":
@@ -228,7 +232,7 @@ def validate_model(m):
             or not math.isfinite(m.register.write_gate_bias_init)):
             raise ValueError("Invalid GRT register/router settings")
     elif m.router or m.register:
-        raise ValueError("RMT has no router/register gates")
+        raise ValueError("Baselines have no router/register gates")
     return m
 
 

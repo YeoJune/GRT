@@ -44,7 +44,7 @@ class MemoryAttention(GPTNeoXAttention):
             k[..., :self.rotary_ndims], cos, sin, position_ids)
         q = torch.cat([qr, q[..., self.rotary_ndims:]], -1)
         k = torch.cat([kr, k[..., self.rotary_ndims:]], -1)
-        if read_state is None:  # RMT has separate read and write blocks.
+        if read_state is None:  # Plain decoder or RMT read/write blocks.
             attended = self.attend(q, k, v, attention_mask)
         else:
             fixed = self.query_key_value(read_state).view(
@@ -117,14 +117,17 @@ class RecurrentNeoX(nn.Module):
         self.objective = cfg.data.options.get("objective", "next_token")
         self.backbone = NeoXBackbone(self.cfg)
         m = self.cfg
-        self.initial_memory = nn.Parameter(torch.zeros(1, m.num_registers, m.d_model))
+        if m.name != 'neox':
+            self.initial_memory = nn.Parameter(torch.zeros(1, m.num_registers, m.d_model))
         if m.name == "rmt":
             nn.init.normal_(self.initial_memory, std=0.02)
-        else:
+        elif m.name == 'grt':
             self.router = GlobalRouterUnit(m.router, m.num_registers, m.d_model,
                 m.register.write_gate_bias_init, m.register.dropout_prob)
 
     def initial_state(self, batch_size):
+        if self.cfg.name == 'neox':
+            return self.backbone.embedding.weight.new_empty(batch_size, 0, self.cfg.d_model)
         return self.initial_memory.expand(batch_size, -1, -1)
 
     def attention_mask(self, n, device):
@@ -147,7 +150,10 @@ class RecurrentNeoX(nn.Module):
             raise ValueError("Cell length must be within segment_len")
         x = self.backbone.embedding(ids)
         n, m = ids.shape[1], self.cfg.num_registers
-        if self.cfg.name == "rmt":
+        if self.cfg.name == 'neox':
+            y = self.backbone(x, self.attention_mask(n, ids.device))
+            next_state = state
+        elif self.cfg.name == "rmt":
             h = self.backbone(torch.cat([state, x, state], 1),
                 self.attention_mask(n, ids.device))
             y, candidate = h[:, m:m+n], h[:, -m:]

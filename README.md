@@ -1,6 +1,6 @@
 # GRT
 
-GRT와 RMT를 공통 GPT-NeoX backbone에서 비교한다. Remember 인코더·디코더와 WikiText-103 디코더를 지원한다.
+GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. Remember 인코더·디코더와 WikiText-103 디코더를 지원한다.
 [통합 명세](docs/20261011_current_spec.md)는 모델·데이터 계약,
 [실험 workflow](docs/20261011_experiment_workflow.md)는 설정·실행·확장 규칙을 정의한다.
 archive에는 과거 Markdown 문서만 보존한다. 코드와 설정은 현재 명세만 지원한다.
@@ -23,27 +23,29 @@ Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타�
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
 반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
-기본은 tiny·smoke·RMT/GRT 각각 200 updates이며, small 1만 updates는 다음 선택으로 실행한다.
+기본은 small·10k·메모리 없는 NeoX baseline이다. RMT baseline → GRT 레지스터 sweep → 선택 레지스터의 MLP sweep 순서와 결과표는 [실험 계획](docs/20261012_experiment_plan.md)을 따른다. 선택 셀의 값만 바꿔 한 실험씩 진행한다.
 
 ```python
-segment_len = 150
+models = ('neox',)  # 다음 ('rmt',), 이후 ('grt',)
 num_registers = 10
-bptt_segments = 3
-job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=('rmt',),
-                  overrides={'model': {'segment_len': segment_len,
-                                       'num_registers': num_registers},
-                             'training': {'bptt_segments': bptt_segments}})
+router_hidden = 512
+job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=models,
+                  num_registers=num_registers, router_hidden=router_hidden,
+                  test_at_end=False,
+                  overrides={'training': {'auto_batch': True, 'memory_fraction': 0.95},
+                             'rtla': {'enabled': True}})
 ```
 
 | 선택 | 값 |
 |---|---|
 | size | base D410/L16/H10/FF2100 · small D256/L6/H8/FF1024 · tiny D128/L3/H4/FF512 |
 | budget | smoke 200 · 10k 10000 · 100k 100000 updates |
-| models | `('rmt',)` / `('grt',)` / `('rmt', 'grt')` 순차 실행 |
+| models | `('neox',)` / `('rmt',)` / `('grt',)` 또는 여러 모델 순차 실행 |
 | tokenization | gpt2_bpe(기본, 50257) / word(267735) |
 | segment_len | segment당 토큰 수, 기본150; RMT/GRT 공통 |
-| num_registers | 메모리 개수, 기본10; RMT는 같은 개수의 read/write 블록을 각각 사용 |
-| bptt_segments | gradient를 되돌릴 이전 segment 수, 기본3; 0 이상 |
+| num_registers | RMT/GRT 메모리 개수, 기본10; NeoX는 항상0 |
+| router_hidden | GRT read/write MLP hidden, 기본512; attention 차원/head는 backbone 고정 |
+| bptt_segments | RMT/GRT 이전 segment3; NeoX0, 현재 sweep에서 고정 |
 
 WikiText는 문장별 길이 제한 없이 연속 스트림으로 처리한다. 전체 segment 수는 스트림 길이와 segment_len에 따라 정해지며 마지막 짧은 segment도 사용한다. bptt_segments는 과거 토큰의 재계산·gradient 범위만 제한하며, 그 이전 문맥의 정보는 저장 state로 이어진다. 스트림 분할 시 batch_size로 나누어떨어지지 않는 끝의 소수 토큰은 제외하고 metadata에 기록한다.
 
@@ -53,8 +55,8 @@ Tokenizer만 다운로드하며 모델 weights는 새로 초기화한다. BPE-to
 
 `steps=30000` 또는 `overrides={'evaluation': {'every_steps': 1000}}`로 변경할 수 있다.
 이런 숫자 변경에는 새 YAML이나 노트북을 만들지 않는다. 모든 preset은 [단일 카탈로그](configs/experiments.yaml)에서 관리한다.
-Kaggle은 global batch256, microbatch32×accumulation4×GPU2, Adam LR5e-4로 시작한다. 자동 조정은 Kaggle에서 기본 on이며 목표 VRAM80% 안에서 microbatch128→64→32…를 선택해 global256을 유지한다. off는 config 배치를 그대로 쓴다. 사전 측정은 최종 Config와 ETA를 모델별로 저장한다.
-10k/100k은 validation1000/logging10 updates이며 segment150의 target 예산 상한은 각각384M/3.84B token이다. segment 길이 변경 시 토큰 예산은 global batch×segment_len×updates로 달라지며 LR·updates·BPTT segment 수는 자동 변경하지 않는다. 두 변수는 양의 정수이며 변경 시 기본 run 이름의 hash도 바뀐다. 설정 변경 시 새 run을 사용한다.
+Kaggle은 global batch256, microbatch32×accumulation4×GPU2, Adam LR5e-4로 시작한다. 자동 조정은 Kaggle에서 기본 on이며 카탈로그의 VRAM 목표(기본80%, 노트북95%) 안에서 microbatch128→64→32…를 선택해 global256을 유지한다. off는 config 배치를 그대로 쓴다. 사전 측정은 최종 Config와 ETA를 모델별로 저장한다. 노트북 예약 VRAM 목표는95%이며 카탈로그 기본80%와 구분한다.
+10k/100k은 validation1000/logging10 updates이며 segment150의 target 예산 상한은 각각384M/3.84B token이다. segment 길이 변경 시 토큰 예산은 global batch×segment_len×updates로 달라지며 LR·updates·BPTT segment 수는 자동 변경하지 않는다. 레지스터/MLP 입력은 양의 정수이며 변경 시 기본 run 이름의 hash도 바뀐다. 설정 변경 시 새 run을 사용한다.
 CLI도 동일 카탈로그를 지원한다.
 
 ```bash
@@ -82,7 +84,7 @@ python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/w
 숫자 예산/override를 바꾸면 utils의 기본 run 이름에 설정 hash가 붙는다. 기존 run과의 설정 차이는 학습 전에 거부한다.
 다른 Kaggle 세션의 데이터/결과는 `job.prepare_data(prepared_input=..., resume_input=...)`로 복원한다.
 
-Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다.
+Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다. 탐색은 `test_at_end=False`로 test를 생략하고 best checkpoint의 validation/RTLA를 다시 평가한다. `job.report(download=True)`는 이번 실험의 설정·환경·best validation/RTLA·학습 곡선·비용을 `experiment_report.json` 하나로 내보낸다. 이 파일을 보내면 [결과 보관 폴더](results/README.md)와 [Markdown 결과표](docs/20261012_experiment_plan.md)에 정리한다. 재개용 checkpoint는 별도 보관한다.
 Remember는 stage별 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
 W&B는 Kaggle에서 기본 활성화하며 첫 step·주기별·평가·마지막 step을 기록한다.
 `wandb_status.json`에 URL·마지막 step·실패 수를 남기며 utils가 완료 상태를 확인한다. preflight는 W&B run을 생성하지 않는다.

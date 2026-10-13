@@ -164,15 +164,22 @@ def train_stream(adapter, cfg, device, monitor, ctx):
             best = last_validation['loss']
             save(root/'best.pt')
     save(path)
-    model.load_state_dict(load_checkpoint(root/'best.pt')['model'])
-    result = adapter.evaluate(model, cfg, adapter.dataset(cfg, 'test'), device)
+    selected = load_checkpoint(root/'best.pt')
+    model.load_state_dict(selected['model'])
+    selected_validation = adapter.evaluate(model, cfg, validation, device)
+    selected_rtla = adapter.log_analysis(model, cfg, validation, root, selected['step']) if ctx.main and cfg.rtla.enabled else {}
+    result = (adapter.evaluate(model, cfg, adapter.dataset(cfg, 'test'), device)
+              if cfg.evaluation.test_at_end else selected_validation)
     summary = dict(status='completed' if step == t.max_steps else 'interrupted',
         step=step, target_tokens_seen=tokens_seen, validation=last_validation, validation_step=step,
+        selected_checkpoint=str((root/'best.pt').resolve()), selected_step=selected['step'],
+        selected_validation=selected_validation, selected_rtla=selected_rtla,
+        evaluation_split='test' if cfg.evaluation.test_at_end else 'validation',
         wall_seconds=elapsed+time.perf_counter()-started, peak_gpu_memory_bytes=peak,
         updates_remaining=t.max_steps-step, **result)
     if ctx.main:
         write_result_files(root, 'summary', summary)
-        write_result_files(root, 'evaluation', result)
+        write_result_files(root, 'evaluation', dict(split=summary['evaluation_split'], checkpoint_step=selected['step'], **result))
     monitor.result(summary)
     return summary
 

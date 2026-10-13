@@ -123,6 +123,14 @@ sizes:
       router:
         pool_nhead: 4
 models:
+  neox:
+    model:
+      name: neox
+      num_registers: 0
+      router: null
+      register: null
+    training:
+      bptt_segments: 0
   rmt:
     model:
       name: rmt

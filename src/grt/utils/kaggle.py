@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import sys
+from uuid import uuid4
 
 
 def run_logged(command, *, cwd, log_path):
@@ -47,7 +48,21 @@ def file_hash(path):
     return digest.hexdigest()
 
 
-def estimate_time(benchmark, manifest, *, steps, eval_every, eval_batch, segment_len):
+def read_metrics(path):
+    """Keep valid records and identify damaged lines from an interrupted writer."""
+    rows, errors = [], []
+    if path.exists():
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as error:
+                errors.append(dict(line=number, error=str(error)))
+    return rows, errors
+
+
+def estimate_time(benchmark, manifest, *, steps, eval_every, eval_batch, segment_len, test_at_end=True):
     if min(steps, eval_every, eval_batch, segment_len) <= 0:
         raise ValueError('Step, batch and segment settings must be positive')
     if benchmark.get('objective') != 'next_token' or benchmark['target_tokens_per_update'] != benchmark['global_batch_size'] * segment_len:
@@ -58,8 +73,8 @@ def estimate_time(benchmark, manifest, *, steps, eval_every, eval_batch, segment
             raise ValueError(f'{split} is too short for the evaluation batch')
         return math.ceil(length / segment_len)
     training = steps * benchmark['update_seconds']
-    validation = math.ceil(steps / eval_every) * segments('validation') * benchmark['evaluation_segment_seconds']
-    test = segments('test') * benchmark['evaluation_segment_seconds']
+    validation = (math.ceil(steps / eval_every) + 1) * segments('validation') * benchmark['evaluation_segment_seconds']
+    test = segments('test') * benchmark['evaluation_segment_seconds'] if test_at_end else 0
     return dict(model=benchmark['model'], score_kind=benchmark['score_kind'],
         steps=steps, target_tokens=steps * benchmark['target_tokens_per_update'],
         training_hours=training / 3600, validation_hours=validation / 3600,
@@ -86,16 +101,26 @@ class WikiTextRun:
     device: str = 'cuda'
     benchmark_steps: int = 10
     overrides: dict = field(default_factory=dict)
+    num_registers: int | None = None
+    router_hidden: int | None = None
+    test_at_end: bool = False
 
     def __post_init__(self):
         self.repo_dir, self.work_dir = Path(self.repo_dir), Path(self.work_dir)
-        if not self.models or len(set(self.models)) != len(self.models) or any(m not in ('rmt', 'grt') for m in self.models):
-            raise ValueError('Select rmt/grt once each')
+        if not self.models or len(set(self.models)) != len(self.models) or any(m not in ('neox', 'rmt', 'grt') for m in self.models):
+            raise ValueError('Select neox/rmt/grt once each')
+        if any(value is not None and (type(value) is not int or value <= 0)
+               for value in (self.num_registers, self.router_hidden)):
+            raise ValueError('num_registers/router_hidden must be positive integers')
+        if type(self.test_at_end) is not bool:
+            raise ValueError('test_at_end must be a boolean')
         if self.world_size <= 0 or self.benchmark_steps <= 0:
             raise ValueError('Invalid execution settings')
         name = self.run_id or f'wiki_{self.size}_{self.tokenization}_{self.budget}_seed{self.seed}'
-        if not self.run_id and (self.steps is not None or self.overrides):
-            signature = json.dumps(dict(steps=self.steps, overrides=self.overrides), sort_keys=True)
+        if not self.run_id:
+            signature = json.dumps(dict(steps=self.steps, overrides=self.overrides,
+                num_registers=self.num_registers, router_hidden=self.router_hidden,
+                test_at_end=self.test_at_end, runtime=self.runtime, world_size=self.world_size), sort_keys=True)
             name += '-' + hashlib.sha256(signature.encode()).hexdigest()[:8]
         self.run_dir = self.work_dir / name
         self.prepared_dir = self.work_dir / ('wikitext103_' + self.tokenization)
@@ -110,10 +135,18 @@ class WikiTextRun:
         from grt.experiments import load_experiment
         environment = {'data': {'options': {'path': str(self.prepared_dir)}, 'data_seed': self.seed},
             'training': {'model_seed': self.seed},
+            'evaluation': {'test_at_end': self.test_at_end},
             'wandb': {'enabled': self.wandb, 'run_name': self.run_dir.name + '-' + model}}
+        model_overrides = merge_dicts(environment, self.overrides)
+        specific = {}
+        if model != 'neox' and self.num_registers is not None:
+            specific['num_registers'] = self.num_registers
+        if model == 'grt' and self.router_hidden is not None:
+            specific['router'] = {'mlp_hidden': self.router_hidden}
+        model_overrides = merge_dicts(model_overrides, {'model': specific})
         cfg = load_experiment(task='wikitext103', model=model, size=self.size,
             tokenization=self.tokenization, budget=self.budget, runtime=self.runtime, steps=self.steps,
-            overrides=merge_dicts(environment, self.overrides), output_dir=self.run_dir / model,
+            overrides=model_overrides, output_dir=self.run_dir / model,
             catalog_path=self.repo_dir / 'configs/experiments.yaml')
         if cfg.model.name != model:
             raise ValueError('Select the model through models, not overrides')
@@ -243,7 +276,7 @@ class WikiTextRun:
             save_config(cfg, self.run_dir / (model + '_config.yaml'))
             eta = estimate_time(report, manifest, steps=cfg.training.max_steps,
                 eval_every=cfg.evaluation.every_steps, eval_batch=cfg.evaluation.batch_size,
-                segment_len=cfg.model.segment_len)
+                segment_len=cfg.model.segment_len, test_at_end=cfg.evaluation.test_at_end)
             (self.run_dir / (model + '_eta.json')).write_text(json.dumps(eta, indent=2))
             print(json.dumps(eta, indent=2))
             reports[model] = report
@@ -256,18 +289,19 @@ class WikiTextRun:
                 raise ValueError('Run preflight before training')
             self._launch(model, self.run_dir / model)
             cfg = self.config(model)
+            summary = json.loads((self.run_dir / model / 'summary.json').read_text())
             if cfg.wandb.enabled:
                 status = json.loads((self.run_dir / model / 'wandb_status.json').read_text())
                 print(model, 'W&B:', status)
                 if (status['state'] != 'finished' or status.get('failures', 0)
-                    or status.get('last_logged_step', 0) < cfg.training.max_steps
+                    or (summary['status'] == 'completed' and status.get('last_logged_step', 0) < cfg.training.max_steps)
                     or status['mode'] != cfg.wandb.mode
                     or (cfg.wandb.mode == 'online' and not status.get('url'))):
                     raise RuntimeError('W&B logging failed; local results remain in the run directory')
-            results[model] = json.loads((self.run_dir / model / 'summary.json').read_text())
+            results[model] = summary
         return results
 
-    def report(self, *, plot=True):
+    def report(self, *, plot=True, download=False):
         results = {}
         if plot:
             import matplotlib.pyplot as plt
@@ -283,7 +317,7 @@ class WikiTextRun:
             if (root / 'warnings.txt').exists():
                 print((root / 'warnings.txt').read_text())
             if plot and (root / 'metrics.jsonl').exists():
-                rows = [json.loads(line) for line in (root / 'metrics.jsonl').read_text().splitlines() if line]
+                rows, _ = read_metrics(root / 'metrics.jsonl')
                 rows = [row for row in rows if 'val/loss' in row]
                 ax.plot([r['step'] for r in rows], [r['val/loss'] for r in rows], label=model)
         if plot:
@@ -293,4 +327,67 @@ class WikiTextRun:
                 ax.legend()
             plt.show()
         print('Results:', self.run_dir, '\nData/tokenizer:', self.prepared_dir)
+        path = self.export_report()
+        if download:
+            if self.runtime == 'colab':
+                from google.colab import files
+                files.download(str(path))
+            else:
+                from IPython.display import FileLink, display
+                display(FileLink(str(path)))
         return results
+
+    @property
+    def report_path(self):
+        return self.run_dir / 'experiment_report.json'
+
+    def export_report(self):
+        """Export this experiment only; no cross-session result accumulation."""
+        def read_json(path):
+            return json.loads(path.read_text()) if path.exists() else None
+
+        experiments = []
+        for model in self.models:
+            root = self.run_dir / model
+            cfg = self.config(model)
+            summary = read_json(root / 'summary.json')
+            metrics = root / 'metrics.jsonl'
+            metric_rows, metric_errors = read_metrics(metrics)
+            console = self.run_dir / (model + '_train_console.txt')
+            experiments.append(dict(
+                model=model, status=summary['status'] if summary else 'no_summary',
+                config=asdict(cfg), summary=summary,
+                metadata=read_json(root / 'metadata.json'),
+                benchmark=read_json(self.run_dir / (model + '_preflight') / 'benchmark.json'),
+                eta=read_json(self.run_dir / (model + '_eta.json')),
+                metrics=metric_rows, metrics_parse_errors=metric_errors,
+                rtla=[read_json(path) for path in sorted((root / 'rtla').glob('step_*/summary.json'))],
+                wandb_status=read_json(root / 'wandb_status.json'),
+                warnings=(root / 'warnings.txt').read_text() if (root / 'warnings.txt').exists() else '',
+                console_tail='\n'.join(console.read_text().splitlines()[-100:]) if console.exists() else '',
+            ))
+        previous = read_json(self.report_path)
+        report = dict(
+            report_format='grt.experiment_report/1',
+            report_id=previous['report_id'] if previous else uuid4().hex,
+            run_name=self.run_dir.name, size=self.size,
+            environment=dict(runtime=self.runtime, world_size=self.world_size, device=self.device),
+            dataset_manifest=read_json(self.run_dir / 'dataset_manifest.json'),
+            experiments=experiments,
+        )
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        temporary = self.report_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + '\n')
+        temporary.replace(self.report_path)
+        print('\n| model | M | MLP hidden | best val PPL | swap ΔNLL | status |')
+        print('|---|---:|---:|---:|---:|---|')
+        for experiment in experiments:
+            model_cfg = experiment['config']['model']
+            summary = experiment['summary']
+            ppl = f"{summary['selected_validation']['perplexity']:.4f}" if summary else ''
+            delta = summary['selected_rtla'].get('grt/rtla/swap_delta_nll', '') if summary else ''
+            hidden = model_cfg['router']['mlp_hidden'] if model_cfg['router'] else ''
+            print(f"| {experiment['model']} | {model_cfg['num_registers']} | {hidden} | "
+                  f"{ppl} | {delta} | {experiment['status']} |")
+        print('보내주실 결과 파일:', self.report_path)
+        return self.report_path

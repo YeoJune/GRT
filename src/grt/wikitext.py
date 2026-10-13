@@ -8,6 +8,8 @@ import torch
 
 class WikiTextAdapter:
     def validate(self, cfg):
+        if cfg.model.name == 'neox' and cfg.training.bptt_segments != 0:
+            raise ValueError('The memory-free NeoX baseline uses bptt_segments=0')
         if cfg.model.attention_mode != "decoder":
             raise ValueError("WikiText next-token training requires the new decoder; encoder objective is unspecified")
         if cfg.data.options.get('objective', 'next_token') != 'next_token':
