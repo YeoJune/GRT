@@ -1,6 +1,6 @@
 # 받은 실험 결과
 
-사용자가 Kaggle/Colab의 `job.report(download=True)`에서 받은 `experiment_report.json`을 보내면 이 폴더에 원본을 보관한다. 현재 B0 NeoX baseline의 첫 완료 보고서를 보관했다.
+사용자가 Kaggle/Colab의 `job.report(download=True)`에서 받은 `experiment_report.json`을 보내면 이 폴더에 원본을 보관한다. 현재 B0 NeoX와 R0/R1 GRT M10/M40의 완료 보고서3개를 보관했다.
 
 - 저장 이름: `<report_id>.json`. JSON 안의 `run_name`, 환경, 모델/설정으로 식별한다.
 - 같은 report_id를 다시 받으면 재개·재보고 여부와 step을 확인하고 기존 기록을 갱신한다. 다른 report_id는 별도 결과로 보존한다.
@@ -13,3 +13,5 @@
 | 실험 | 환경 / 상태 | 원본 |
 |---|---|---|
 | B0 · NeoX small/segment150/10k | Kaggle T4×2 · 완료, val PPL 37.9590 | [0f4be0ee5d5c4a77b8ce50d591932c69.json](0f4be0ee5d5c4a77b8ce50d591932c69.json) |
+| R0 · GRT M10/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.9897 | [22ab31a56cb546f993197e5ce937e5de.json](22ab31a56cb546f993197e5ce937e5de.json) |
+| R1 · GRT M40/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.7458 | [22cfd16b44964befbe42912c4aba28c5.json](22cfd16b44964befbe42912c4aba28c5.json) |

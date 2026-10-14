@@ -1,6 +1,6 @@
 # small 기준 실험 계획과 결과표
 
-갱신일: 2026-10-13 · 상태: B0 NeoX baseline 완료, B1 RMT baseline 대기
+갱신일: 2026-10-14 · 상태: B0 NeoX/R0 GRT M10/R1 GRT M40 완료, B1 RMT baseline 대기
 
 **메모리 없는 NeoX와 RMT baseline을 먼저 학습한다. 이후 GRT의 레지스터 수만 탐색하고, 선택한 레지스터 수를 고정한 뒤 라우터 MLP hidden만 탐색한다.** 어텐션은 backbone에 맞춰 고정한다. 각 실험은 같은 Kaggle/Colab 노트북에서 값을 바꿔 하나씩 실행한다.
 
@@ -48,18 +48,18 @@ memory_fraction = 0.95
 
 마지막 `job.report(download=True)`는 **이번 실험의 experiment_report.json 파일 하나**를 내보낸다. best checkpoint의 validation/RTLA, 최종 Config, 데이터 hash, GPU·소프트웨어 환경, 실제 batch·VRAM·시간, 학습 곡선·RTLA 요약, 상태·경고를 함께 담는다. 여러 모델을 선택했다면 이번에 선택한 모델들이 같은 파일에 들어간다. 다른 실험/환경 결과는 누적하지 않는다.
 
-이 파일을 보내면 에이전트가 [results/](../results/README.md)에 `<report_id>.json`으로 보관하고 아래 결과표의 한 행씩 갱신한다. 같은 report_id의 재개 결과는 step을 확인해 갱신한다. 보고서를 반복 실행해도 한 파일과 같은 report_id를 유지한다. B0 NeoX의 첫 GPU 결과를 받아 원본과 요약을 기록했다.
+이 파일을 보내면 에이전트가 [results/](../results/README.md)에 `<report_id>.json`으로 보관하고 아래 결과표의 한 행씩 갱신한다. 같은 report_id의 재개 결과는 step을 확인해 갱신한다. 보고서를 반복 실행해도 한 파일과 같은 report_id를 유지한다. B0 NeoX와 R0/R1 GRT의 GPU 결과를 받아 원본과 요약을 기록했다.
 
 ## 4. 결과 기록
 
-B0 NeoX baseline은 사용자 제공 GPU 보고서로 완료를 확인했다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
+B0 NeoX와 R0/R1 GRT는 사용자 제공 GPU 보고서로 완료를 확인했다. B1 RMT 보고서는 아직 받지 않았다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
 
 | ID | 모델 | M | MLP hidden | best val PPL | swap ΔNLL | reset ΔNLL | VRAM GiB¹ | 시간 h | 상태 / 원본 보고서 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
 | B0 | NeoX | 0 | — | 37.9590 | — | — | 6.899 | 2.610 | 완료 · [원본](../results/0f4be0ee5d5c4a77b8ce50d591932c69.json) |
 | B1 | RMT | 10 | — | | — | — | | | 대기 |
-| R0 | GRT | 10 | 512 | | | | | | 대기 |
-| R1 | GRT | 40 | 512 | | | | | | 대기 |
+| R0 | GRT | 10 | 512 | 34.9897 | 0.422916 | 0.294231 | 11.269 | 5.812 | 완료 · [원본](../results/22ab31a56cb546f993197e5ce937e5de.json) |
+| R1 | GRT | 40 | 512 | 34.7458 | 0.524916 | 0.345704 | 6.538 | 7.009 | 완료 · [원본](../results/22cfd16b44964befbe42912c4aba28c5.json) |
 | R2 | GRT | 160 | 512 | | | | | | 대기 |
 | R3 | GRT | 512 | 512 | | | | | | 대기 |
 | H0 | GRT | 선택 M | 128 | | | | | | R단계 후 |
@@ -105,7 +105,53 @@ B0 NeoX baseline은 사용자 제공 GPU 보고서로 완료를 확인했다. �
 
 후반 PPL 감소는 8k→9k **0.5369**, 9k→10k **0.1261**다. 현재 예산에서는 개선이 완만해졌지만 마지막 LR이0인 cosine 결과여서 장기 수렴을 확정하지 않는다. 이 값을 **10k 고정 예산의 메모리 없는 baseline**으로 사용하며, seed1개 결과의 작은 차이는 반복 검증 전까지 확정하지 않는다. 앞서 받은 Colab T4 단일 GPU 속도 로그와 이번 Kaggle2GPU 결과는 별도 실행 조건이다.
 
-후속 RMT/GRT는 동일 BPE artifact, segment150/global256/10k/seed54 및 validation batch10을 확인한다. 데이터 식별값은 train `2e43bd7c329c`, validation `a2bc335cb8a1`, tokenizer `1fe93b615295` (앞12자; 전체 hash는 원본). 다음 실험은 **B1: RMT M10/K3**이며, 그 결과를 받은 후 레지스터 sweep을 진행한다.
+후속 RMT/GRT는 동일 BPE artifact, segment150/global256/10k/seed54 및 validation batch10을 확인한다. 데이터 식별값은 train `2e43bd7c329c`, validation `a2bc335cb8a1`, tokenizer `1fe93b615295` (앞12자; 전체 hash는 원본). B1 RMT M10/K3 보고서는 아직 미수신이다. 이후 받은 R0/R1 GRT 레지스터 sweep 결과는 아래에 별도로 기록한다.
+
+### R0/R1: GRT 레지스터 M10/M40 · 2026-10-14 수신
+
+[R0 M10 원본](../results/22ab31a56cb546f993197e5ce937e5de.json) · [R1 M40 원본](../results/22cfd16b44964befbe42912c4aba28c5.json)
+
+[R0 코드](https://github.com/YeoJune/GRT/commit/e238ac356bbfcbf5766fc20466105617a7944354) · [R0 W&B](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/e284b89f) · [R1 코드](https://github.com/YeoJune/GRT/commit/c36920d0e4423ecf714b6d34e5785fe3a3beae72) · [R1 W&B](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/710b2330)
+
+두 run 모두 **Kaggle Tesla T4×2, small/segment150/K3/10k/FP32/seed54**, router MLP512·attention D256/head8, read gate off/write bias=-2/dropout0다. B0와 동일한 prepared 데이터·tokenizer hash, optimizer·schedule·global256·validation batch10을 사용했다. 실제 target tokens **383,917,824**, validation targets **248,420**으로 동일하고 test는 미평가다. Python3.13.15/PyTorch2.11.0+cu128/Transformers4.45.2/CUDA12.8도 동일하다. R1의 코드 commit은 c36920d로 R0의 e238ac3와 다르지만 그 사이 변경은 결과 문서/원본 JSON뿐이며 실행 코드는 동일하다.
+
+| 항목 | R0: M10 | R1: M40 |
+|---|---:|---:|
+| best validation NLL | 3.555054 | 3.548059 |
+| best validation PPL | **34.9897** | **34.7458** |
+| 선택 checkpoint | best.pt · step10,000 | best.pt · step10,000 |
+| parameter 수 | 18,669,588 | 18,708,048 |
+| 실제 배치 | micro64×accum2×GPU2=256 | micro32×accum4×GPU2=256 |
+| 실행 시간 / GPU-hours | 5.812h / 11.623 | 7.009h / 14.018 |
+| 본 학습 allocated / preflight reserved | 11.269 / 13.156 GiB | 6.538 / 7.436 GiB |
+| preflight 예약 비율 | 90.35% | 51.06% |
+| preflight / 1k→10k 실측 초/update | 1.830 / 2.092 | 2.168 / 2.524 |
+| RTLA 정상 probe PPL | 32.9314 | 32.4541 |
+| RTLA reset / swap ΔNLL | 0.294231 / 0.422916 | 0.345704 / 0.524916 |
+| write gate 평균 / slot cosine | 1.000000 / 0.999348 | 0.825000 / 0.759750 |
+
+시간은 학습·평가·RTLA·checkpoint I/O를 포함하고 준비/preflight를 제외한다. M40의 allocated VRAM이 작은 것은 **microbatch가64에서32로 바뀐 조건**의 실측이므로 큰 memory 자체가 더 적은 VRAM을 쓴다고 해석하지 않는다. global256은 유지됐지만 microbatch 차이에 따른 dropout RNG/수치 차이까지 완전히 제거한 비교는 아니다. 두 보고서 모두 completed, W&B finished/실패0/step10k, 경고/metrics 파싱 오류 없음이다.
+
+RTLA는 같은 best step10k에서 validation의 **고정 probe9,600 targets**(batch8, warmup3, 측정8 segments)를 사용했다. probe PPL과 전체 validation PPL을 구분한다. 두 run 모두 reset/swap ΔNLL이 양수이며 그 probe에서 정상 과거 state가 예측에 도움을 주는 근거다. 다른 window/seed, slot·지속 범위 개입은 아직 미검증이다. write gate 평균과 slot cosine은 동작 진단값이며 그 자체로 활용성/중복 저장을 확정하지 않는다.
+
+| update | M10 val PPL | M40 val PPL | M10 reset ΔNLL | M40 reset ΔNLL |
+|---:|---:|---:|---:|---:|
+| 1,000 | 123.4827 | 208.9937 | -0.284458 | -0.948474 |
+| 2,000 | 87.7662 | 432.5057 | -0.472108 | -1.470909 |
+| 3,000 | 79.3278 | 727.0352 | -0.430206 | -1.889253 |
+| 4,000 | 43.1153 | 43.8405 | 0.220558 | 0.252695 |
+| 5,000 | 40.1375 | 40.5349 | 0.252012 | 0.297673 |
+| 6,000 | 37.7818 | 37.8219 | 0.272346 | 0.317933 |
+| 7,000 | 36.4037 | 36.3005 | 0.272470 | 0.315949 |
+| 8,000 | 35.6394 | 35.4525 | 0.285898 | 0.332226 |
+| 9,000 | 35.1090 | 34.9164 | 0.293418 | 0.342090 |
+| 10,000 | 34.9897 | 34.7458 | 0.294231 | 0.345704 |
+
+M40은 1k→3k에서 전체 validation PPL이 **208.99→432.51→727.04**로 악화됐고 두 run의 초기 reset ΔNLL도 음수였다. 4k에는 PPL이 크게 내려가고 reset 효과가 양수로 바뀐다. 초기 state의 악영향을 보여주는 관측으로 기록하며, 원인을 확정하거나 이를 계속되는 발산으로 분류하지 않는다. 짧은 pilot 결과만으로 이 후보를 배제하면 최종 경향을 놓칠 수 있다.
+
+최종 M40은 M10보다 PPL **0.2439(0.70%)** 낮고 swap ΔNLL은 **0.422916→0.524916**로 커졌으나 시간도 **20.60%** 늘었다. 단일 seed의 작은 PPL 차이이므로 M40의 최종 우위나 최적 용량을 확정하지 않는다. 두 모델은 B0 NeoX보다 각각 PPL **2.9693/3.2132** 낮지만 K0/K3와 parameter·계산 비용도 다른 조건이다. RMT baseline 없이 RMT 대비 우위를 주장하지 않는다.
+
+마지막1k PPL 개선은 M10 **0.1193**, M40 **0.1706**이고 LR은0이다. 두 값을 10k 고정 예산의 레지스터 비교 결과로 유지한다. 미기입 실험은 B1 RMT와 R2 M160/R3 M512이며, 선택 M과 MLP sweep은 아직 결정하지 않았다.
 
 | 결정 / 메모 | 기록할 내용 |
 |---|---|
@@ -113,7 +159,7 @@ B0 NeoX baseline은 사용자 제공 GPU 보고서로 완료를 확인했다. �
 | 선택 이유: 품질·활용성·비용 | |
 | H단계 선택 hidden | |
 | 다음 실험 ID / 변경할 값 | B1 · `models=('rmt',)`, M10/K3, small/segment150/10k/FP32 유지 |
-| 실패 원인 / 추가 관측 | |
+| 실패 원인 / 추가 관측 | M40 초기1k~3k validation 악화 후4k 회복; 양 run 초기 reset 효과 음수. 원인 미확정 |
 
 ## 5. 운영과 검토 범위
 
@@ -123,6 +169,6 @@ B0 NeoX baseline은 사용자 제공 GPU 보고서로 완료를 확인했다. �
 - 기존 `max_seconds`는 누적 상한이어서 매일4h씩 이어가는 session 제한으로 쓰지 않는다. 긴 run은 세션/저장 계획을 확인한 뒤 실행한다.
 - 이번 구현은 메모리 없는 NeoX, 노트북 수동 설정, test 격리·동일 checkpoint 평가, 단일 JSON 내보내기와 Markdown 결과 기록을 포함한다. 장시간 GPU 학습·실제 T4 VRAM/수렴은 사용자 실행 단계다.
 
-검증: 메모리 없는 동작·loss/gradient·재개, test 격리, 고정 attention의 수동 sweep, 동일 checkpoint 지표, 실험별 JSON 분리·재보고 ID 유지·중단 로그·다운로드 호출과 노트북 선택 셀을 CPU에서 확인했다. 기존 모델의 causal/prefix·replay 검사도 통과했다. CPU 두 프로세스 검사는 localhost 소켓 권한 제한으로 미완료이며, 사용자 제공 B0 보고서에서 Kaggle T4×2/온라인 W&B 완료를 확인했다. 다른 모델/환경의 GPU 수렴은 아직 미확인이다.
+검증: 메모리 없는 동작·loss/gradient·재개, test 격리, 고정 attention의 수동 sweep, 동일 checkpoint 지표, 실험별 JSON 분리·재보고 ID 유지·중단 로그·다운로드 호출과 노트북 선택 셀을 CPU에서 확인했다. 기존 모델의 causal/prefix·replay 검사도 통과했다. CPU 두 프로세스 검사는 localhost 소켓 권한 제한으로 미완료이며, 사용자 제공 B0/R0/R1 보고서에서 Kaggle T4×2/온라인 W&B 완료를 확인했다. RMT·다른 용량/환경의 GPU 결과와 여러 seed의 수렴은 아직 미확인이다.
 
 최종 검토 대상은 **위 공통 설정, R단계 용량 후보, R단계 뒤에 진행하는 MLP 후보**다. 더 넓은 탐색 아이디어는 [이전 검토 보고서](20261012_hyperparameter_search_report.md)에 보존한다.
