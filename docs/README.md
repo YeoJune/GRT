@@ -7,6 +7,7 @@
 
 검토 보고서:
 
+- [GRT M10·M40·M160 중간 비교](20261014_register_comparison.md): M10/M40 완료 보고서와 M160 W&B summary를 비교한다. 평가 시점·품질·state 개입·gate/slot 구조·실행 비용과 사용자 판단 칸을 포함한다.
 - [small 기준 실험 계획과 결과표](20261012_experiment_plan.md): NeoX/RMT baseline → 레지스터 sweep → 선택 레지스터의 MLP sweep. 노트북 수동 설정과 결과 기록을 위한 최신 검토안이다.
 - [받은 실험 결과 보관](../results/README.md): report에서 내보낸 실험별 JSON 원본을 보관하고 위 Markdown 결과표에 정리한다.
 - [GRT 하이퍼파라미터 탐색](20261012_hyperparameter_search_report.md): PPL·RTLA 지표, 데이터/size/baseline, 탐색 순서와 도구 비교. 제안 단계이며 실행 조건은 미확정이다.
