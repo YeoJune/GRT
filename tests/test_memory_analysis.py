@@ -54,7 +54,9 @@ def test_known_memory_effect_and_recovery(tmp_path, ignore):
     model = KnownMemory(ignore).train()
     rng = torch.get_rng_state().clone()
     tokens = torch.cat([torch.ones(11), torch.full((11,), 2)]).long()
-    summary, arrays = analyze_stream(model, cfg, tokens, segments=99, horizon=3, slots=True)
+    calls = []
+    summary, arrays = analyze_stream(model, cfg, tokens, segments=99, horizon=3, slots=True,
+        trace_examples=True, progress=lambda done, total: calls.append((done, total)))
     assert model.training and torch.equal(rng, torch.get_rng_state())
     assert summary['target_tokens'] == 12 and summary['measured_segments'] == 2
     assert summary['retention_target_tokens'] == [12, 4, 0]
@@ -65,6 +67,8 @@ def test_known_memory_effect_and_recovery(tmp_path, ignore):
     assert summary['slot_delta_nll'][0] == pytest.approx(0. if ignore else 6.)
     assert summary['retention_delta_nll'][1] == pytest.approx(0.)
     assert 'grt/read_mean' not in probe_metrics(summary, arrays)
+    assert calls[-1] == (len(calls), len(calls))
+    assert arrays['trace_w_gates_per_example'].shape == (2, 2, 1)
     save_analysis(tmp_path/'analysis', summary, arrays, {}, plots=True)
     assert (tmp_path/'analysis/memory.png').stat().st_size > 0
     assert (tmp_path/'analysis/trace.png').stat().st_size > 0

@@ -19,7 +19,7 @@ def token_nll(model, ids, targets, state, trace=None):
 
 
 def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
-                   horizon=0, slots=False):
+                   horizon=0, slots=False, trace_examples=False, progress=None):
     if cfg.model.name != 'grt' or cfg.model.attention_mode != 'decoder':
         raise ValueError('Memory interventions require the GRT decoder')
     segments = cfg.rtla.segments if segments is None else segments
@@ -33,7 +33,7 @@ def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
     if measured <= 0:
         raise ValueError('Probe needs at least one segment after warmup')
     device = next(model.parameters()).device
-    trace = TraceBuffer(read_active=cfg.model.register.conditional_read)
+    trace = TraceBuffer(read_active=cfg.model.register.conditional_read, per_example=trace_examples)
     records = []
     normal = np.full((measured, length), np.nan)
     reset, swap = normal.copy(), normal.copy()
@@ -41,17 +41,30 @@ def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
     slot_delta = np.full((measured, memory_slots if slots else 0), np.nan)
     retention = np.full((measured, horizon), np.nan)
     retention_counts = np.zeros((measured, horizon), dtype=np.int64)
+    stop = min(available, warmup+measured+max(0, horizon-1))
+    retention_calls = sum(max(0, min(horizon, stop-warmup-index)-1)
+                          for index in range(measured))
+    total_calls = stop + 2*measured + (measured*memory_slots if slots else 0) + retention_calls
+    completed_calls = 0
+
+    def forward(ids, targets, state, trace=None):
+        nonlocal completed_calls
+        result = token_nll(model, ids, targets, state, trace)
+        completed_calls += 1
+        if progress is not None:
+            progress(completed_calls, total_calls)
+        return result
+
     with evaluation_context(model):
         state = model.initial_state(cfg.rtla.batch_size)
         initial = state.clone()
-        stop = min(available, warmup+measured+max(0, horizon-1))
         for index in range(stop):
             offset = index*length
             n = min(length, stream.shape[1]-1-offset)
             ids = stream[:, offset:offset+n].to(device)
             targets = stream[:, offset+1:offset+n+1].to(device)
             start_state = state.detach().cpu().clone()
-            nll, state = token_nll(model, ids, targets, state,
+            nll, state = forward(ids, targets, state,
                 trace if warmup <= index < warmup+measured else None)
             if index >= warmup:
                 records.append((offset, n, start_state, nll))
@@ -62,22 +75,22 @@ def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
             targets = stream[:, offset+1:offset+n+1].to(device)
             normal[index, :n] = baseline.mean(0).numpy()
             counts[index, :n] = cfg.rtla.batch_size
-            reset_nll, _ = token_nll(model, ids, targets, initial)
-            swap_nll, branch = token_nll(model, ids, targets, state.roll(1, 0))
+            reset_nll, _ = forward(ids, targets, initial)
+            swap_nll, branch = forward(ids, targets, state.roll(1, 0))
             reset[index, :n] = (reset_nll-baseline).mean(0).numpy()
             swap[index, :n] = (swap_nll-baseline).mean(0).numpy()
             if slots:
                 for slot in range(memory_slots):
                     altered = state.clone()
                     altered[:, slot] = initial[:, slot]
-                    nll, _ = token_nll(model, ids, targets, altered)
+                    nll, _ = forward(ids, targets, altered)
                     slot_delta[index, slot] = (nll-baseline).mean().item()
             if horizon:
                 retention[index, 0] = (swap_nll-baseline).mean().item()
                 retention_counts[index, 0] = baseline.numel()
                 for lag in range(1, min(horizon, len(records)-index)):
                     offset, n, _, baseline = records[index+lag]
-                    nll, branch = token_nll(model,
+                    nll, branch = forward(
                         stream[:, offset:offset+n].to(device),
                         stream[:, offset+1:offset+n+1].to(device), branch)
                     retention[index, lag] = (nll-baseline).mean().item()

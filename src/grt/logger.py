@@ -40,10 +40,10 @@ def append_metrics(stage_dir, row):
         f.write(text)
 
 
-def metadata(model, cfg):
+def metadata(model, cfg, *, repo_dir=None):
     try:
         commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True
+            ["git", "rev-parse", "HEAD"], text=True, cwd=repo_dir, stderr=subprocess.DEVNULL
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         commit = None

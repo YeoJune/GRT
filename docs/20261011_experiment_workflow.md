@@ -6,6 +6,8 @@
 
 `WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. `job.report(download=True)`는 이번 실험만 담은 `experiment_report.json` 하나를 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
+학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기본 reset/swap·retention·example별 gate 분포, 선택적 slot 초기화를 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함하며 학습 report와 합치지 않는다. [사용 안내와 사후 결과표](20261014_posthoc_analysis.md)를 따른다.
+
 ## 설정의 역할과 확장
 
 현재 설정은 `configs/experiments.yaml` 한 카탈로그에서 관리한다. 각 항목은 기존 typed Config 구조에 적용하는 partial override다.

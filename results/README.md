@@ -10,6 +10,8 @@
 
 보고서에는 최종 설정·환경·학습 곡선·RTLA 요약·경고가 들어 있다. checkpoint 가중치, 원본 데이터, NPZ 배열과 그림은 들어 있지 않으므로 실제 재개/추가 분석용 run 폴더는 실행 환경에서 별도로 보관한다.
 
+사후 분석 노트북의 `posthoc_report.json`은 `report_format=grt.posthoc_report/1`로 구분해 `posthoc/<report_id>.json`에 원본 보관한다. 학습 report와 별도로 [사후 결과표](../docs/20261014_posthoc_analysis.md)에 checkpoint hash/step·probe 조건과 gate/slot/retention을 기록한다. 분석 report에는 분석 배열이 포함되며 checkpoint·원본 token stream은 포함되지 않는다. 아직 받은 사후 보고서는 없다.
+
 | 실험 | 환경 / 상태 | 원본 |
 |---|---|---|
 | B0 · NeoX small/segment150/10k | Kaggle T4×2 · 완료, val PPL 37.9590 | [0f4be0ee5d5c4a77b8ce50d591932c69.json](0f4be0ee5d5c4a77b8ce50d591932c69.json) |

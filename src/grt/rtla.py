@@ -10,6 +10,7 @@ from grt.data import make_loader, move_batch
 @dataclass
 class TraceBuffer:
     read_active: bool = False
+    per_example: bool = False
     records: dict = field(
         default_factory=lambda: {
             key: []
@@ -46,8 +47,10 @@ class TraceBuffer:
                 "slot_cosines": cosine[:, off_diagonal].mean() if slots > 1 else state.new_tensor(0.),
                 "write_pool_attention": attention.float().mean(0),
             }
+            if self.per_example:
+                values["w_gates_per_example"] = write.squeeze(-1)
             for key, value in values.items():
-                self.records[key].append(value.detach().cpu())
+                self.records.setdefault(key, []).append(value.detach().cpu())
 
     def to_numpy(self):
         if not self.records["w_gates"]:
