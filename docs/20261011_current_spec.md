@@ -5,7 +5,7 @@
 이전 문서는 archive에 보존하며 현재 설정을 선택하는 근거로 사용하지 않는다.
 현재 실행 구조는 공통 NeoX 하나다. 과거 모델/설정/checkpoint 호환 경로는 제공하지 않는다.
 
-2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. small 실험 순서와 기록은 [실험 계획과 결과표](20261012_experiment_plan.md)를 따른다.
+2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. small 실험 순서와 기록은 [실험 계획과 결과표](experiments/20261012_small_register_sweep.md)를 따른다.
 
 ## 1. 범위와 순서
 

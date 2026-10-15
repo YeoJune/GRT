@@ -2,11 +2,11 @@
 
 현재 실행 규칙은 이 문서를 따른다. 모델/gradient/데이터 계약은 [통합 명세](20261011_current_spec.md)를 따른다. 모델 구조와 실험 조건은 카탈로그와 명시 override로 관리하며 자동 조정은 확정된 실질 배치를 바꾸지 않는다.
 
-2026-10-12 노트북 선택 기본은 small/10k/NeoX다. 첫 순서는 [baseline → 레지스터 → MLP와 결과표](20261012_experiment_plan.md)를 따른다. NeoX는 M0/K0, RMT/GRT는 기본 M10/K3이다. `WikiTextRun(num_registers=..., router_hidden=...)`는 각각 RMT/GRT의 메모리와 GRT MLP만 바꾸며 attention은 size의 차원/head를 유지한다. 노트북 VRAM 예약 목표는95%로 명시하며 카탈로그 기본80%는 유지한다. global batch는 보존한다.
+2026-10-12 노트북 선택 기본은 small/10k/NeoX다. 첫 순서는 [baseline → 레지스터 → MLP와 결과표](experiments/20261012_small_register_sweep.md)를 따른다. NeoX는 M0/K0, RMT/GRT는 기본 M10/K3이다. `WikiTextRun(num_registers=..., router_hidden=...)`는 각각 RMT/GRT의 메모리와 GRT MLP만 바꾸며 attention은 size의 차원/head를 유지한다. 노트북 VRAM 예약 목표는95%로 명시하며 카탈로그 기본80%는 유지한다. global batch는 보존한다.
 
 `WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. `job.report(download=True)`는 이번 실험만 담은 `experiment_report.json` 하나를 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
-학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기본 reset/swap·retention·example별 gate 분포, 선택적 slot 초기화를 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함하며 학습 report와 합치지 않는다. [사용 안내와 사후 결과표](20261014_posthoc_analysis.md)를 따른다.
+학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기본 reset/swap·retention·example별 gate 분포, 선택적 slot 초기화를 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함하며 학습 report와 합치지 않는다. [Colab 사후 분석 안내](20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 ## 설정의 역할과 확장
 
@@ -148,6 +148,57 @@ python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/w
 
 사후 분석의 batch/warmup은 checkpoint의 RTLA 설정을 기본으로 쓰고 `--batch-size`/`--warmup-segments`로 바꾼다. 기본 horizon은3이며0은 지속 범위 분석을 끈다. slot별 초기화는 `--slots`일 때만 실행한다. summary JSON/TXT, 원본 배열 NPZ, 위치·slot·지속 범위 그래프와 trace PNG를 저장한다. checkpoint/data 식별 정보와 실제 probe 크기도 함께 기록한다. 비용은 measured segments×(정상+초기화+교환+선택한 slots+후속 horizon) forward이며 학습을 수행하지 않는다.
 
+<a id="posthoc-colab"></a>
+## Colab 사후 분석: 파일 배치와 결과 전달
+
+[Colab 분석 노트북 열기](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb) · [노트북 파일](../notebooks/colab_analysis.ipynb) · [small 레지스터 실험 결과](experiments/20261012_small_register_sweep.md)
+
+GPU 런타임을 선택하고 Drive에 현재 형식의 WikiText GRT checkpoint와 원본 prepared 파일을 넣는다. Kaggle2GPU에서 학습한 checkpoint도 Colab 단일 GPU에서 분석할 수 있으며 W&B key는 필요 없다.
+
+```text
+MyDrive/GRT_analysis/
+├── checkpoints/m40/best.pt       # m10/m160 또는 보존한 중간 checkpoint도 가능
+└── wikitext103_gpt2_bpe/
+    ├── manifest.json
+    ├── validation.pt
+    └── tokenizer/               # manifest에 기록된 원본 artifact 전부
+```
+
+원래 Kaggle prepared 경로는 보통 `/kaggle/working/wikitext103_gpt2_bpe`다. 전체 `best.pt`에는 optimizer가 포함돼 있어도 분석에는 사용하지 않는다. 입력에 `train.pt`, `test.pt`, 학습 experiment report는 필요 없다. 원본 manifest를 그대로 복사하며 validation·tokenizer hash가 다르면 helper가 실행 전에 거부한다. 학습 report에는 가중치가 없고, 최종 checkpoint만으로 사라진 초기 checkpoint를 복원할 수 없다.
+
+1. 코드·라이브러리 설치와 Drive 연결 셀을 실행한다. editable 설치 직후 현재 커널에서도 import되도록 bootstrap이 `repo/src`를 `sys.path`에 추가한다.
+2. `checkpoint`, `prepared_dir`, `output_dir`를 지정한다. M/MLP/backbone은 checkpoint에서 읽는다.
+3. `job.inspect()`로 실제 step·M·MLP·hash 검증과 forward 횟수를 확인한다.
+4. `job.run()` → 그림 확인 → `job.report(download=True)`를 실행한다.
+
+| 분석 변수 | 노트북 기본값 | 의미 |
+|---|---:|---|
+| batch_size | 8 | validation stream 수; 바꾸면 partition과 probe token이 달라짐 |
+| segments | 8 | 측정 segment 수 |
+| warmup_segments | 3 | 처음부터 정상 state를 누적할 segment 수 |
+| horizon | 4 | 현재 segment부터 이후3 segments까지 교환 branch 추적; 0은 생략 |
+| analyze_slots | False | True면 각 슬롯을 하나씩 S0로 초기화해 평가 |
+
+기본값은 reset/swap·retention·example별 gate 분포를 측정한다. 슬롯별 기여에는 `analyze_slots=True`를 사용한다. M160/측정8 segments는 슬롯 개입만1,280회 forward를 추가하며 실제 전체 횟수·진행률·대략 남은 시간은 helper가 출력한다. 비교 후보는 batch/segments/warmup/horizon을 같게 유지하고 다른 window는 모든 후보에 같은 warmup을 사용한다. CUDA OOM으로 batch를 줄이면 비교 후보도 같은 새 partition으로 다시 분석한다.
+
+분석은 FP32·TF32 off·dropout off·gradient off다. checkpoint·학습 설정 파일을 수정하지 않는다. gate 시간축은 고정 checkpoint의 probe segment로, 학습 step별 변화가 아니다. raw example별 gate·포화 통계와 분석 배열을 보존하고 read gate off 및 pooling attention의 해석은 위 RTLA 계약을 따른다.
+
+출력은 `output_dir/m<M>_step<step>_<signature>/`에 저장한다. 기본 output_dir는 Drive의 `GRT_analysis/outputs`다. 같은 checkpoint·데이터·옵션·주요 코드·라이브러리/장치의 완료 결과는 재사용하고 옵션이 바뀌면 별도 폴더로 쓴다. 중단된 분석은 처음부터 다시 실행한다. 코드 ZIP을 함께 받은 경우 노트북을 Colab에 열고 `grt-colab-analysis.zip`을 `/content`에 업로드하면 bootstrap이 그 코드를 사용한다. 없으면 GitHub main을 사용한다.
+
+| 출력 | 용도 |
+|---|---|
+| **posthoc_report.json** | 전달할 파일 하나; checkpoint hash/step·학습 Config·data manifest·분석 조건·환경/시간/VRAM·지표·raw 분석 배열 |
+| summary.json / summary.txt | 정상/reset/swap·slot/retention 로컬 요약 |
+| arrays.npz | 분석 배열 로컬 보관본 |
+| memory.png / trace.png | 위치·segment·slot·retention 및 batch 평균 gate/state/update 그림 |
+
+**`posthoc_report.json` 하나를 보내면 된다.** 다운로드가 막히면 출력된 Drive 경로에서 받는다. PNG/NPZ는 보관하되 기본 전달에는 필요 없다. JSON에 가중치·optimizer·원본 token stream은 넣지 않고 미측정 tail은 null로 쓴다. 같은 실험 문서에서 checkpoint hash/step·데이터·probe 조건을 확인해 학습 결과와 연결한다. 학습 report에 checkpoint hash가 없으면 run·Config·step·지표를 대조하고 경로 이전 등 차이를 명시한다. 실험별로 최신 원본과 표·그림·해석을 함께 갱신한다.
+
+<a id="experiment-records"></a>
+## 실험 기록의 단위
+
+문서는 연구 질문별로 `docs/experiments/YYYYMMDD_주제.md` 하나를 만들고 같은 질문의 run·seed·사후 분석을 갱신한다. 처음에는 목적/가설·고정/변경 조건·결정할 점을 적고, 실행 후 학습·품질·비용·분석 표와 원본 링크를 채운다. MLP·segment·size처럼 비교 질문이 바뀌면 새 문서에 공통 조건과 연결할 이전 결과를 명시한다. 일반 실행법은 이 workflow에 두고 실험 문서에서는 결과와 판단을 관리한다.
+
 ## 검증 범위
 
 현재 카탈로그 선택·typed Config 검증, config 단일 파일 입력, 현재 checkpoint 형식, 작은 CPU 실행과 재개 조건을 확인한다. 과거 YAML/fixture/archive notebook과 대조하는 호환성 검사는 유지하지 않는다. 전체 학습과 GPU 수렴을 반복 검사하지 않는다.
@@ -163,3 +214,5 @@ T4 global256 설정 변경에서는 현재 카탈로그의36개 조합과 보정
 20261012 RTLA 추가에서는 관련 CPU 검사5개가6.01초에 통과했다. 메모리 의존/무시 예제의 개입 NLL, 짧은 tail의 token 가중·이후 회복, 실제 gate 적용 갱신량, 분석 on/off의 실제 GRT2-update 최종 가중치/RNG 동일성을 확인했다. W&B 전달은 모의 클라이언트로 확인했고 동일 checkpoint의 사후 CLI·JSON/NPZ/PNG 저장도 실행했다. Remember trace와 노트북 설정 전달을 확인했다. 실제 온라인 W&B 업로드와 GPU/DDP 분석 비용·실제 WikiText 사용 효과는 아직 실측하지 않았다.
 
 Colab 추가에서는 runtime의 global256·동일 학습 조건과 Secrets 인증 분기 검사1개가0.40초에 통과했다. Kaggle/Colab 선택 cell을 직접 호출해 GPU2/1의 실질 배치와 모델·RTLA 설정을 확인했으며 전체 학습 검사는 반복하지 않았다. 실제 Colab GPU·Secrets 연결은 미실측이다.
+
+2026-10-15 사후 notebook/helper 관련 CPU 검사16개가 통과했다. report roundtrip·checkpoint 보존·hash 불일치 거부·example별 gate 포화와 기존 memory/baseline 동작을 확인했고, NeoX2-worker CLI는 localhost 소켓을 허용한 환경에서 통과했다. Python3.12.14/PyTorch2.14.1+cpu 기준이다. 사용자 제공 small M10/M40/M160 report에서 Colab T4/FP32·slots=true 실행 완료도 확인했다. 실제 측정값은 해당 실험 문서에서 관리한다.

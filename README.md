@@ -19,13 +19,13 @@ RMT는 `--model rmt`로 선택한다. [로컬 템플릿](notebooks/template.ipyn
 
 Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타임과 Colab Secrets의 `WANDB_API_KEY` 접근을 설정한다. Kaggle과 같은 WikiTextRun을 사용하며 GPU1개에서 micro32×accum8로 global256을 유지한다. 모델·예산·segment/register/BPTT·RTLA 선택은 Kaggle과 같다.
 
-학습한 GRT checkpoint의 사후 분석은 [Colab 분석 노트북](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb)을 사용한다. Drive의 checkpoint와 원본 manifest·validation.pt·tokenizer를 지정해 단일 GPU/FP32에서 reset/swap·retention·선택적 slot 초기화·example별 gate 분포를 분석한다. 마지막 `posthoc_report.json` 하나를 보내면 된다. [파일 배치·실행·결과표](docs/20261014_posthoc_analysis.md)를 따른다.
+학습한 GRT checkpoint의 사후 분석은 [Colab 분석 노트북](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb)을 사용한다. Drive의 checkpoint와 원본 manifest·validation.pt·tokenizer를 지정해 단일 GPU/FP32에서 reset/swap·retention·선택적 slot 초기화·example별 gate 분포를 분석한다. 마지막 `posthoc_report.json` 하나를 보내면 된다. [파일 배치·실행 안내](docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 ## WikiText-103 · Kaggle T4 × 2
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
 반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
-기본은 small·10k·메모리 없는 NeoX baseline이다. RMT baseline → GRT 레지스터 sweep → 선택 레지스터의 MLP sweep 순서와 결과표는 [실험 계획](docs/20261012_experiment_plan.md)을 따른다. 선택 셀의 값만 바꿔 한 실험씩 진행한다.
+기본은 small·10k·메모리 없는 NeoX baseline이다. RMT baseline → GRT 레지스터 sweep → 선택 레지스터의 MLP sweep 순서와 결과표는 [실험 계획](docs/experiments/20261012_small_register_sweep.md)을 따른다. 선택 셀의 값만 바꿔 한 실험씩 진행한다.
 
 ```python
 models = ('neox',)  # 다음 ('rmt',), 이후 ('grt',)
@@ -86,7 +86,7 @@ python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/w
 숫자 예산/override를 바꾸면 utils의 기본 run 이름에 설정 hash가 붙는다. 기존 run과의 설정 차이는 학습 전에 거부한다.
 다른 Kaggle 세션의 데이터/결과는 `job.prepare_data(prepared_input=..., resume_input=...)`로 복원한다.
 
-Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다. 탐색은 `test_at_end=False`로 test를 생략하고 best checkpoint의 validation/RTLA를 다시 평가한다. `job.report(download=True)`는 이번 실험의 설정·환경·best validation/RTLA·학습 곡선·비용을 `experiment_report.json` 하나로 내보낸다. 이 파일을 보내면 [결과 보관 폴더](results/README.md)와 [Markdown 결과표](docs/20261012_experiment_plan.md)에 정리한다. 재개용 checkpoint는 별도 보관한다.
+Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다. 탐색은 `test_at_end=False`로 test를 생략하고 best checkpoint의 validation/RTLA를 다시 평가한다. `job.report(download=True)`는 이번 실험의 설정·환경·best validation/RTLA·학습 곡선·비용을 `experiment_report.json` 하나로 내보낸다. 이 파일을 보내면 [결과 보관 폴더](results/README.md)와 [Markdown 결과표](docs/experiments/20261012_small_register_sweep.md)에 정리한다. 재개용 checkpoint는 별도 보관한다.
 Remember는 stage별 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
 W&B는 Kaggle에서 기본 활성화하며 첫 step·주기별·평가·마지막 step을 기록한다.
 `wandb_status.json`에 URL·마지막 step·실패 수를 남기며 utils가 완료 상태를 확인한다. preflight는 W&B run을 생성하지 않는다.

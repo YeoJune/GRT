@@ -1,21 +1,20 @@
 # 문서 목록
 
-현재 운영 기준은 다음 두 문서다.
+## 공통 기준과 실행
 
-- [통합 명세](20261011_current_spec.md): 모델 구조, 데이터·학습 계약.
-- [실험 workflow](20261011_experiment_workflow.md): 설정 카탈로그, CLI, 노트북/utils, 확장 규칙.
+- [통합 명세](20261011_current_spec.md): 모델 구조·데이터·학습 계약.
+- [실험 workflow](20261011_experiment_workflow.md): 설정·Kaggle/Colab 학습·사후 분석·파일 전달·새 실험 기록 규칙.
+- [원본 JSON 보관 규칙](../results/README.md): 결과 파일 형식과 보관 경로.
 
-검토 보고서:
+## 실험별 보고서
 
-- [GRT M10·M40·M160 사후 RTLA 비교](20261015_posthoc_comparison.md): 동일10k checkpoint의 최신 슬롯별 기여·gate 포화·retention과 bandwidth/압축 가설 검토.
+| 실험 | 현재 상태 | 문서 |
+|---|---|---|
+| small 레지스터 용량 비교 | NeoX/RMT baseline, GRT M10/M40/M160의10k 학습·슬롯별 사후 분석 완료; 선택 M 미정 | [계획·결과·해석·사용자 판단](experiments/20261012_small_register_sweep.md) |
 
-- [Colab 사후 RTLA 분석과 결과표](20261014_posthoc_analysis.md): checkpoint·prepared 파일 배치, Colab 실행 옵션, 단일 posthoc JSON 내보내기와 gate/slot/retention 결과 취합.
-- [GRT M10·M40·M160 용량 비교](20261014_register_comparison.md): M10/M40/M160의10k 학습·최신 사후 분석을 품질·사용 방식·비용으로 비교하고 사용자 판단 칸을 둔다.
-- [small 기준 실험 계획과 결과표](20261012_experiment_plan.md): NeoX/RMT baseline → 레지스터 sweep → 선택 레지스터의 MLP sweep. 노트북 수동 설정과 결과 기록을 위한 최신 검토안이다.
-- [받은 실험 결과 보관](../results/README.md): report에서 내보낸 실험별 JSON 원본을 보관하고 위 Markdown 결과표에 정리한다.
-- [GRT 하이퍼파라미터 탐색](20261012_hyperparameter_search_report.md): PPL·RTLA 지표, 데이터/size/baseline, 탐색 순서와 도구 비교. 제안 단계이며 실행 조건은 미확정이다.
+실험 주제마다 위 문서 하나에 조건·run/seed·사후 분석·결론을 갱신한다. MLP·segment·size 비교를 시작하면 새 행과 문서를 추가한다. 실행 시작점은 [저장소 README](../README.md), [Kaggle](../notebooks/kaggle.ipynb), [Colab 학습](../notebooks/colab.ipynb), [Colab 사후 분석](../notebooks/colab_analysis.ipynb)이다.
 
-실행 시작점은 [저장소 README](../README.md), [Kaggle 노트북](../notebooks/kaggle.ipynb), [Colab 노트북](../notebooks/colab.ipynb)이다.
+## 이전 기록
 
 이전 설계·검토·검증 기록은 `archive/`의 Markdown 문서로만 보존한다. 실행 코드와 config는 보관하지 않는다.
 아래 문서는 과거 기록이며 최신 실행 설정으로 사용하지 않는다.

@@ -1,29 +1,12 @@
-# 받은 실험 결과
+# 실험 결과 원본
 
-사용자가 Kaggle/Colab의 `job.report(download=True)`에서 받은 `experiment_report.json`을 보내면 이 폴더에 원본을 보관한다. 현재 B0 NeoX/B1 RMT baseline과 R0/R1/R2 GRT M10/M40/M160의 완료 보고서5개를 보관했다.
+[small 레지스터 용량 실험 보고서](../docs/experiments/20261012_small_register_sweep.md)에 baseline·학습·사후 분석 결과와 모든 원본 링크를 모은다. 현재 학습5개와 최신 슬롯별 사후 분석3개를 보관한다. 실행과 파일 전달은 [공통 workflow](../docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
-- 저장 이름: `<report_id>.json`. JSON 안의 `run_name`, 환경, 모델/설정으로 식별한다.
-- 같은 report_id를 다시 받으면 재개·재보고 여부와 step을 확인하고 기존 기록을 갱신한다. 다른 report_id는 별도 결과로 보존한다.
-- [실험 계획과 결과표](../docs/20261012_experiment_plan.md)의 해당 행에 best validation/RTLA, 하드웨어·시간·VRAM, 상태와 원본 링크를 적는다.
-- 같은 checkpoint의 품질·RTLA를 묶고 GPU/precision/global batch·target 예산·데이터 hash를 확인해 비교한다. 미측정값은 빈칸으로 둔다.
-- 실행 미완료/실패는 완료 결과와 구분하고, 보낸 파일의 숫자를 변경하지 않는다. 재개 후 이전 파일을 교체할 때 step이 뒤로 가지 않는지 확인한다.
+| 경로 / 형식 | 내용 |
+|---|---|
+| `<report_id>.json` · `grt.experiment_report/1` | 실험별 학습 Config·metadata·학습 곡선·best validation/RTLA·비용 |
+| `posthoc/<report_id>.json` · `grt.posthoc_report/1` | checkpoint hash/step·분석 조건·gate/slot/retention·분석 배열 |
 
-보고서에는 최종 설정·환경·학습 곡선·RTLA 요약·경고가 들어 있다. checkpoint 가중치, 원본 데이터, NPZ 배열과 그림은 들어 있지 않으므로 실제 재개/추가 분석용 run 폴더는 실행 환경에서 별도로 보관한다.
+사용자가 보낸 JSON의 bytes와 숫자를 바꾸지 않는다. 같은 run·checkpoint·조건의 재보고는 ID와 step을 확인해 최신 기록으로 반영하고, 다른 실험·조건은 해당 실험 문서에 구분한다. 미완료·OOM·미측정을 완료나0으로 채우지 않는다. CSV로 여러 환경의 결과를 누적하지 않는다.
 
-사후 분석은 `report_format=grt.posthoc_report/1`로 구분하고 최신 슬롯별 측정3개를 `posthoc/<report_id>.json`에 보관한다. [사후 결과표](../docs/20261014_posthoc_analysis.md)와 [상세 비교](../docs/20261015_posthoc_comparison.md)에 checkpoint hash/step·조건·gate/slot/retention을 기록한다. 분석 배열을 포함하며 가중치·원본 token stream은 포함하지 않는다.
-
-| 실험 | 환경 / 상태 | 원본 |
-|---|---|---|
-| B0 · NeoX small/segment150/10k | Kaggle T4×2 · 완료, val PPL 37.9590 | [0f4be0ee5d5c4a77b8ce50d591932c69.json](0f4be0ee5d5c4a77b8ce50d591932c69.json) |
-| B1 · RMT M10/K3/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.8754 | [24b2e511de2e419eb0ac7f9b52769d89.json](24b2e511de2e419eb0ac7f9b52769d89.json) |
-| R0 · GRT M10/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.9897 | [22ab31a56cb546f993197e5ce937e5de.json](22ab31a56cb546f993197e5ce937e5de.json) |
-| R1 · GRT M40/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.7458 | [22cfd16b44964befbe42912c4aba28c5.json](22cfd16b44964befbe42912c4aba28c5.json) |
-| R2 · GRT M160/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.1511 | [0e0ead4744594b59a7d9a771049c79a1.json](0e0ead4744594b59a7d9a771049c79a1.json) |
-
-## 최신 사후 분석 원본 · 2026-10-15
-
-| M | checkpoint step / SHA256 앞12자 | 조건 | 원본 |
-|---:|---|---|---|
-| 10 | 10,000 / `cc0daecfb590` | validation B8/W3/S8/H4, slots=true | [2542d67f74964180bb6dcf421452068e](posthoc/2542d67f74964180bb6dcf421452068e.json) |
-| 40 | 10,000 / `520315a746d3` | validation B8/W3/S8/H4, slots=true | [3a2607fb35a543569debcb393eecf2c2](posthoc/3a2607fb35a543569debcb393eecf2c2.json) |
-| 160 | 10,000 / `cbac55d5f46f` | validation B8/W3/S8/H4, slots=true | [54218437e5074f3487500da34a0aff3c](posthoc/54218437e5074f3487500da34a0aff3c.json) |
+JSON에는 checkpoint 가중치·optimizer·원본 token stream이 없다. 학습 재개와 추가 분석용 checkpoint·prepared 데이터는 실행 환경 밖에 별도로 보관한다. 실험 판단·수치 표는 실험 문서 한 곳에서 관리한다.
