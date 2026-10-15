@@ -1,8 +1,8 @@
 # Colab 사후 RTLA 분석과 결과표
 
-작성일: 2026-10-14 · 대상: 현재 형식의 WikiText GRT checkpoint · validation 전용
+작성일: 2026-10-14 · 갱신일: 2026-10-15 · 대상: 현재 형식의 WikiText GRT checkpoint · validation 전용
 
-[Colab에서 열기](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb) · [노트북 파일](../notebooks/colab_analysis.ipynb) · [학습 결과표](20261012_experiment_plan.md) · [M10/M40/M160 중간 비교](20261014_register_comparison.md)
+[Colab에서 열기](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb) · [노트북 파일](../notebooks/colab_analysis.ipynb) · [학습 결과표](20261012_experiment_plan.md) · [M10/M40/M160 용량 비교](20261014_register_comparison.md)
 
 ## 1. 어디에 무엇을 넣는가
 
@@ -74,13 +74,15 @@ slot 개입은 독립적인 단일 슬롯 초기화이며 기여도를 합산해
 
 에이전트는 원본을 `results/posthoc/<report_id>.json`에 보관하고 아래 표를 채운다. M·checkpoint step/hash·validation/tokenizer hash와 probe 조건을 확인한 뒤 같은 조건끼리 비교한다. 슬롯 분석 on/off·다른 window·다른 step은 별도 행으로 기록한다. 같은 report_id 재전달은 중복 결과로 세지 않는다. 학습 experiment report에는 checkpoint hash가 없으므로 run 경로·step·설정·데이터 식별값을 대조해 연결하고, 불확실한 연결은 추정으로 표시한다.
 
-M10/M40/M160의 품질·reset/swap, gate 포화/입력 의존성, slot 기여 집중/분산, retention을 표·그림으로 정리하고 [용량 비교 보고서](20261014_register_comparison.md)에 사후 관측을 추가한다. 초기 중간 결과와 사용자의 bandwidth·압축·write 가설은 관측 사실과 구분한다. 사후 분석만으로 학습 전환의 인과관계를 확정하지 않는다.
+M10/M40/M160의 품질·reset/swap, gate 포화/입력 의존성, slot 기여 집중/분산, retention을 표·그림으로 정리하고 [용량 비교 보고서](20261014_register_comparison.md)에 사후 관측을 추가한다. 학습 곡선과 사용자의 bandwidth·압축·write 가설을 관측 사실과 구분한다. 사후 분석만으로 학습 전환의 인과관계를 확정하지 않는다.
 
 | M | checkpoint step / hash | probe / 정상 PPL | reset / swap ΔNLL | gate near0 / near1 | slot / retention 관측 | 상태 / 원본 |
 |---:|---|---|---|---|---|---|
-| 10 | | | | | | 미수신 |
-| 40 | | | | | | 미수신 |
-| 160 | | | | | | 미수신 |
+| 10 | 10,000 / `cc0daecfb590` | B8/W3/S8/H4 · 32.9314 | 0.294231 / 0.422916 | 0.00% / 100.00% | slot 평균 0.002323; lag3 0.009960 | slots=true 완료 · [원본](../results/posthoc/2542d67f74964180bb6dcf421452068e.json) |
+| 40 | 10,000 / `520315a746d3` | B8/W3/S8/H4 · 32.4541 | 0.345704 / 0.524916 | 17.50% / 82.50% | slot 평균 0.000484; lag3 0.017808 | slots=true 완료 · [원본](../results/posthoc/3a2607fb35a543569debcb393eecf2c2.json) |
+| 160 | 10,000 / `cbac55d5f46f` | B8/W3/S8/H4 · 34.0898 | 0.323459 / 0.294080 | 60.13% / 25.62% | slot 평균 0.000349; lag3 0.011249 | slots=true 완료 · [원본](../results/posthoc/54218437e5074f3487500da34a0aff3c.json) |
+
+최신 슬롯별 기여 측정 보고서3개만 결과표에 기록했다. [상세 비교 보고서](20261015_posthoc_comparison.md)에 전체 슬롯별 영향·gate 포화·retention과 해석을 정리했다.
 
 | 사용자 판단 | 기록 |
 |---|---|
@@ -92,4 +94,4 @@ M10/M40/M160의 품질·reset/swap, gate 포화/입력 의존성, slot 기여 �
 
 노트북은 bootstrap·경로·분석 선택과 helper 호출만 담당한다. 실행·검증·단일 JSON 내보내기는 `grt.utils.posthoc.WikiTextPosthoc`, 개입은 기존 `grt.memory_analysis.analyze_stream`을 재사용한다. example별 gate 수집과 진행 callback은 사후 분석에서만 선택적으로 켜며 학습 중 기본 RTLA의 기록·계산 경로는 유지한다. GPU 실행 시간·M160 분석은 실제 Colab에서 확인한다.
 
-작성 시 Python 문법·노트북 모든 코드 셀의 컴파일·빈 실행 출력·문서 링크를 확인했다. CPU 회귀 테스트는 `tests/test_posthoc.py`와 기존 memory analysis 테스트에 추가했다. 2026-10-15 의존성 설치 후 Python3.12.14/PyTorch2.14.1+cpu에서 사후 report roundtrip·checkpoint 보존·데이터 불일치 거부·example별 gate 포화·기존 memory analysis 및 baseline의 단일 프로세스 검사15개가 통과했다. NeoX2-worker CLI 검사도 로컬 소켓을 허용한 환경에서 통과해 총16개를 확인했다. GPU·실제 small checkpoint의 Colab 실행은 아직 미검증이다. 재검사는 `python -m pytest tests/test_posthoc.py tests/test_memory_analysis.py -q`로 수행한다.
+작성 시 Python 문법·노트북 모든 코드 셀의 컴파일·빈 실행 출력·문서 링크를 확인했다. CPU 회귀 테스트는 `tests/test_posthoc.py`와 기존 memory analysis 테스트에 추가했다. 2026-10-15 의존성 설치 후 Python3.12.14/PyTorch2.14.1+cpu에서 사후 report roundtrip·checkpoint 보존·데이터 불일치 거부·example별 gate 포화·기존 memory analysis 및 baseline의 단일 프로세스 검사15개가 통과했다. NeoX2-worker CLI 검사도 로컬 소켓을 허용한 환경에서 통과해 총16개를 확인했다. 2026-10-15 사용자 제공 M10/M40/M160 보고서에서 실제 small step10k checkpoint의 Colab T4·FP32 기본 분석 완료를 확인했다. 같은 checkpoint의 슬롯별 초기화(slots=true)도 세 용량 모두 사용자 제공 Colab T4 결과에서 완료를 확인했다. 재검사는 `python -m pytest tests/test_posthoc.py tests/test_memory_analysis.py -q`로 수행한다.

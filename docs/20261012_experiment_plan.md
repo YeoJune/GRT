@@ -52,7 +52,7 @@ memory_fraction = 0.95
 
 ## 4. 결과 기록
 
-B0 NeoX/B1 RMT baseline과 R0/R1 GRT는 사용자 제공 GPU 보고서로 완료를 확인했다. R2 M160도10k 완료 report를 받아 기록했으며 이전 중간 snapshot은 보존한다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
+B0 NeoX/B1 RMT baseline과 R0/R1 GRT는 사용자 제공 GPU 보고서로 완료를 확인했다. R2 M160도10k 완료 report를 받아 기록했다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
 
 | ID | 모델 | M | MLP hidden | best val PPL | swap ΔNLL | reset ΔNLL | VRAM GiB¹ | 시간 h | 상태 / 원본 보고서 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -187,14 +187,6 @@ M40은 1k→3k에서 전체 validation PPL이 **208.99→432.51→727.04**로 �
 
 마지막1k PPL 개선은 M10 **0.1193**, M40 **0.1706**이고 LR은0이다. 두 값을 10k 고정 예산의 레지스터 비교 결과로 유지한다. R2 M160은 아래 완료 결과를 추가했으며 R3 M512는 아직 받지 않았다. 선택 M과 MLP sweep은 아직 결정하지 않았다.
 
-### R2: M160 중간 관측 · 2026-10-14 수신 (완료 결과는 아래 참조)
-
-[사용자 제공 W&B summary](../results/interim/20261014_grt_m160_wandb_step8700.json) · [M10·M40·M160 상세 비교와 판단 칸](20261014_register_comparison.md)
-
-train8,700에서 334,025,216 targets, 경과11.482h, peak allocated9.686GiB다. summary의 최근 validation PPL은35.4295, reset/swap ΔNLL은0.301698/0.285321이며 write gate0.310781, slot cosine0.545708이다. 기존1,000-step 평가 주기가 유지됐다면 validation/RTLA는8,000-step 값이고 학습 지표만8,700-step 값이다. snapshot에는 평가 step·전체 설정·환경이 없으므로 해당 시점과 MLP512/FP32/배치·GPU 조건은 완료 report로 확인한다. best/10k 결과로 등록하지 않는다.
-
-같은 추정8k의 M40 PPL35.4525와 품질 차이는 작고, M160의 swap 효과는 더 작다. 슬롯 방향은 더 분화됐지만 활용성과 성능의 우위를 확정하지 않는다. 상세 보고서에서 초기 학습 곡선·개입 위치·gate/update·비용과 사용자 판단을 함께 검토한다.
-
 ### R2: M160 완료 · 2026-10-15 수신
 
 [원본 JSON](../results/0e0ead4744594b59a7d9a771049c79a1.json) · [학습 코드](https://github.com/YeoJune/GRT/commit/555d8371e852bab78fcfada5ed909ea34425f817) · [W&B](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/19167540)
@@ -230,7 +222,7 @@ train8,700에서 334,025,216 targets, 경과11.482h, peak allocated9.686GiB다. 
 
 M160 최종 PPL은 M10보다 **0.8386**, M40보다 **0.5947**, RMT보다 **0.7243** 낮다. 반면 swap ΔNLL은 M40보다 작아 품질 순위와 swap 민감도 순위가 일치하지 않는다. 단일 seed·소프트웨어 차이가 있어 최적 M은 미결정으로 둔다.
 
-이전 snapshot의 val/RTLA는 본 report의 **step8,000**과 일치해 평가 시점 추론이 확인됐다. 9k→10k PPL 개선은 **0.7895**로 M10/M40의 같은 구간보다 크다. 마지막 LR0인10k cosine 결과로 기록하며 완전 수렴을 뜻하지 않는다.
+9k→10k PPL 개선은 **0.7895**로 M10/M40의 같은 구간보다 크다. 마지막 LR0인10k cosine 결과로 기록하며 완전 수렴을 뜻하지 않는다.
 
 M160도1k→3k에서 PPL737.45→964.19→1244.35 악화 후4k45.51로 회복하며 write 증가·reset 효과의 양수 전환이 같은 평가 구간에 있다. 6k→7k에는 write 평균이0.3811→0.3270으로 내려가는 동안 relative update와 품질이 개선됐다. write 평균 하나로 학습의 좋고 나쁨을 설명하지 않고 candidate·실제 update·state/read 동작의 공동 관계를 검토한다. slot/retention 상세 사후 분석은 아직 미실시다.
 
@@ -241,6 +233,12 @@ M160도1k→3k에서 PPL737.45→964.19→1244.35 악화 후4k45.51로 회복하
 | H단계 선택 hidden | |
 | 다음 실험 ID / 변경할 값 | R0/R1/R2 완료 결과·사후 RTLA로 선택 M 판단; R3 M512 실행 여부는 비용과 목적 검토 후 결정 |
 | 실패 원인 / 추가 관측 | M40/M160 초기1k~3k validation 악화 후4k 회복; 세 GRT run 초기 reset 효과 음수. 원인 미확정 |
+
+### 사후 분석 · 2026-10-15 최신 슬롯별 측정
+
+M10/M40/M160 best step10k의 동일 B8/W3/S8/H4·validation·FP32·slots=true 결과3개를 수신했다. [사후 결과표와 원본](20261014_posthoc_analysis.md) · [상세 비교](20261015_posthoc_comparison.md).
+
+M10은10개, M40은40개 슬롯 모두 초기화 평균 delta가 양수다. M40에서 write가 닫힌7개도 포함돼 열린33개만 실효 용량으로 세면 안 된다. M160의 양/음/작은 평균 효과는140/19/1개(절대값1e−6 기준)이며 닫힌 슬롯에도 큰 기여가 관측된다. 개별 효과를 합산하거나 음의 작은 값을 바로 제거 대상으로 삼지 않는다. 전체 validation 품질·probe 품질·gate·retention·비용은 구분하며 선택 M은 아직 사용자 판단 전이다.
 
 ## 5. 운영과 검토 범위
 

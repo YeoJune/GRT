@@ -7,8 +7,10 @@
 
 검토 보고서:
 
+- [GRT M10·M40·M160 사후 RTLA 비교](20261015_posthoc_comparison.md): 동일10k checkpoint의 최신 슬롯별 기여·gate 포화·retention과 bandwidth/압축 가설 검토.
+
 - [Colab 사후 RTLA 분석과 결과표](20261014_posthoc_analysis.md): checkpoint·prepared 파일 배치, Colab 실행 옵션, 단일 posthoc JSON 내보내기와 gate/slot/retention 결과 취합.
-- [GRT M10·M40·M160 중간 비교](20261014_register_comparison.md): M10/M40 완료 보고서와 M160 W&B summary를 비교하고, 2026-10-15 M160 완료 결과를 추가했다. 평가 시점·품질·state 개입·gate/slot 구조·실행 비용과 사용자 판단 칸을 포함한다.
+- [GRT M10·M40·M160 용량 비교](20261014_register_comparison.md): M10/M40/M160의10k 학습·최신 사후 분석을 품질·사용 방식·비용으로 비교하고 사용자 판단 칸을 둔다.
 - [small 기준 실험 계획과 결과표](20261012_experiment_plan.md): NeoX/RMT baseline → 레지스터 sweep → 선택 레지스터의 MLP sweep. 노트북 수동 설정과 결과 기록을 위한 최신 검토안이다.
 - [받은 실험 결과 보관](../results/README.md): report에서 내보낸 실험별 JSON 원본을 보관하고 위 Markdown 결과표에 정리한다.
 - [GRT 하이퍼파라미터 탐색](20261012_hyperparameter_search_report.md): PPL·RTLA 지표, 데이터/size/baseline, 탐색 순서와 도구 비교. 제안 단계이며 실행 조건은 미확정이다.
