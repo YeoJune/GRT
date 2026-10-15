@@ -1,6 +1,6 @@
 # 실험 결과 원본
 
-[small 레지스터 용량 실험 보고서](../docs/experiments/20261012_small_register_sweep.md)에 baseline·학습·사후 분석 결과와 모든 원본 링크를 모은다. 현재 학습5개와 최신 다중 window·슬롯/그룹 사후 분석3개를 보관한다. 실행과 파일 전달은 [공통 workflow](../docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
+[small 레지스터 용량 실험 보고서](../docs/experiments/20261012_small_register_sweep.md)에 baseline·학습·사후 분석 결과와 모든 원본 링크를 모은다. 현재 학습5개와 최신 다중 window·슬롯/그룹 사후 분석3개를 보관한다. 새 L75 write gate 실험은 [별도 계획·결과표](../docs/experiments/20261015_l75_write_gates.md)에 기록하며 아직 받은 결과는 없다. 실행과 파일 전달은 [공통 workflow](../docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 | 경로 / 형식 | 내용 |
 |---|---|

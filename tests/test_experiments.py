@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize('model', ['rmt', 'grt'])
 @pytest.mark.parametrize('size', ['base', 'small', 'tiny'])
-@pytest.mark.parametrize('budget', ['smoke', '10k', '100k'])
+@pytest.mark.parametrize('budget', ['smoke', '10k', '20k', '100k'])
 @pytest.mark.parametrize('tokenization', ['word', 'gpt2_bpe'])
 def test_catalog_current_contract(model, size, budget, tokenization):
     cfg = load_experiment(task='wikitext103', model=model, size=size,
@@ -26,7 +26,7 @@ def test_catalog_current_contract(model, size, budget, tokenization):
     dimensions = {'base': (410, 16, 10, 2100), 'small': (256, 6, 8, 1024), 'tiny': (128, 3, 4, 512)}
     assert (cfg.model.d_model, cfg.model.alu.num_layers, cfg.model.alu.nhead, cfg.model.alu.d_ff) == dimensions[size]
     assert cfg.model.vocab_size == {'word': 267735, 'gpt2_bpe': 50257}[tokenization]
-    assert cfg.training.max_steps == {'smoke': 200, '10k': 10000, '100k': 100000}[budget]
+    assert cfg.training.max_steps == {'smoke': 200, '10k': 10000, '20k': 20000, '100k': 100000}[budget]
     assert cfg.training.batch_size * cfg.training.grad_accum_steps * 2 == cfg.training.global_batch_size == 256
     assert cfg.training.auto_batch and cfg.training.memory_fraction == 0.8
     assert cfg.training.lr == 0.0005
@@ -82,6 +82,45 @@ def test_colab_shared_budget_and_secret_setup(tmp_path, monkeypatch):
     monkeypatch.setattr('grt.utils.kaggle.subprocess.run', lambda *args, **kwargs: None)
     colab.setup()
     assert keys == ['WANDB_API_KEY'] and calls == [{'key': 'mock-colab-key'}]
+
+
+@pytest.mark.parametrize('runtime', ['kaggle', 'colab'])
+def test_l75_gate_grid_through_actual_notebook_selection(runtime, monkeypatch):
+    """The real manual entrypoint must preserve budgets and isolate every condition."""
+    import ast
+    notebook = json.loads((REPO/'notebooks'/f'{runtime}.ipynb').read_text())
+    selection = ast.parse(''.join(notebook['cells'][3]['source']))
+    monkeypatch.setattr(WikiTextRun, 'setup', lambda self: None)
+    names = set()
+    for memory in (8, 20, 75):
+        for bias in (-2., 0., 2.):
+            for dropout in (0., .1):
+                values = dict(num_registers=memory, write_gate_bias=bias, write_dropout=dropout)
+                for node in selection.body:
+                    if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                        key = node.targets[0].id
+                        if key in values:
+                            node.value = ast.Constant(values[key])
+                namespace = dict(Path=Path, WikiTextRun=WikiTextRun, repo=REPO)
+                exec(compile(ast.fix_missing_locations(selection), '<selection>', 'exec'), namespace)
+                job = namespace['job']
+                assert job.models == ('grt',) and job.test_at_end is False
+                cfg = job.config('grt', calibrated=False)
+                assert cfg.model.segment_len == 75 and cfg.model.num_registers == memory
+                assert cfg.model.register.write_gate_bias_init == bias
+                assert cfg.model.register.dropout_prob == dropout
+                assert cfg.model.register.conditional_read is False
+                assert cfg.model.d_model == 256 and cfg.model.alu.num_layers == 6
+                assert cfg.model.router.pool_nhead == 8 and cfg.model.router.mlp_hidden == 512
+                assert cfg.training.max_steps == 20000 and cfg.training.bptt_segments == 3
+                assert cfg.training.global_batch_size*75*20000 == 384000000
+                assert cfg.training.batch_size*cfg.training.grad_accum_steps*job.world_size == 256
+                assert cfg.training.lr == .0005 and cfg.training.mixed_precision == 'fp32'
+                assert cfg.training.memory_fraction == .95 and cfg.rtla.enabled
+                assert cfg.evaluation.batch_size == 10 and cfg.evaluation.every_steps == 1000
+                assert job.run_dir not in names
+                names.add(job.run_dir)
+    assert len(names) == 18
 
 
 def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):

@@ -5,7 +5,7 @@
 이전 문서는 archive에 보존하며 현재 설정을 선택하는 근거로 사용하지 않는다.
 현재 실행 구조는 공통 NeoX 하나다. 과거 모델/설정/checkpoint 호환 경로는 제공하지 않는다.
 
-2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. small 실험 순서와 기록은 [실험 계획과 결과표](experiments/20261012_small_register_sweep.md)를 따른다.
+2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. 이전 small 용량 비교는 [L150 결과](experiments/20261012_small_register_sweep.md), 현재 dropout/bias 비교는 [별도 L75 계획](experiments/20261015_l75_write_gates.md)을 따른다.
 
 ## 1. 범위와 순서
 
@@ -231,7 +231,7 @@ small의 D256×267735 tied vocabulary는 68540160 parameters이며 전체 backbo
 새 GRT Remember에도 RTLA trace를 지원하며 query를 포함한 모든 segment의 stack 뒤 write-back을 기록한다.
 GRT WikiText RTLA는 학습 중 고정 validation probe와 사후 checkpoint 개입 분석을 지원한다. 학습 중에는 gate/state/실제 write-back 변화량과 정상·초기화·문맥 교환의 token NLL을 기록한다. 사후에는 같은 분석에 slot별 초기화와 한 번 교환한 state의 이후 segment 영향을 추가한다. 입력·target·segment 경계는 동일하며 dropout off, gradient off, RNG와 model mode 복원으로 학습 경로에 영향을 주지 않는다. 자세한 설정·해석은 실험 workflow의 RTLA 절을 따른다.
 read gate off의 계산값은 읽기량으로 해석하지 않으며 write pooling attention과 token-to-register attention은 구분한다. candidate distance와 gate 적용 후 실제 state update norm을 별도 기록한다. WikiText 인코더 MLM objective는 지원 범위 밖이다.
-Kaggle/Colab 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/10k/100k 예산을 선택한다. 기본은 tiny/smoke/RMT·GRT 두 모델이다. 데이터·학습·분석은 같은 WikiTextRun을 사용한다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
+Kaggle/Colab 노트북은 WikiText base/small/tiny, GPT-2 BPE/word-level과 smoke/10k/20k/100k 예산을 선택한다. 2026-10-15 학습 노트북 선택 기본은 별도 L75 계획의 GRT/small/20k/M8/bias0/write dropout0/read off다. 데이터·학습·분석은 같은 WikiTextRun을 사용한다. 로컬 Remember 실행은 현재 template 노트북을 사용한다.
 
 ## 9. 현재 검증과 해석 범위
 

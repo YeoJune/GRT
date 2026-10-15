@@ -2,7 +2,7 @@
 
 현재 실행 규칙은 이 문서를 따른다. 모델/gradient/데이터 계약은 [통합 명세](20261011_current_spec.md)를 따른다. 모델 구조와 실험 조건은 카탈로그와 명시 override로 관리하며 자동 조정은 확정된 실질 배치를 바꾸지 않는다.
 
-2026-10-12 노트북 선택 기본은 small/10k/NeoX다. 첫 순서는 [baseline → 레지스터 → MLP와 결과표](experiments/20261012_small_register_sweep.md)를 따른다. NeoX는 M0/K0, RMT/GRT는 기본 M10/K3이다. `WikiTextRun(num_registers=..., router_hidden=...)`는 각각 RMT/GRT의 메모리와 GRT MLP만 바꾸며 attention은 size의 차원/head를 유지한다. 노트북 VRAM 예약 목표는95%로 명시하며 카탈로그 기본80%는 유지한다. global batch는 보존한다.
+2026-10-15 Kaggle/Colab 학습 노트북 기본은 [L75 small write gate 실험](experiments/20261015_l75_write_gates.md)의 GRT/small/20k/M8/bias0/write dropout0/read off다. 같은 선택 셀에서 L/M/bias/dropout을 바꾸고 기존 `overrides.model.register`로 전달한다. attention은 size의 차원/head를 유지한다. `20k`는20,000 updates이고 L75/global256에서 nominal384M targets다. 이전 [L150 baseline·용량 비교](experiments/20261012_small_register_sweep.md)는 별도 완료 기록이다. `WikiTextRun(num_registers=..., router_hidden=...)`와 카탈로그의 공통 기본 계약은 유지한다. 노트북 VRAM 예약 목표는95%, 카탈로그 기본은80%이며 global batch는 보존한다.
 
 `WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. `job.report(download=True)`는 이번 실험만 담은 `experiment_report.json` 하나를 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
@@ -19,14 +19,14 @@
 | sizes | D/layers/heads/FF와 router pool heads; base/small/tiny |
 | models | NeoX/RMT/GRT 이름과 router/register 계약, NeoX의 M0/K0 |
 | tokenizers | WikiText word/GPT-2 BPE vocabulary와 prepared 경로 |
-| budgets | smoke200 / 10k10000 / 100k100000, 평가·logging 주기 |
+| budgets | smoke200 / 10k10000 / 20k20000 / 100k100000, 평가·logging 주기 |
 | runtimes | GPU/CPU microbatch·accumulation·메모리 조정 정책과 W&B 기본 활성화 |
 
 적용 순서는 **defaults → task → size → model → tokenizer → budget → runtime → 명시 override**다. dict는 재귀 병합, list와 null은 교체한다. 모델 선택은 크기 뒤에 적용해 RMT의 router/register를 null로 정리한다. unknown key와 잘못된 값은 typed Config 검사가 거부한다.
 
 동일 필드의 기본값은 표의 담당 영역에서 관리한다. 예외는 뒤에서 적용하는 명시 override로 표현한다. size에 학습 예산을 넣거나 runtime에 모델 차원을 넣지 않는다. 모델별로 backbone 차원을 달리 정의하지 않는다. `data.options` 내부 키는 과제 adapter가 검증한다.
 
-WikiText named API/CLI에서 생략한 선택은 small/GPT-2 BPE/100k/RMT이며 runtime은 자동 선택하지 않는다. Kaggle/Colab 노트북은 small/10k/NeoX를 명시한다. Remember는 budget/steps를 생략하면 기존 pair curriculum을 사용하고, 지정하면 curriculum을 비워 `data.train_segments-1` pairs의 고정 update 실험을 사용한다. `steps`는 budget 다음에 max_steps를 덮어쓰고, overrides가 마지막 우선순위다. 업데이트 수 변경은 cosine schedule 길이도 바꾼다.
+WikiText named API/CLI에서 생략한 선택은 small/GPT-2 BPE/100k/RMT이며 runtime은 자동 선택하지 않는다. Kaggle/Colab 노트북은 현재 small/20k/GRT·L75·read off·bias0을 명시한다. L·bias·write dropout은 기존 typed override를 사용하며 모델 공통 기본값과 구분한다. Remember는 budget/steps를 생략하면 기존 pair curriculum을 사용하고, 지정하면 curriculum을 비워 `data.train_segments-1` pairs의 고정 update 실험을 사용한다. `steps`는 budget 다음에 max_steps를 덮어쓰고, overrides가 마지막 우선순위다. 업데이트 수 변경은 cosine schedule 길이도 바꾼다.
 
 새 크기는 sizes에 한 항목을 추가한다. 새로운 고정 비교 조건만 budgets에 이름을 추가한다. 단순히 updates/평가 주기/LR를 바꾸는 실험에는 새 YAML을 만들지 않고 `steps=30000`, `overrides={...}` 또는 CLI `--steps`/`--set`을 사용한다. 새 과제는 adapter와 tasks 항목을 추가하며 노트북에 task 분기를 복사하지 않는다. 모델 구조와 과제 조건은 최신 통합 명세를 기준으로 한다. 과거 실행 구조의 분기나 설정 경로 변환을 추가하지 않는다.
 
@@ -53,14 +53,13 @@ Kaggle 노트북에는 저장소 bootstrap, 선택한 실험 설정, 다음 호�
 
 ```python
 from grt.utils.kaggle import WikiTextRun
-models = ('neox',)  # 이후 ('rmt',), ('grt',)
-num_registers = 10
-router_hidden = 512
-job = WikiTextRun(repo_dir=repo, size='small', budget='10k', models=models,
-                  num_registers=num_registers, router_hidden=router_hidden,
-                  test_at_end=False,
-                  overrides={'training': {'auto_batch': True, 'memory_fraction': 0.95},
-                             'rtla': {'enabled': True}})
+job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
+    num_registers=8, router_hidden=512,
+    overrides={'model': {'segment_len': 75,
+                        'register': {'conditional_read': False,
+                                     'write_gate_bias_init': 0.0, 'dropout_prob': 0.0}},
+               'training': {'auto_batch': True, 'memory_fraction': 0.95},
+               'rtla': {'enabled': True}})
 job.setup()
 job.prepare_data()
 job.preflight()
@@ -68,11 +67,11 @@ job.train()
 job.report()
 ```
 
-`models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 현재 노트북 기본은 small/10k/NeoX이며 크기와 예산을 명시적으로 바꿀 수 있다. 3만 updates는 `steps=30000`으로 지정한다. GRT의 segment 시작 state 읽기는 표준이며 별도 override가 필요 없다. 중간 register 읽기 구현과 register_read_source 선택 필드는 제거한다.
+`models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 현재 노트북 기본은 GRT/small/L75/20k이며 크기와 예산을 명시적으로 바꿀 수 있다. 3만 updates는 `steps=30000`으로 지정한다. GRT의 segment 시작 state 읽기는 표준이며 별도 override가 필요 없다. 중간 register 읽기 구현과 register_read_source 선택 필드는 제거한다.
 
-현재 WikiText 노트북은 segment150을 카탈로그에서 사용하고 `num_registers`·`router_hidden`만 숫자 변수로 노출한다. 두 값은 양의 정수이며 기존 typed Config의 memory/MLP 필드로 연결한다. num_registers는 RMT의 read/write 블록 각각 또는 GRT의 저장 slot 수다. NeoX에는 적용하지 않는다. router_hidden은 GRT read/write MLP에만 적용하고 attention 차원/head는 size를 따른다. Remember 템플릿의 segment_len/num_registers 변수는 별도 CLI override이며 기본4/32다.
+현재 WikiText 노트북은 `segment_len`·`num_registers`·`budget`·`router_hidden`·`write_gate_bias`·`write_dropout`을 선택 셀에 노출한다. L/M/budget과 GRT gate 설정은 카탈로그/typed override로, memory/MLP는 기존 named 인자로 연결한다. read off를 명시하며 GRT register override를 넣는 이번 선택 셀은 GRT 단독용이다. 일반 API에서 num_registers는 RMT/GRT에, router_hidden은 GRT에만 적용한다. 어텐션 차원/head는 size를 따른다. Remember 템플릿은 별도 CLI override를 사용한다.
 
-길이를 바꿔도 배치·LR·updates·BPTT segment 수는 그대로다. WikiText target 토큰 예산 상한은 global batch×segment_len×updates, 이전 문맥의 BPTT 범위 상한은 bptt_segments×segment_len이다. ETA는 최종 Config의 segment 길이를 사용한다. 기본 run 이름의 hash에는 두 값도 포함되어 다른 조건의 결과를 구분한다. 직접 run_id를 지정했다면 조건 변경 시 새 이름을 사용한다.
+길이를 바꿔도 배치·LR·updates·BPTT segment 수는 그대로다. WikiText target 토큰 예산 상한은 global batch×segment_len×updates, 이전 문맥의 BPTT 범위 상한은 bptt_segments×segment_len이다. ETA는 최종 Config의 segment 길이를 사용한다. 기본 run 이름의 hash에는 overrides와 memory/MLP·steps·환경이 포함되어 다른 조건의 결과를 구분한다. 직접 run_id를 지정했다면 조건 변경 시 새 이름을 사용한다.
 
 RMT/GRT의 `training.bptt_segments` 기본3은 재계산할 이전 segment 수이며 현재 segment까지 최대4개다. 이번 노트북 sweep에서는 고정하고, 다른 문맥 실험에는 training override로 바꾼다. segment75에서 이전450 token의 gradient 범위를 원하면6을 명시한다. 자동 환산은 하지 않는다. 메모리 없는 NeoX는0으로 검증한다.
 
@@ -113,7 +112,7 @@ CLI는 `--set training.auto_batch=true --set training.memory_fraction=0.8`을 �
 
 base/small/tiny와 RMT/GRT는 global256, Adam LR5e-4를 공유한다. 배치60의 LR2.5e-4에 제곱근 scaling을 적용한 약5.16e-4를 반올림한 초기 설정이며 최적값을 실측한 것은 아니다. cosine/warmup0/clip0.25/dropout0.1/BPTT3/segment150/평가 batch10은 유지한다. auto_batch는 이 학습 조건을 바꾸지 않는다.
 
-10k/100k의 validation은1000 updates, W&B logging은10 updates마다 수행한다. smoke는200 updates와 validation20/logging10을 유지한다. 학습 budgets는10k=10000/100k=100000이며 target 예산 상한은 smoke7.68M/10k384M/100k3.84B이다. PPL 비교에 배치/LR/token 수를 함께 기록한다. 과거 학습 budget 이름과 호환 경로는 유지하지 않는다.
+10k/20k/100k의 validation은1000 updates, W&B logging은10 updates마다 수행한다. smoke는200 updates와 validation20/logging10을 유지한다. 학습 budgets는10k=10000/20k=20000/100k=100000 updates다. nominal target 예산은 global batch×L×updates이며, L150의10k와 L75의20k는 모두384M이다. smoke/100k도 실제 L에 따라 예산을 계산한다. PPL 비교에 배치/LR/token 수를 함께 기록한다. 과거 학습 budget 이름과 호환 경로는 유지하지 않는다.
 
 기존 결과에 이어서 학습하지 않고 새 run_id를 사용한다. T4 GPU의 실제 메모리 적합성과 update 시간은 기존 preflight로 측정하고 ETA를 갱신한다. 기존 micro10 측정 시간을 새 microbatch/update 시간으로 단순 환산하지 않는다.
 

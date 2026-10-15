@@ -178,6 +178,14 @@ budgets:
       every_steps: 1000
     wandb:
       every_steps: 10
+  20k:
+    training:
+      max_steps: 20000
+      curriculum: []
+    evaluation:
+      every_steps: 1000
+    wandb:
+      every_steps: 10
   100k:
     training:
       max_steps: 100000
