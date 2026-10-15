@@ -46,6 +46,7 @@ def inputs(tmp_path):
 
 def job_for(inputs, tmp_path, **options):
     checkpoint, data, *_ = inputs
+    options.setdefault('registers', False)
     return WikiTextPosthoc(checkpoint, data, tmp_path/'outputs', device='cpu',
                           batch_size=2, segments=2, warmup_segments=1, **options)
 
@@ -119,3 +120,64 @@ def test_raw_gates_expose_saturation_hidden_by_batch_mean():
     assert stats['per_slot']['mean_within_segment_example_std'] == [.5, .5]
     assert 'w_gates_per_example' not in plain.to_numpy()
     np.testing.assert_allclose(arrays['update_distances'], plain.to_numpy()['update_distances'])
+
+
+def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path):
+    checkpoint, data, cfg, model, _ = inputs
+    # Three disjoint four-segment windows in each of the two fixed streams.
+    torch.save(torch.arange(160, dtype=torch.long)%128, data/'validation.pt')
+    manifest = json.loads((data/'manifest.json').read_text())
+    manifest['sha256']['validation'] = file_hash(data/'validation.pt')
+    (data/'manifest.json').write_text(json.dumps(manifest))
+    state = torch.load(checkpoint, weights_only=False)
+    state['dataset_manifest'] = manifest
+    # Exercise all three groups, including the empty complement of their union.
+    state['model']['router.mlp_w.2.weight'].zero_()
+    state['model']['router.mlp_w.2.bias'].copy_(torch.tensor([-100., 100., 0.]))
+    torch.save(state, checkpoint)
+    before = file_hash(checkpoint)
+    options = dict(registers=True, window_starts=(0, 6, 12), group_repeats=2,
+                   lesion_fractions=(.5,), horizon=2)
+    job = job_for(inputs, tmp_path, **options)
+    info = job.inspect()
+    original = job.training_config
+    report = job.run()
+    assert report['training_config'] == original == asdict(cfg)
+    assert file_hash(checkpoint) == before
+    result = report['register_analysis']
+    assert result['calibration_groups'] == dict(closed=[0], open=[1], other=[2])
+    assert [w['role'] for w in result['windows']] == ['calibration', 'evaluation', 'evaluation']
+    assert [w['start_segment'] for w in result['windows']] == [0, 6, 12]
+    assert report['summary'] == result['windows'][0]['summary']
+    for window in result['windows']:
+        assert window['summary']['target_tokens'] == 16
+        assert np.array(window['diagnostics']['gate_logits']['raw']).shape == (2, 2, 3)
+        assert sum(window['stability']['threshold_sensitivity']['0.01']['counts'].values()) == 3
+        all_key = result['intervention_plan'][0]['mask']
+        for mode in ('reset', 'swap'):
+            effect = window['interventions']['effects'][all_key][mode]
+            assert effect['delta_nll_by_lag'][0] == pytest.approx(window['summary']['conditions'][mode]['delta_nll'])
+            assert effect['target_tokens_by_lag'] == [16, 16]
+            assert np.array(effect['delta_nll_by_start_lag_example']).shape == (2, 2, 2)
+    assert (job.analysis_dir/'registers.png').stat().st_size > 0
+    assert report['analysis_source_sha256']['register_analysis.py']
+    assert info['forward_count_kind'] == 'upper_bound_until_calibration'
+    assert 0 < report['environment']['analysis_forward_calls'] <= info['forward_calls']
+    assert 'NaN' not in job.report().read_text()
+    assert job_for(inputs, tmp_path, **options).run()['report_id'] == report['report_id']
+    changed = job_for(inputs, tmp_path, **{**options, 'analysis_seed': 55})
+    changed.inspect()
+    assert changed.analysis_dir != job.analysis_dir
+
+
+@pytest.mark.parametrize('options', [dict(window_starts=(0, 2)), dict(window_starts=(0,)),
+    dict(window_starts=(1, 16)), dict(group_repeats=0), dict(lesion_fractions=(0.,)),
+    dict(analysis_seed=-1)])
+def test_invalid_extended_settings(inputs, tmp_path, options):
+    with pytest.raises(ValueError):
+        job_for(inputs, tmp_path, registers=True, **options)
+
+
+def test_short_validation_rejects_requested_windows(inputs, tmp_path):
+    with pytest.raises(ValueError, match='too short'):
+        job_for(inputs, tmp_path, registers=True).inspect()

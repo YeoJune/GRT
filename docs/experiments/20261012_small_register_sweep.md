@@ -259,9 +259,9 @@ M160의 가장 음수인 slot40은−0.00029821로, 이 probe에서 초기화하
 
 ### 추가 분석과 후속 주제
 
-- 같은 checkpoint·조건의 다른 validation window와 여러 고정 swap permutation에서 효과·슬롯 순위가 유지되는지 확인한다. slot 묶음 초기화로 상호작용을 직접 측정하고 단일 효과는 합산하지 않는다. per-stream NLL은 현재 batch 평균으로 줄어들므로 stream/문서 단위 불확실성에는 별도 집계가 필요하다.
+- Colab 분석을 확장해 첫 window의 유형을 다른 두 window에서 검증하고 logit 포화·중심화한 state/update의 rank/CKA·그룹 초기화/교환·동일 크기 무작위 대조·손상 곡선을 한 JSON에 기록하도록 준비했다. 새 분석의 실제 GPU 결과는 아직 없으며 위 완료 수치는 기존 report 기준이다. 새 그룹 분석은 start×lag×example 효과와 token 수를 보존한다. 여러 swap permutation·과거 입력 구간 교란·학습 초기 gradient/probe는 후속 선택지다. 단일/그룹 효과는 합산하지 않는다.
 - 초기 write 전환의 원인을 보려면 당시 checkpoint/trace와 필요시 write bias −4/−2/0 등의 제어 학습을 사용한다. raw gate·norm·cosine이나 최종 checkpoint 분석만으로 원인을 확정하지 않는다.
-- segment150/75/50 등은 별도 실험으로 NeoX/RMT baseline도 함께 비교한다. global B, segment L, target 예산 T에서 updates≈T/(B×L)이므로 update 수만 같게 하지 않는다. K3 고정과 과거450-token BPTT(K3/6/9)를 구분하고 replay 비용도 기록한다.
+- segment150/75/50 등은 별도 실험으로 NeoX/RMT baseline도 함께 비교한다. 저비용 탐색 후보는 L과 M을 함께 줄여 M/L을 유지하고 처음부터 학습하는 조건이며, M 고정의 segment 축소와 구분한다. global B, segment L, target 예산 T에서 updates≈T/(B×L)이므로 update 수만 같게 하지 않는다. K3 고정과 과거450-token BPTT(K3/6/9)를 구분하고 replay 비용도 기록한다.
 - segment를 바꾸는 RTLA는 같은 token 범위·stream partition을 맞춰야 한다. 예를 들어450-token warmup/1200-token 측정은 L150/75/50에서 warmup3/6/9, 측정8/16/24다. 현재 segment 수만 고정하면 비교 token과 과거 범위가 달라진다.
 - read gate on/off, write dropout, clip/LR/beta2/optimizer/warmup은 해당 질문을 정한 뒤 탐색한다. state의 scalar read gate는 LayerNorm에서 크기 효과가 상쇄될 수 있어 logits와 다음 state 경로를 먼저 확인한다. K0은 현재 GRT write router의 다음 segment credit 경로가 끊기는 별도 control이다. AdamW·stream warmup·clip 빈도 metric은 실제 사용 전에 지원 범위를 확인한다.
 - 더 큰 모델은 small에서 선택한 설정을 출발점으로 삼되 baseline과 용량·batch·속도를 다시 측정한다. 작은 품질 차이의 최종 주장은 추가 seed와 필요시 더 긴 새 schedule로 확인하고, test는 선택 후 평가한다.

@@ -76,3 +76,49 @@ def plot_memory_analysis(summary, arrays, path):
     axes[0, 1].legend()
     fig.savefig(path, dpi=140)
     plt.close(fig)
+
+
+def plot_register_diagnostics(analysis, path):
+    """A compact view; the JSON retains all masks, lags and per-example effects."""
+    from grt.register_analysis import GROUP_NAMES
+    windows = analysis['windows']
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    names = [str(w['start_segment']) for w in windows]
+    counts = np.array([[w['stability']['threshold_sensitivity']['0.01']['counts'][n]
+                        for n in GROUP_NAMES] for w in windows])
+    bottom = np.zeros(len(windows))
+    for i, name in enumerate(GROUP_NAMES):
+        axes[0, 0].bar(names, counts[:, i], bottom=bottom, label=name)
+        bottom += counts[:, i]
+    axes[0, 0].set(title='Gate types by window (threshold .01)', xlabel='Start segment', ylabel='Slots')
+    axes[0, 0].legend()
+    for w in windows:
+        z = np.asarray(w['diagnostics']['gate_logits']['raw']).ravel()
+        axes[0, 1].hist(z, bins=30, alpha=.4, label=str(w['start_segment']))
+        spectrum_ = w['diagnostics']['representations']['context_centered']['mean_normalized_squared_singular_values']
+        axes[1, 0].plot(np.cumsum(spectrum_), label=str(w['start_segment']))
+    axes[0, 1].set(title='Write logits (before sigmoid)', xlabel='Logit')
+    axes[0, 1].legend(title='Start')
+    axes[1, 0].set(title='Context-centered state energy', xlabel='SVD dimension', ylabel='Cumulative energy')
+    axes[1, 0].set_ylim(0, 1.02)
+    axes[1, 0].legend(title='Start')
+    for w in windows[1:]:
+        for mode in ('reset', 'swap'):
+            x, y = [0.], [0.]
+            for size in sorted({p['size'] for p in analysis['intervention_plan'] if p['kind'] == 'random_fraction'}):
+                selected = [p for p in analysis['intervention_plan'] if p['kind'] == 'random_fraction' and p['size'] == size]
+                values = [w['interventions']['effects'][p['mask']][mode]['delta_nll_by_lag'][0] for p in selected]
+                x.append(size/analysis['num_registers'])
+                y.append(np.mean(values))
+            if x[-1] < 1:
+                key = analysis['intervention_plan'][0]['mask']
+                x.append(1.)
+                y.append(w['interventions']['effects'][key][mode]['delta_nll_by_lag'][0])
+            axes[1, 1].plot(x, y, marker='o' if mode == 'reset' else 'x',
+                            label=f'window {w["start_segment"]} {mode}')
+    axes[1, 1].legend(fontsize=8)
+    axes[1, 1].set(title='Held-out random-group damage',
+                   xlabel='Fraction of slots altered', ylabel='Current-segment delta NLL')
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)

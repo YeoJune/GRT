@@ -1,8 +1,10 @@
 """Single-checkpoint WikiText posthoc analysis and a portable JSON report."""
 from dataclasses import asdict, dataclass
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import platform
 from pathlib import Path
 import subprocess
 import time
@@ -16,6 +18,8 @@ from grt.checkpoint import load_checkpoint, preserve_rng, restore_model
 from grt.config import Config, build_config
 from grt.logger import metadata
 from grt.memory_analysis import analyze_stream, probe_metrics, save_analysis
+from grt.register_analysis import (RegisterObserver, analyze_groups, classify_gates,
+    group_stability, intervention_forward_calls, intervention_plan)
 from grt.utils.kaggle import file_hash
 from grt.wikitext import WikiTextAdapter
 
@@ -71,6 +75,11 @@ class WikiTextPosthoc:
     warmup_segments: int = 3
     horizon: int = 4
     slots: bool = False
+    registers: bool = True
+    window_starts: tuple = (0, 16, 32)
+    group_repeats: int = 3
+    lesion_fractions: tuple = (.1, .25, .5, .75)
+    analysis_seed: int = 54
 
     def __post_init__(self):
         self.checkpoint = Path(self.checkpoint)
@@ -85,6 +94,26 @@ class WikiTextPosthoc:
             raise ValueError('Require batch>=2, segments/warmup>0 and horizon>=0')
         if type(self.slots) is not bool:
             raise ValueError('slots must be a boolean')
+        if type(self.registers) is not bool:
+            raise ValueError('registers must be a boolean')
+        if type(self.group_repeats) is not int or self.group_repeats < 1:
+            raise ValueError('group_repeats must be a positive integer')
+        if type(self.analysis_seed) is not int or self.analysis_seed < 0:
+            raise ValueError('analysis_seed must be a nonnegative integer')
+        self.window_starts = tuple(self.window_starts)
+        self.lesion_fractions = tuple(self.lesion_fractions)
+        if (not self.window_starts or self.window_starts[0] != 0 or
+            any(type(x) is not int or x < 0 for x in self.window_starts) or
+            any(b <= a for a, b in zip(self.window_starts, self.window_starts[1:]))):
+            raise ValueError('window_starts must be increasing nonnegative integers starting at 0')
+        if (not self.lesion_fractions or any(type(x) not in (int, float) or not 0 < x <= 1
+                                            for x in self.lesion_fractions) or
+            tuple(sorted(set(self.lesion_fractions))) != self.lesion_fractions):
+            raise ValueError('lesion_fractions must be unique increasing fractions in (0, 1]')
+        span = self.warmup_segments+self.segments+max(0, self.horizon-1)
+        if self.registers and (len(self.window_starts) < 2 or
+            any(b-a < span for a, b in zip(self.window_starts, self.window_starts[1:]))):
+            raise ValueError('Register analysis needs >=2 windows, disjoint including warmup and horizon')
         self._state = None
         self._report = None
 
@@ -97,8 +126,9 @@ class WikiTextPosthoc:
             self._state = {key: loaded[key] for key in
                            ('format', 'model', 'config', 'dataset_manifest', 'step', 'world_size')}
             self._state['target_tokens_seen'] = loaded.get('target_tokens_seen')
-        cfg = build_config(Config, self._state['config'])
-        if cfg.model.name != 'grt' or cfg.data.name != 'wikitext103':
+        cfg = build_config(Config, deepcopy(self._state['config']))
+        if (cfg.model.name != 'grt' or cfg.data.name != 'wikitext103' or
+            cfg.model.attention_mode != 'decoder'):
             raise ValueError('Posthoc notebook requires a current WikiText GRT checkpoint')
         self.training_config = asdict(cfg)
         self.manifest = json.loads((self.prepared_dir/'manifest.json').read_text())
@@ -111,14 +141,18 @@ class WikiTextPosthoc:
         self.settings = dict(split='validation', precision='fp32', batch_size=self.batch_size,
             segments=self.segments, warmup_segments=self.warmup_segments,
             horizon=self.horizon, slots=self.slots, trace_examples=True,
-            segment_len=cfg.model.segment_len, num_registers=cfg.model.num_registers)
+            segment_len=cfg.model.segment_len, num_registers=cfg.model.num_registers,
+            registers=self.registers, window_starts=(self.window_starts if self.registers else (0,)),
+            group_repeats=self.group_repeats, lesion_fractions=self.lesion_fractions,
+            analysis_seed=self.analysis_seed)
         source_root = Path(__file__).resolve().parents[1]
-        source_files = [Path(__file__), source_root/'memory_analysis.py', source_root/'rtla.py',
-                        source_root/'models/neox.py', source_root/'models/router.py']
+        source_files = sorted(source_root.rglob('*.py'))
         self.source_hashes = {str(path.relative_to(source_root)): file_hash(path) for path in source_files}
         signature = json.dumps(dict(checkpoint=self.checkpoint_sha256,
             validation=self.manifest['sha256']['validation'], settings=self.settings,
-            source=self.source_hashes, device=self.device,
+            source=self.source_hashes, device=self.device, python=platform.python_version(),
+            gpu=(torch.cuda.get_device_name() if self.device == 'cuda' and torch.cuda.is_available() else None),
+            cuda_runtime=torch.version.cuda,
             torch=str(torch.__version__), transformers=transformers.__version__), sort_keys=True)
         key = hashlib.sha256(signature.encode()).hexdigest()[:12]
         self.analysis_dir = self.output_dir/f'm{cfg.model.num_registers}_step{self._state["step"]}_{key}'
@@ -127,14 +161,25 @@ class WikiTextPosthoc:
         measured = min(self.segments, available-self.warmup_segments)
         if measured <= 0:
             raise ValueError('Validation probe is too short; reduce warmup/batch')
+        span = self.warmup_segments+self.segments+max(0, self.horizon-1)
+        if self.registers and available < self.window_starts[-1]+span:
+            raise ValueError('Validation is too short for full disjoint windows; reduce starts/segments/horizon')
         stop = min(available, self.warmup_segments+measured+max(0, self.horizon-1))
         calls = stop+2*measured+(measured*cfg.model.num_registers if self.slots else 0)
         calls += sum(max(0, min(self.horizon, stop-self.warmup_segments-i)-1) for i in range(measured))
+        # Before calibration the group sizes are unknown: report a safe upper bound.
+        if self.registers:
+            other_calls = stop+2*measured+sum(max(0, min(self.horizon,
+                stop-self.warmup_segments-i)-1) for i in range(measured))
+            calls += (len(self.window_starts)-1)*other_calls
+            masks = 8+6*self.group_repeats+len(self.lesion_fractions)*self.group_repeats
+            calls += len(self.window_starts)*2*masks*measured*max(1, self.horizon)
         info = dict(model=cfg.model.name, M=cfg.model.num_registers,
             router_hidden=cfg.model.router.mlp_hidden, checkpoint_step=self._state['step'],
             training_world_size=self._state['world_size'], analysis_world_size=1,
             checkpoint_sha256=self.checkpoint_sha256, measured_segments=measured,
-            forward_calls=calls, settings=self.settings, output=str(self.analysis_dir))
+            forward_calls=calls, forward_count_kind=('upper_bound_until_calibration' if self.registers else 'exact'),
+            settings=self.settings, output=str(self.analysis_dir))
         print(json.dumps(info, indent=2, ensure_ascii=False), flush=True)
         return info
 
@@ -150,14 +195,21 @@ class WikiTextPosthoc:
         started = time.perf_counter()
         last_print = started
 
+        phase = 'primary probe'
+        phase_started = started
+        actual_calls = 0
+
         def progress(done, total):
-            nonlocal last_print
+            nonlocal last_print, phase_started, actual_calls
+            actual_calls += 1
             now = time.perf_counter()
+            if done == 1:
+                phase_started = now
             if done == 1 or done == total or now-last_print >= 10:
                 elapsed = now-started
-                remaining = elapsed/done*(total-done)
-                print(f'Analysis forward {done}/{total}; elapsed {elapsed:.1f}s, '
-                      f'rough remaining {remaining:.1f}s', flush=True)
+                remaining = (now-phase_started)/done*(total-done)
+                print(f'{phase}: forward {done}/{total}; elapsed {elapsed:.1f}s; '
+                      f'phase progress {100*done/total:.1f}%, phase ETA ~{remaining:.1f}s', flush=True)
                 last_print = now
 
         matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
@@ -170,12 +222,49 @@ class WikiTextPosthoc:
                 model.float()
                 if self.device == 'cuda':
                     torch.cuda.reset_peak_memory_stats()
-                summary, arrays = analyze_stream(model, self.cfg, self.tokens,
-                    segments=self.segments, warmup_segments=self.warmup_segments,
-                    horizon=self.horizon, slots=self.slots, trace_examples=True, progress=progress)
+                windows, observers = [], []
+                for start in self.settings['window_starts']:
+                    phase = f'window {start} normal/reset/swap'
+                    observer = RegisterObserver() if self.registers else None
+                    window_summary, window_arrays = analyze_stream(model, self.cfg, self.tokens,
+                        segments=self.segments, warmup_segments=self.warmup_segments,
+                        horizon=self.horizon, slots=self.slots and start == 0,
+                        trace_examples=True, progress=progress, start_segment=start, observer=observer)
+                    if start == 0:
+                        summary, arrays = window_summary, window_arrays
+                    if self.registers:
+                        diagnostics = observer.diagnostics(model)
+                        windows.append(dict(start_segment=start, role='calibration' if start == 0 else 'evaluation',
+                            summary=window_summary,
+                            gate_statistics=gate_statistics(diagnostics['write_gates']),
+                            diagnostics=diagnostics))
+                        observers.append(observer)
+                register_analysis = None
+                if self.registers:
+                    labels = classify_gates(windows[0]['diagnostics']['write_gates'])
+                    groups, plans = intervention_plan(labels, self.lesion_fractions,
+                                                     self.group_repeats, self.analysis_seed)
+                    for window, observer in zip(windows, observers):
+                        window['stability'] = group_stability(window['diagnostics']['write_gates'], labels)
+                        phase = f'window {window["start_segment"]} group interventions'
+                        calls = intervention_forward_calls(plans, self.segments, len(observer.records), self.horizon)
+                        print(f'{phase}: {calls} forwards (after mask deduplication)', flush=True)
+                        window['interventions'] = analyze_groups(model, observer, self.segments,
+                            plans, self.horizon, progress)
+                    register_analysis = dict(num_registers=self.cfg.model.num_registers,
+                        calibration_start_segment=0, calibration_groups=groups,
+                        intervention_plan=plans, windows=windows,
+                        protocol=dict(threshold=.01, threshold_sensitivity=[.001, .01, .05],
+                            window_state='Reset to learned S0 at each start, then equal warmup',
+                            masks='Defined only on calibration; fixed for every window',
+                            damage_curve='Nested random subsets per repeat; ceil(fraction*M)',
+                            uncertainty='Raw paired example/start/lag deltas; no iid token confidence interval',
+                            scope='Gate categories are observations, not established functional roles'))
+                del observers
                 repo = Path(__file__).resolve().parents[3]
                 runtime = metadata(model, self.cfg, repo_dir=repo)
-                runtime.update(analysis_world_size=1, precision='fp32', tf32=False,
+                runtime.update(analysis_world_size=1, precision='fp32', dtype='fp32', tf32=False,
+                    analysis_forward_calls=actual_calls,
                     peak_gpu_memory_bytes=(torch.cuda.max_memory_allocated() if self.device == 'cuda' else 0))
                 runtime['git_dirty'] = (bool(subprocess.check_output(
                     ['git', '-C', str(repo), 'status', '--porcelain'], text=True).strip())
@@ -194,6 +283,9 @@ class WikiTextPosthoc:
         diagnostics = gate_statistics(arrays['trace_w_gates_per_example'])
         save_analysis(self.analysis_dir, summary, arrays,
             dict(checkpoint=checkpoint, analysis_settings=self.settings), plots=True)
+        if register_analysis is not None:
+            from grt.plots import plot_register_diagnostics
+            plot_register_diagnostics(register_analysis, self.analysis_dir/'registers.png')
         runtime['analysis_wall_seconds'] = time.perf_counter()-started
         self._report = portable(dict(
             report_format='grt.posthoc_report/1', report_id=uuid4().hex,
@@ -202,6 +294,7 @@ class WikiTextPosthoc:
             dataset_manifest=self.manifest, analysis_settings=self.settings,
             environment=runtime, analysis_source_sha256=self.source_hashes,
             summary=summary, metrics=metrics, gate_statistics=diagnostics, arrays=arrays,
+            register_analysis=register_analysis,
             interpretation=dict(
                 gate_scope='Per-example gates on the fixed validation probe; not training trajectories',
                 slot_scope='Reset one slot to learned initial S0; contributions are not additive',

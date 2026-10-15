@@ -1,4 +1,5 @@
 """Paired GRT state interventions on fixed WikiText streams, without training."""
+from contextlib import nullcontext
 from pathlib import Path
 import math
 import numpy as np
@@ -19,14 +20,18 @@ def token_nll(model, ids, targets, state, trace=None):
 
 
 def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
-                   horizon=0, slots=False, trace_examples=False, progress=None):
+                   horizon=0, slots=False, trace_examples=False, progress=None,
+                   start_segment=0, observer=None):
     if cfg.model.name != 'grt' or cfg.model.attention_mode != 'decoder':
         raise ValueError('Memory interventions require the GRT decoder')
     segments = cfg.rtla.segments if segments is None else segments
     warmup = cfg.rtla.warmup_segments if warmup_segments is None else warmup_segments
     if segments <= 0 or warmup <= 0 or horizon < 0 or cfg.rtla.batch_size < 2:
         raise ValueError('Require segments/warmup > 0, horizon >= 0 and batch >= 2')
-    stream = WikiTextAdapter.streams(tokens, cfg.rtla.batch_size)
+    if type(start_segment) is not int or start_segment < 0:
+        raise ValueError("start_segment must be a nonnegative integer")
+    full_stream = WikiTextAdapter.streams(tokens, cfg.rtla.batch_size)
+    stream = full_stream[:, start_segment*cfg.model.segment_len:]
     length, memory_slots = cfg.model.segment_len, cfg.model.num_registers
     available = math.ceil((stream.shape[1]-1) / length)
     measured = min(segments, available-warmup)
@@ -64,8 +69,11 @@ def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
             ids = stream[:, offset:offset+n].to(device)
             targets = stream[:, offset+1:offset+n+1].to(device)
             start_state = state.detach().cpu().clone()
-            nll, state = forward(ids, targets, state,
-                trace if warmup <= index < warmup+measured else None)
+            measuring = warmup <= index < warmup+measured
+            with observer.capture(model) if observer is not None and measuring else nullcontext():
+                nll, state = forward(ids, targets, state, trace if measuring else None)
+            if observer is not None and index >= warmup:
+                observer.record(ids, targets, start_state, nll, state, measured=measuring)
             if index >= warmup:
                 records.append((offset, n, start_state, nll))
         for index in range(measured):
@@ -114,7 +122,8 @@ def analyze_stream(model, cfg, tokens, *, segments=None, warmup_segments=None,
         read_active=trace.read_active, score_kind='autoregressive',
         tokenization=cfg.data.options.get('tokenization', 'word'),
         scope='fixed stream probe; interventions start from the normal trajectory',
-        discarded_tail_tokens=tokens.numel()-stream.numel())
+        discarded_tail_tokens=tokens.numel()-full_stream.numel(),
+        start_segment=start_segment, window_state='S0 at window start, followed by warmup')
     arrays = dict(normal_nll=normal, reset_delta_nll=reset, swap_delta_nll=swap,
         target_counts=counts, slot_delta_nll=slot_delta,
         retention_delta_nll=retention, retention_target_counts=retention_counts,

@@ -6,7 +6,7 @@
 
 `WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. `job.report(download=True)`는 이번 실험만 담은 `experiment_report.json` 하나를 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
-학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기본 reset/swap·retention·example별 gate 분포, 선택적 slot 초기화를 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함하며 학습 report와 합치지 않는다. [Colab 사후 분석 안내](20261011_experiment_workflow.md#posthoc-colab)를 따른다.
+학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기존 reset/swap·retention·선택적 slot 초기화와 다중 window의 gate logit·표현·그룹 개입을 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함하며 학습 report와 합치지 않는다. [Colab 사후 분석 안내](20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 ## 설정의 역할과 확장
 
@@ -175,11 +175,20 @@ MyDrive/GRT_analysis/
 |---|---:|---|
 | batch_size | 8 | validation stream 수; 바꾸면 partition과 probe token이 달라짐 |
 | segments | 8 | 측정 segment 수 |
-| warmup_segments | 3 | 처음부터 정상 state를 누적할 segment 수 |
-| horizon | 4 | 현재 segment부터 이후3 segments까지 교환 branch 추적; 0은 생략 |
-| analyze_slots | False | True면 각 슬롯을 하나씩 S0로 초기화해 평가 |
+| warmup_segments | 3 | 각 window에서 S0부터 정상 state를 누적할 segment 수 |
+| horizon | 4 | 현재부터 이후3 segments까지 branch 추적; 0이면 기존 retention 생략·그룹은 현재만 |
+| analyze_slots | True | 첫 window에서 각 슬롯을 하나씩 S0로 초기화 |
+| analyze_registers | True | logit·표현·다중 window·유형별/무작위 그룹 개입 |
+| window_starts | (0,16,32) | stream 내 segment 시작; 첫 window는 calibration, 나머지는 평가 |
+| group_repeats | 3 | 크기별 무작위 대조군·손상 곡선 반복 수 |
 
-기본값은 reset/swap·retention·example별 gate 분포를 측정한다. 슬롯별 기여에는 `analyze_slots=True`를 사용한다. M160/측정8 segments는 슬롯 개입만1,280회 forward를 추가하며 실제 전체 횟수·진행률·대략 남은 시간은 helper가 출력한다. 비교 후보는 batch/segments/warmup/horizon을 같게 유지하고 다른 window는 모든 후보에 같은 warmup을 사용한다. CUDA OOM으로 batch를 줄이면 비교 후보도 같은 새 partition으로 다시 분석한다.
+기본값은 기존 RTLA와 새 레지스터 분석을 함께 실행한다. 첫 window의 warmup3/측정8은 학습 중 probe와 같다. 각 window는 원래 batch partition을 유지한 채 지정 위치에서 S0로 시작해 같은 warmup을 거치며, warmup·측정·후속 horizon이 겹치지 않아야 한다. 전체 window를 담지 못하는 짧은 데이터는 실행 전에 거부한다. 비교 후보의 모든 옵션·batch를 동일하게 유지한다. batch를 줄이면 partition이 바뀌므로 다른 후보도 다시 분석한다.
+
+첫 window의 gate 원값으로 closed(전체 관측<=.01)/open(전체>=.99)/other를 정한다. 그 **같은 슬롯 묶음**을 다른 window에서도 평가하고 threshold .001/.01/.05의 분류·전이표를 기록한다. 그룹과 그 합집합을 한 번 S0로 초기화하거나 같은 cyclic donor stream으로 교환한 뒤 branch를 진행한다. 동일 개수의 무작위 그룹을 대조하고, 슬롯의10/25/50/75%를 바꾸는 nested random mask로 손상 곡선을 측정한다. seed54·반복3이 기본이며 helper의 `analysis_seed`·`lesion_fractions`로 바꿀 수 있다. mask는 모든 window에 동일하게 적용하며 중복 mask·빈 그룹은 forward를 중복 실행하지 않는다.
+
+`register_analysis`에는 window별 raw gate/logit, router context·hidden norm, gate 출력 bias·weight 행 norm·sigmoid slope, raw/state−S0/문맥 평균 제거 state/실제 update(S_next−S)의 SVD 에너지·effective/stable rank, 문맥별 슬롯 linear CKA를 넣는다. raw state나 가중치 행 자체는 내보내지 않는다. 그룹 효과는 start×lag×example paired ΔNLL과 실제 token 수를 보존하고 token 가중 평균·같은 크기의 무작위 범위·나머지 그룹만 바꾼 조건에서의 복원 효과를 요약한다. 무작위 범위는 신뢰구간이 아니며, 겹치는 개입 시작점·lag를 독립 표본으로 취급하지 않는다. 일정한 표현의 CKA는 null이며 관측 수가 적을 때의 CKA 편향·rank/분류와 기능의 차이를 명시한다.
+
+M160/측정8의 단일 슬롯 개입은1,280회 forward를 추가한다. `inspect()`는 calibration 전 안전한 forward 상한, 실행 시에는 mask 중복 제거 후 정확한 그룹 forward 수·단계별 진행률을 표시한다. 빠른 확인은 `analyze_slots=False` 또는 반복 수 축소로 가능하다. 추가 gate/표현 수집은 정상 forward의 read-only hook으로만 수행한다. 학습 중 모니터링에는 새 분석을 붙이지 않는다. 실제 T4 시간·새 결과는 사용자 실행 후 보고서에 기록한다.
 
 분석은 FP32·TF32 off·dropout off·gradient off다. checkpoint·학습 설정 파일을 수정하지 않는다. gate 시간축은 고정 checkpoint의 probe segment로, 학습 step별 변화가 아니다. raw example별 gate·포화 통계와 분석 배열을 보존하고 read gate off 및 pooling attention의 해석은 위 RTLA 계약을 따른다.
 
@@ -189,10 +198,11 @@ MyDrive/GRT_analysis/
 |---|---|
 | **posthoc_report.json** | 전달할 파일 하나; checkpoint hash/step·학습 Config·data manifest·분석 조건·환경/시간/VRAM·지표·raw 분석 배열 |
 | summary.json / summary.txt | 정상/reset/swap·slot/retention 로컬 요약 |
-| arrays.npz | 분석 배열 로컬 보관본 |
-| memory.png / trace.png | 위치·segment·slot·retention 및 batch 평균 gate/state/update 그림 |
+| arrays.npz | 첫 window의 기존 RTLA 배열 로컬 보관본; 새 분석 배열은 단일 report JSON에 포함 |
+| memory.png / trace.png | 첫 window의 기존 RTLA 그림 |
+| registers.png | window별 유형·logit·중심화한 state 에너지·평가 window 무작위 그룹 손상 |
 
-**`posthoc_report.json` 하나를 보내면 된다.** 다운로드가 막히면 출력된 Drive 경로에서 받는다. PNG/NPZ는 보관하되 기본 전달에는 필요 없다. JSON에 가중치·optimizer·원본 token stream은 넣지 않고 미측정 tail은 null로 쓴다. 같은 실험 문서에서 checkpoint hash/step·데이터·probe 조건을 확인해 학습 결과와 연결한다. 학습 report에 checkpoint hash가 없으면 run·Config·step·지표를 대조하고 경로 이전 등 차이를 명시한다. 실험별로 최신 원본과 표·그림·해석을 함께 갱신한다.
+**`posthoc_report.json` 하나를 보내면 된다.** 다운로드가 막히면 출력된 Drive 경로에서 받는다. PNG/NPZ는 보관하되 기본 전달에는 필요 없다. JSON에 가중치 본체·optimizer·원본 token stream은 넣지 않고 미측정 tail은 null로 쓴다. 같은 실험 문서에서 checkpoint hash/step·데이터·probe 조건을 확인해 학습 결과와 연결한다. 학습 report에 checkpoint hash가 없으면 run·Config·step·지표를 대조하고 경로 이전 등 차이를 명시한다. 실험별로 최신 원본과 표·그림·해석을 함께 갱신한다.
 
 <a id="experiment-records"></a>
 ## 실험 기록의 단위
@@ -216,3 +226,5 @@ T4 global256 설정 변경에서는 현재 카탈로그의36개 조합과 보정
 Colab 추가에서는 runtime의 global256·동일 학습 조건과 Secrets 인증 분기 검사1개가0.40초에 통과했다. Kaggle/Colab 선택 cell을 직접 호출해 GPU2/1의 실질 배치와 모델·RTLA 설정을 확인했으며 전체 학습 검사는 반복하지 않았다. 실제 Colab GPU·Secrets 연결은 미실측이다.
 
 2026-10-15 사후 notebook/helper 관련 CPU 검사16개가 통과했다. report roundtrip·checkpoint 보존·hash 불일치 거부·example별 gate 포화와 기존 memory/baseline 동작을 확인했고, NeoX2-worker CLI는 localhost 소켓을 허용한 환경에서 통과했다. Python3.12.14/PyTorch2.14.1+cpu 기준이다. 사용자 제공 small M10/M40/M160 report에서 Colab T4/FP32·slots=true 실행 완료도 확인했다. 실제 측정값은 해당 실험 문서에서 관리한다.
+
+2026-10-15 레지스터 분석 확장: 관련 단일 프로세스 CPU 검사46개가 통과했다. read-only hook의 출력·가중치·RNG 보존, 알려진 중복 메모리의 그룹 개입·회복·짧은 tail 가중, 세 유형의 calibration/평가 window 분리·JSON roundtrip·캐시 조건을 확인했다. 기존 분산 CLI 검사3개와 실제 Colab GPU 실행은 이번 변경 검증에서 제외했다.

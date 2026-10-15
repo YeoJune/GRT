@@ -19,7 +19,7 @@ RMT는 `--model rmt`로 선택한다. [로컬 템플릿](notebooks/template.ipyn
 
 Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타임과 Colab Secrets의 `WANDB_API_KEY` 접근을 설정한다. Kaggle과 같은 WikiTextRun을 사용하며 GPU1개에서 micro32×accum8로 global256을 유지한다. 모델·예산·segment/register/BPTT·RTLA 선택은 Kaggle과 같다.
 
-학습한 GRT checkpoint의 사후 분석은 [Colab 분석 노트북](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb)을 사용한다. Drive의 checkpoint와 원본 manifest·validation.pt·tokenizer를 지정해 단일 GPU/FP32에서 reset/swap·retention·선택적 slot 초기화·example별 gate 분포를 분석한다. 마지막 `posthoc_report.json` 하나를 보내면 된다. [파일 배치·실행 안내](docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
+학습한 GRT checkpoint의 사후 분석은 [Colab 분석 노트북](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb)을 사용한다. Drive의 checkpoint와 원본 manifest·validation.pt·tokenizer를 지정해 단일 GPU/FP32에서 reset/swap·retention·slot 초기화와 다중 window의 gate logit·표현 중복·유형별/무작위 그룹 개입을 분석한다. 마지막 `posthoc_report.json` 하나를 보내면 된다. [파일 배치·실행 안내](docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 ## WikiText-103 · Kaggle T4 × 2
 
