@@ -1,6 +1,6 @@
 # small 기준 실험 계획과 결과표
 
-갱신일: 2026-10-14 · 상태: B0/B1 baseline과 R0/R1 GRT 완료, R2 M160 진행 중, R3 대기
+갱신일: 2026-10-15 · 상태: B0/B1 baseline과 R0/R1/R2 GRT 완료, R3 대기
 
 **메모리 없는 NeoX와 RMT baseline을 먼저 학습한다. 이후 GRT의 레지스터 수만 탐색하고, 선택한 레지스터 수를 고정한 뒤 라우터 MLP hidden만 탐색한다.** 어텐션은 backbone에 맞춰 고정한다. 각 실험은 같은 Kaggle/Colab 노트북에서 값을 바꿔 하나씩 실행한다.
 
@@ -48,11 +48,11 @@ memory_fraction = 0.95
 
 마지막 `job.report(download=True)`는 **이번 실험의 experiment_report.json 파일 하나**를 내보낸다. best checkpoint의 validation/RTLA, 최종 Config, 데이터 hash, GPU·소프트웨어 환경, 실제 batch·VRAM·시간, 학습 곡선·RTLA 요약, 상태·경고를 함께 담는다. 여러 모델을 선택했다면 이번에 선택한 모델들이 같은 파일에 들어간다. 다른 실험/환경 결과는 누적하지 않는다.
 
-이 파일을 보내면 에이전트가 [results/](../results/README.md)에 `<report_id>.json`으로 보관하고 아래 결과표의 한 행씩 갱신한다. 같은 report_id의 재개 결과는 step을 확인해 갱신한다. 보고서를 반복 실행해도 한 파일과 같은 report_id를 유지한다. B0/B1 baseline과 R0/R1 GRT의 GPU 결과를 받아 원본과 요약을 기록했다.
+이 파일을 보내면 에이전트가 [results/](../results/README.md)에 `<report_id>.json`으로 보관하고 아래 결과표의 한 행씩 갱신한다. 같은 report_id의 재개 결과는 step을 확인해 갱신한다. 보고서를 반복 실행해도 한 파일과 같은 report_id를 유지한다. B0/B1 baseline과 R0/R1/R2 GRT의 GPU 결과를 받아 원본과 요약을 기록했다.
 
 ## 4. 결과 기록
 
-B0 NeoX/B1 RMT baseline과 R0/R1 GRT는 사용자 제공 GPU 보고서로 완료를 확인했다. R2 M160은 중간 W&B summary만 받아 아래 완료 지표 칸은 비워두고 별도 비교 보고서에 기록한다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
+B0 NeoX/B1 RMT baseline과 R0/R1 GRT는 사용자 제공 GPU 보고서로 완료를 확인했다. R2 M160도10k 완료 report를 받아 기록했으며 이전 중간 snapshot은 보존한다. 아직 받지 않은 결과는 빈칸으로 두고 상태만 갱신한다. interrupted/OOM/발산은 완료 결과와 구분한다. MLP단계의 `선택 M`은 R단계 완료 후 채운다.
 
 | ID | 모델 | M | MLP hidden | best val PPL | swap ΔNLL | reset ΔNLL | VRAM GiB¹ | 시간 h | 상태 / 원본 보고서 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -60,7 +60,7 @@ B0 NeoX/B1 RMT baseline과 R0/R1 GRT는 사용자 제공 GPU 보고서로 완료
 | B1 | RMT | 10 | — | 34.8754 | — | — | 11.049 | 5.366 | 완료 · [원본](../results/24b2e511de2e419eb0ac7f9b52769d89.json) |
 | R0 | GRT | 10 | 512 | 34.9897 | 0.422916 | 0.294231 | 11.269 | 5.812 | 완료 · [원본](../results/22ab31a56cb546f993197e5ce937e5de.json) |
 | R1 | GRT | 40 | 512 | 34.7458 | 0.524916 | 0.345704 | 6.538 | 7.009 | 완료 · [원본](../results/22cfd16b44964befbe42912c4aba28c5.json) |
-| R2 | GRT | 160 | 512 | | | | | | 진행 · train8.7k · [중간 비교](20261014_register_comparison.md) |
+| R2 | GRT | 160 | 512 | 34.1511 | 0.294080 | 0.323459 | 9.713 | 13.150 | 완료 · [원본](../results/0e0ead4744594b59a7d9a771049c79a1.json) |
 | R3 | GRT | 512 | 512 | | | | | | 대기 |
 | H0 | GRT | 선택 M | 128 | | | | | | R단계 후 |
 | H1 | GRT | 선택 M | 256 | | | | | | R단계 후 |
@@ -185,9 +185,9 @@ M40은 1k→3k에서 전체 validation PPL이 **208.99→432.51→727.04**로 �
 
 최종 M40은 M10보다 PPL **0.2439(0.70%)** 낮고 swap ΔNLL은 **0.422916→0.524916**로 커졌으나 시간도 **20.60%** 늘었다. 단일 seed의 작은 PPL 차이이므로 M40의 최종 우위나 최적 용량을 확정하지 않는다. 두 모델은 B0 NeoX보다 각각 PPL **2.9693/3.2132** 낮지만 K0/K3와 parameter·계산 비용도 다른 조건이다. 이후 받은 B1 RMT의 PPL은34.8754로 두 GRT와의 차이가 작다. 위 B1 비교를 참고하고 단일 seed에서 RMT 대비 품질 우위를 확정하지 않는다.
 
-마지막1k PPL 개선은 M10 **0.1193**, M40 **0.1706**이고 LR은0이다. 두 값을 10k 고정 예산의 레지스터 비교 결과로 유지한다. R2 M160은 진행 중이며 R3 M512는 아직 받지 않았다. 선택 M과 MLP sweep은 아직 결정하지 않았다.
+마지막1k PPL 개선은 M10 **0.1193**, M40 **0.1706**이고 LR은0이다. 두 값을 10k 고정 예산의 레지스터 비교 결과로 유지한다. R2 M160은 아래 완료 결과를 추가했으며 R3 M512는 아직 받지 않았다. 선택 M과 MLP sweep은 아직 결정하지 않았다.
 
-### R2: M160 중간 관측 · 2026-10-14 수신
+### R2: M160 중간 관측 · 2026-10-14 수신 (완료 결과는 아래 참조)
 
 [사용자 제공 W&B summary](../results/interim/20261014_grt_m160_wandb_step8700.json) · [M10·M40·M160 상세 비교와 판단 칸](20261014_register_comparison.md)
 
@@ -195,13 +195,52 @@ train8,700에서 334,025,216 targets, 경과11.482h, peak allocated9.686GiB다. 
 
 같은 추정8k의 M40 PPL35.4525와 품질 차이는 작고, M160의 swap 효과는 더 작다. 슬롯 방향은 더 분화됐지만 활용성과 성능의 우위를 확정하지 않는다. 상세 보고서에서 초기 학습 곡선·개입 위치·gate/update·비용과 사용자 판단을 함께 검토한다.
 
+### R2: M160 완료 · 2026-10-15 수신
+
+[원본 JSON](../results/0e0ead4744594b59a7d9a771049c79a1.json) · [학습 코드](https://github.com/YeoJune/GRT/commit/555d8371e852bab78fcfada5ed909ea34425f817) · [W&B](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/19167540)
+
+| 항목 | 확인된 결과 / 조건 |
+|---|---|
+| checkpoint / 품질 | best.pt, step10,000; validation NLL **3.530795**, PPL **34.1511** |
+| 학습 / 평가 | 383,917,824 targets; validation248,420 targets/batch10; test 미평가 |
+| 모델 / 배치 | small D256/layers6/head8/FF1024, M160/K3/MLP512, 18,861,888 parameters; micro32×accum4×T4 GPU2=global256 |
+| 조건 | segment150, FP32, seed54, Adam LR5e-4/cosine10k/warmup0, clip.25; read off/write bias−2 |
+| 소프트웨어 | Python3.12.13/PyTorch2.10.0+cu128/Transformers4.45.2/CUDA12.8 |
+| 시간 / GPU-hours | 47340.45초 = **13.150h** / **26.300 GPU-hours** |
+| VRAM | 본 학습 peak allocated **9.713 GiB/GPU**; preflight reserved 10.752 GiB (73.83%) |
+| preflight | 4.320초/update; 준비·RTLA·저장은 ETA에서 제외 |
+| best RTLA | normal probe PPL 34.0898; reset **0.323459** / swap **0.294080** |
+| state 진단 | write mean 0.325191, slot cosine 0.529918, relative update 0.080673 |
+| 상태 | completed, W&B finished/실패0/step10k; 경고·metrics 파싱 오류 없음 |
+
+데이터 manifest·tokenizer hash·target 예산·global batch·optimizer·평가·RTLA 조건은 M40과 일치하며 실제 microbatch도 같다. Python/PyTorch는 기존 M10/M40의3.13.15/2.11.0과 달라 용량만 완전히 통제한 비교는 아니다. 실행 코드 commit 차이와 소프트웨어 차이를 구분한다. 시간은 학습·평가·RTLA·checkpoint 저장을 포함하고 준비/preflight는 제외한다. GPU-hours는 시간×GPU 수로 quota 차감을 뜻하지 않는다.
+
+| update | val PPL | write mean | relative update | reset ΔNLL | swap ΔNLL |
+|---:|---:|---:|---:|---:|---:|
+| 1,000 | 737.4491 | 0.069124 | 0.010466 | -1.583634 | 0.060684 |
+| 2,000 | 964.1900 | 0.067967 | 0.008986 | -1.891545 | 0.098180 |
+| 3,000 | 1244.3458 | 0.067129 | 0.007719 | -2.042979 | 0.117995 |
+| 4,000 | 45.5080 | 0.380890 | 0.047524 | 0.239526 | 0.323346 |
+| 5,000 | 43.9151 | 0.380962 | 0.054289 | 0.237657 | 0.299994 |
+| 6,000 | 41.9157 | 0.381061 | 0.060993 | 0.270711 | 0.274929 |
+| 7,000 | 36.0280 | 0.326964 | 0.075131 | 0.289255 | 0.294639 |
+| 8,000 | 35.4295 | 0.310781 | 0.080395 | 0.301698 | 0.285321 |
+| 9,000 | 34.9406 | 0.297977 | 0.077927 | 0.308377 | 0.273852 |
+| 10,000 | 34.1511 | 0.325191 | 0.080673 | 0.323459 | 0.294080 |
+
+M160 최종 PPL은 M10보다 **0.8386**, M40보다 **0.5947**, RMT보다 **0.7243** 낮다. 반면 swap ΔNLL은 M40보다 작아 품질 순위와 swap 민감도 순위가 일치하지 않는다. 단일 seed·소프트웨어 차이가 있어 최적 M은 미결정으로 둔다.
+
+이전 snapshot의 val/RTLA는 본 report의 **step8,000**과 일치해 평가 시점 추론이 확인됐다. 9k→10k PPL 개선은 **0.7895**로 M10/M40의 같은 구간보다 크다. 마지막 LR0인10k cosine 결과로 기록하며 완전 수렴을 뜻하지 않는다.
+
+M160도1k→3k에서 PPL737.45→964.19→1244.35 악화 후4k45.51로 회복하며 write 증가·reset 효과의 양수 전환이 같은 평가 구간에 있다. 6k→7k에는 write 평균이0.3811→0.3270으로 내려가는 동안 relative update와 품질이 개선됐다. write 평균 하나로 학습의 좋고 나쁨을 설명하지 않고 candidate·실제 update·state/read 동작의 공동 관계를 검토한다. slot/retention 상세 사후 분석은 아직 미실시다.
+
 | 결정 / 메모 | 기록할 내용 |
 |---|---|
 | R단계 선택 M | |
 | 선택 이유: 품질·활용성·비용 | |
 | H단계 선택 hidden | |
-| 다음 실험 ID / 변경할 값 | 진행 중인 R2 M160 완료 report 확인 → 선택 M 판단; R3 M512 실행 여부는 비용과 목적 검토 후 결정 |
-| 실패 원인 / 추가 관측 | M40 초기1k~3k validation 악화 후4k 회복; 양 run 초기 reset 효과 음수. 원인 미확정 |
+| 다음 실험 ID / 변경할 값 | R0/R1/R2 완료 결과·사후 RTLA로 선택 M 판단; R3 M512 실행 여부는 비용과 목적 검토 후 결정 |
+| 실패 원인 / 추가 관측 | M40/M160 초기1k~3k validation 악화 후4k 회복; 세 GRT run 초기 reset 효과 음수. 원인 미확정 |
 
 ## 5. 운영과 검토 범위
 
@@ -211,6 +250,6 @@ train8,700에서 334,025,216 targets, 경과11.482h, peak allocated9.686GiB다. 
 - 기존 `max_seconds`는 누적 상한이어서 매일4h씩 이어가는 session 제한으로 쓰지 않는다. 긴 run은 세션/저장 계획을 확인한 뒤 실행한다.
 - 이번 구현은 메모리 없는 NeoX, 노트북 수동 설정, test 격리·동일 checkpoint 평가, 단일 JSON 내보내기와 Markdown 결과 기록을 포함한다. 장시간 GPU 학습·실제 T4 VRAM/수렴은 사용자 실행 단계다.
 
-검증: 메모리 없는 동작·loss/gradient·재개, test 격리, 고정 attention의 수동 sweep, 동일 checkpoint 지표, 실험별 JSON 분리·재보고 ID 유지·중단 로그·다운로드 호출과 노트북 선택 셀을 CPU에서 확인했다. 기존 모델의 causal/prefix·replay 검사도 통과했다. CPU 두 프로세스 검사는 localhost 소켓 권한 제한으로 미완료이며, 사용자 제공 B0/B1/R0/R1 보고서에서 Kaggle T4×2/온라인 W&B 완료를 확인했다. 다른 용량/환경의 GPU 결과와 여러 seed의 수렴은 아직 미확인이다.
+검증: 메모리 없는 동작·loss/gradient·재개, test 격리, 고정 attention의 수동 sweep, 동일 checkpoint 지표, 실험별 JSON 분리·재보고 ID 유지·중단 로그·다운로드 호출과 노트북 선택 셀을 CPU에서 확인했다. 기존 모델의 causal/prefix·replay 검사도 통과했다. 2026-10-15 NeoX CPU 두 프로세스 CLI 검사도 localhost 소켓을 허용한 환경에서 통과했으며, 사용자 제공 B0/B1/R0/R1/R2 보고서에서 Kaggle T4×2/온라인 W&B 완료를 확인했다. M512 등 미실행 용량/환경의 GPU 결과와 여러 seed의 수렴은 아직 미확인이다.
 
 최종 검토 대상은 **위 공통 설정, R단계 용량 후보, R단계 뒤에 진행하는 MLP 후보**다. 더 넓은 탐색 아이디어는 [이전 검토 보고서](20261012_hyperparameter_search_report.md)에 보존한다.

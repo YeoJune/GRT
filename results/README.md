@@ -1,6 +1,6 @@
 # 받은 실험 결과
 
-사용자가 Kaggle/Colab의 `job.report(download=True)`에서 받은 `experiment_report.json`을 보내면 이 폴더에 원본을 보관한다. 현재 B0 NeoX/B1 RMT baseline과 R0/R1 GRT M10/M40의 완료 보고서4개를 보관했다.
+사용자가 Kaggle/Colab의 `job.report(download=True)`에서 받은 `experiment_report.json`을 보내면 이 폴더에 원본을 보관한다. 현재 B0 NeoX/B1 RMT baseline과 R0/R1/R2 GRT M10/M40/M160의 완료 보고서5개를 보관했다.
 
 - 저장 이름: `<report_id>.json`. JSON 안의 `run_name`, 환경, 모델/설정으로 식별한다.
 - 같은 report_id를 다시 받으면 재개·재보고 여부와 step을 확인하고 기존 기록을 갱신한다. 다른 report_id는 별도 결과로 보존한다.
@@ -18,9 +18,10 @@
 | B1 · RMT M10/K3/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.8754 | [24b2e511de2e419eb0ac7f9b52769d89.json](24b2e511de2e419eb0ac7f9b52769d89.json) |
 | R0 · GRT M10/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.9897 | [22ab31a56cb546f993197e5ce937e5de.json](22ab31a56cb546f993197e5ce937e5de.json) |
 | R1 · GRT M40/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.7458 | [22cfd16b44964befbe42912c4aba28c5.json](22cfd16b44964befbe42912c4aba28c5.json) |
+| R2 · GRT M160/MLP512/small/segment150/10k | Kaggle T4×2 · 완료, val PPL 34.1511 | [0e0ead4744594b59a7d9a771049c79a1.json](0e0ead4744594b59a7d9a771049c79a1.json) |
 
 중간 관측은 정식 experiment report와 구분해 `interim/`에 보관한다. 아래 파일은 사용자가 메시지로 제공한 W&B summary의 원본 필드·값이며 report_id와 전체 설정이 없다. 완료 보고서를 받으면 별도 원본으로 등록하고 중간 관측은 보존한다.
 
 | 중간 관측 | 상태 / 비교 시점 | 원본 / 분석 |
 |---|---|---|
-| R2 · GRT M160 | 진행, train8,700; 최근 val PPL35.4295. 기존 평가 주기 유지 시 val/RTLA는8,000 값으로 추론 | [W&B summary](interim/20261014_grt_m160_wandb_step8700.json) · [비교 보고서](../docs/20261014_register_comparison.md) |
+| R2 · GRT M160 | 당시 train8,700 중간 관측. 완료 report에서 val/RTLA가8,000 값임을 확인; 위 완료 결과로 연결 | [W&B summary](interim/20261014_grt_m160_wandb_step8700.json) · [비교 보고서](../docs/20261014_register_comparison.md) |

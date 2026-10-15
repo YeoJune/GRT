@@ -92,4 +92,4 @@ M10/M40/M160의 품질·reset/swap, gate 포화/입력 의존성, slot 기여 �
 
 노트북은 bootstrap·경로·분석 선택과 helper 호출만 담당한다. 실행·검증·단일 JSON 내보내기는 `grt.utils.posthoc.WikiTextPosthoc`, 개입은 기존 `grt.memory_analysis.analyze_stream`을 재사용한다. example별 gate 수집과 진행 callback은 사후 분석에서만 선택적으로 켜며 학습 중 기본 RTLA의 기록·계산 경로는 유지한다. GPU 실행 시간·M160 분석은 실제 Colab에서 확인한다.
 
-작성 시 Python 문법·노트북 모든 코드 셀의 컴파일·빈 실행 출력·문서 링크를 확인했다. CPU 회귀 테스트는 `tests/test_posthoc.py`와 기존 memory analysis 테스트에 추가했다. 현재 작업 환경에는 PyTorch/pytest가 없고 패키지 다운로드가 차단돼 실행 검증은 미완료다. 의존성이 준비된 환경에서 `python -m pytest tests/test_posthoc.py tests/test_memory_analysis.py -q`로 확인한다.
+작성 시 Python 문법·노트북 모든 코드 셀의 컴파일·빈 실행 출력·문서 링크를 확인했다. CPU 회귀 테스트는 `tests/test_posthoc.py`와 기존 memory analysis 테스트에 추가했다. 2026-10-15 의존성 설치 후 Python3.12.14/PyTorch2.14.1+cpu에서 사후 report roundtrip·checkpoint 보존·데이터 불일치 거부·example별 gate 포화·기존 memory analysis 및 baseline의 단일 프로세스 검사15개가 통과했다. NeoX2-worker CLI 검사도 로컬 소켓을 허용한 환경에서 통과해 총16개를 확인했다. GPU·실제 small checkpoint의 Colab 실행은 아직 미검증이다. 재검사는 `python -m pytest tests/test_posthoc.py tests/test_memory_analysis.py -q`로 수행한다.
