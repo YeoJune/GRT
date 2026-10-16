@@ -4,9 +4,9 @@
 
 2026-10-15 Kaggle/Colab 학습 노트북 기본은 [L75 small write gate 실험](experiments/20261015_l75_write_gates.md)의 GRT/small/20k/M8/bias0/write dropout0/read off다. 같은 선택 셀에서 L/M/bias/dropout을 바꾸고 기존 `overrides.model.register`로 전달한다. attention은 size의 차원/head를 유지한다. `20k`는20,000 updates이고 L75/global256에서 nominal384M targets다. 이전 [L150 baseline·용량 비교](experiments/20261012_small_register_sweep.md)는 별도 완료 기록이다. `WikiTextRun(num_registers=..., router_hidden=...)`와 카탈로그의 공통 기본 계약은 유지한다. 노트북 VRAM 예약 목표는95%, 카탈로그 기본은80%이며 global batch는 보존한다.
 
-`WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. `job.report(download=True)`는 이번 실험만 담은 `experiment_report.json` 하나를 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
+`WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. 2026-10-16부터 학습 노트북 마지막 `job.report(posthoc=True, download=True, posthoc_options=...)`는 GRT best checkpoint의 확장 사후 분석까지 실행하고 `experiment_results.zip` 하나를 내보낸다. ZIP에는 이번 run의 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`이 들어간다. `job.report(download=True)`는 분석 없이 학습 JSON만 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
-학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기존 reset/swap·retention·선택적 slot 초기화와 다중 window의 gate logit·표현·그룹 개입을 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함하며 학습 report와 합치지 않는다. [Colab 사후 분석 안내](20261011_experiment_workflow.md#posthoc-colab)를 따른다.
+학습과 별도인 사후 분석은 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)과 `grt.utils.posthoc.WikiTextPosthoc`을 사용한다. 현재 WikiText GRT checkpoint와 원본 prepared manifest·validation.pt·tokenizer만 필요하며 GPU 수가 달라도 단일 장치에서 FP32 분석할 수 있다. 기존 reset/swap·retention·선택적 slot 초기화와 다중 window의 gate logit·표현·그룹 개입을 한 `posthoc_report.json`에 내보낸다. checkpoint hash/step·학습 Config·데이터·실제 분석 조건·환경·요약·분석 배열을 포함한다. 두 JSON의 형식은 유지하며 학습 노트북에서는 ZIP으로 함께 전달한다. [Colab 사후 분석 안내](20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 ## 설정의 역할과 확장
 
@@ -64,7 +64,7 @@ job.setup()
 job.prepare_data()
 job.preflight()
 job.train()
-job.report()
+job.report(posthoc=True, download=True)
 ```
 
 `models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 현재 노트북 기본은 GRT/small/L75/20k이며 크기와 예산을 명시적으로 바꿀 수 있다. 3만 updates는 `steps=30000`으로 지정한다. GRT의 segment 시작 state 읽기는 표준이며 별도 override가 필요 없다. 중간 register 읽기 구현과 register_read_source 선택 필드는 제거한다.
@@ -150,6 +150,22 @@ python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/w
 <a id="posthoc-colab"></a>
 ## Colab 사후 분석: 파일 배치와 결과 전달
 
+학습 직후에는 별도 노트북 없이 Kaggle/Colab 학습 노트북 마지막 셀을 실행한다.
+
+```python
+job.report(posthoc=True, download=True, posthoc_options=dict(
+    batch_size=8, segments=8, warmup_segments=3, horizon=4,
+    slots=True, registers=True, window_starts=(0, 16, 32), group_repeats=3,
+))
+```
+
+`WikiTextRun.posthoc()`가 이번 run의 `grt/best.pt`와 prepared 폴더를 자동 선택하고 `WikiTextPosthoc`을 그대로 사용한다. checkpoint step이 학습 summary의 selected_step과 다르면 거부한다. 학습 GPU 수와 관계없이 단일 장치·FP32에서 실행하며 GRT 이외 모델은 생략한다. 분석 옵션은 학습 Config/run hash를 바꾸지 않고 분석 signature에 반영한다.
+
+학습 JSON을 먼저 저장한 뒤 분석하고, 성공하면 `experiment_results.zip`에 학습 JSON과 `posthoc/grt/posthoc_report.json`만 넣는다. 가중치·optimizer·원본 token·PNG/NPZ는 묶지 않는다. 학습 checkpoint와 분석 로컬 산출물은 run 폴더에 남는다. 분석 실패는 셀 오류로 표시하며 학습 결과는 유지한다. 마지막 셀 재실행 시 완료된 동일 분석을 재사용하고 미완료 분석은 다시 실행한다. 추가 GPU 시간은 preflight 학습 ETA에 포함되지 않으며 분석 진행률·단계별 ETA를 출력한다. Colab은 ZIP 다운로드, Kaggle은 ZIP 링크를 제공한다. **이 ZIP 하나를 보내면 학습과 사후 분석을 같은 실험 문서에 정리한다.**
+
+아래 별도 노트북은 이미 학습한 checkpoint를 다른 세션에서 분석할 때 사용한다. 분석 helper와 기본 조건은 학습 마지막 셀과 같다.
+
+
 [Colab 분석 노트북 열기](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb) · [노트북 파일](../notebooks/colab_analysis.ipynb) · [small 레지스터 실험 결과](experiments/20261012_small_register_sweep.md)
 
 GPU 런타임을 선택하고 Drive에 현재 형식의 WikiText GRT checkpoint와 원본 prepared 파일을 넣는다. Kaggle2GPU에서 학습한 checkpoint도 Colab 단일 GPU에서 분석할 수 있으며 W&B key는 필요 없다.
@@ -227,3 +243,5 @@ Colab 추가에서는 runtime의 global256·동일 학습 조건과 Secrets 인�
 2026-10-15 사후 notebook/helper 관련 CPU 검사16개가 통과했다. report roundtrip·checkpoint 보존·hash 불일치 거부·example별 gate 포화와 기존 memory/baseline 동작을 확인했고, NeoX2-worker CLI는 localhost 소켓을 허용한 환경에서 통과했다. Python3.12.14/PyTorch2.14.1+cpu 기준이다. 사용자 제공 small M10/M40/M160 report에서 Colab T4/FP32·slots=true 실행 완료도 확인했다. 실제 측정값은 해당 실험 문서에서 관리한다.
 
 2026-10-15 레지스터 분석 확장: 관련 단일 프로세스 CPU 검사46개가 통과했다. read-only hook의 출력·가중치·RNG 보존, 알려진 중복 메모리의 그룹 개입·회복·짧은 tail 가중, 세 유형의 calibration/평가 window 분리·JSON roundtrip·캐시 조건을 확인했다. 기존 분산 CLI 검사3개와 실제 Colab GPU 실행은 이번 변경 검증에서 제외했다.
+
+2026-10-16 학습 마지막 셀의 사후 분석 연결은 관련 CPU 검사69개로 확인했다. 작은 GRT의 실제 preflight·2 updates·확장 분석·ZIP 원본 일치·Colab ZIP 다운로드·완료 분석 재사용·실패 시 학습 JSON 보존을 검사했고, checkpoint step 불일치 거부도 통합 검사에서 확인했다. 두 학습 노트북의 마지막 셀 실행 인자와 기존 학습 셀 보존·문서 링크를 검증했다. GPU 분석 소요 시간은 사용자 실행에서 확인한다.

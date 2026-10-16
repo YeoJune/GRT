@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 import pytest
 import torch
@@ -172,6 +173,9 @@ def test_utils_actual_preflight_and_two_updates(tmp_path, monkeypatch):
     assert job.train()['rmt']['step'] == 2
     result = job.report(plot=False)['rmt']
     assert result['status'] == 'completed' and result['score_kind'] == 'autoregressive'
+    job.report(plot=False, posthoc=True)
+    with ZipFile(job.run_dir/'experiment_results.zip') as bundle:
+        assert bundle.namelist() == ['experiment_report.json']
     rows = [json.loads(line) for line in (job.run_dir / 'rmt/metrics.jsonl').read_text().splitlines()]
     assert {row['step'] for row in rows} == {1, 2}
     assert 'total_compute_hours' in json.loads((job.run_dir / 'rmt_eta.json').read_text())
@@ -179,6 +183,67 @@ def test_utils_actual_preflight_and_two_updates(tmp_path, monkeypatch):
     job.steps = 3
     with pytest.raises(ValueError, match='new run_id'):
         job.config('rmt')
+
+
+def test_training_report_bundles_real_posthoc_and_reuses_analysis(tmp_path, monkeypatch):
+    """Run the notebook's training -> analysis -> one-file handoff on CPU."""
+    prepared = tmp_path/'input'
+    prepared.mkdir()
+    manifest = dict(vocab_size=128, tokenization='word', token_counts={}, sha256={})
+    for split, count in [('train', 80), ('validation', 160), ('test', 9)]:
+        torch.save(torch.arange(count, dtype=torch.long)%128, prepared/f'{split}.pt')
+        manifest['token_counts'][split] = count
+        manifest['sha256'][split] = file_hash(prepared/f'{split}.pt')
+    (prepared/'manifest.json').write_text(json.dumps(manifest))
+    job = WikiTextRun(REPO, runtime='colab', size='tiny', models=('grt',),
+        tokenization='word', work_dir=tmp_path/'working', steps=2, wandb=False,
+        device='cpu', world_size=1, benchmark_steps=1, overrides={
+            'model': {'vocab_size': 128, 'd_model': 32, 'segment_len': 4, 'num_registers': 3,
+                      'alu': {'num_layers': 1, 'nhead': 4, 'd_ff': 64},
+                      'router': {'mlp_hidden': 32}},
+            'training': {'auto_batch': False, 'batch_size': 1, 'grad_accum_steps': 1,
+                         'global_batch_size': 1, 'bptt_segments': 1},
+            'evaluation': {'batch_size': 1, 'every_steps': 2},
+            'rtla': {'enabled': True, 'batch_size': 2, 'segments': 2, 'warmup_segments': 1}})
+    job.prepare_data(prepared_input=prepared)
+    job.preflight()
+    summary = job.train()['grt']
+    checkpoint = job.run_dir/'grt/best.pt'
+    before = file_hash(checkpoint)
+    bundle_path = job.run_dir/'experiment_results.zip'
+    with pytest.raises(ValueError, match='disjoint'):
+        job.report(plot=False, posthoc=True, posthoc_options={'window_starts': (0, 1)})
+    assert job.report_path.is_file() and not bundle_path.exists()
+    options = dict(batch_size=2, segments=2, warmup_segments=1, horizon=2,
+                   window_starts=(0, 6, 12), group_repeats=1, lesion_fractions=(.5,))
+    downloads = []
+    monkeypatch.setitem(sys.modules, 'google.colab',
+                        SimpleNamespace(files=SimpleNamespace(download=downloads.append)))
+    results = job.report(plot=False, posthoc=True, posthoc_options=options, download=True)
+    assert results['grt'] == summary and downloads == [str(bundle_path)]
+    with ZipFile(bundle_path) as bundle:
+        assert set(bundle.namelist()) == {'experiment_report.json', 'posthoc/grt/posthoc_report.json'}
+        assert bundle.read('experiment_report.json') == job.report_path.read_bytes()
+        training = json.loads(bundle.read('experiment_report.json'))
+        posthoc = json.loads(bundle.read('posthoc/grt/posthoc_report.json'))
+    assert posthoc['status'] == 'completed' and posthoc['checkpoint']['sha256'] == before
+    assert posthoc['checkpoint']['step'] == summary['selected_step']
+    assert posthoc['analysis_settings']['slots'] and posthoc['analysis_settings']['registers']
+    assert len(posthoc['register_analysis']['windows']) == 3
+    assert len(posthoc['summary']['slot_delta_nll']) == 3
+    assert posthoc['training_config'] == training['experiments'][0]['config']
+    assert file_hash(checkpoint) == before
+    job.report(plot=False, posthoc=True, posthoc_options=options)
+    with ZipFile(bundle_path) as bundle:
+        repeated = json.loads(bundle.read('posthoc/grt/posthoc_report.json'))
+    assert repeated['report_id'] == posthoc['report_id']
+    with pytest.raises(ValueError, match='posthoc=True'):
+        job.report(plot=False, posthoc_options=options)
+    wrong_summary = {**summary, 'selected_step': summary['selected_step']+1}
+    (job.run_dir/'grt/summary.json').write_text(json.dumps(wrong_summary))
+    with pytest.raises(ValueError, match='step differs'):
+        job.report(plot=False, posthoc=True, posthoc_options=options)
+    assert file_hash(checkpoint) == before
 
 
 def test_current_only_config_and_checkpoint(tmp_path):

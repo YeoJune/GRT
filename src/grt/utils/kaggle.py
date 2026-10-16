@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 from uuid import uuid4
+from zipfile import ZipFile, ZIP_DEFLATED
 
 
 def run_logged(command, *, cwd, log_path):
@@ -301,7 +302,32 @@ class WikiTextRun:
             results[model] = summary
         return results
 
-    def report(self, *, plot=True, download=False):
+    def posthoc(self, **options):
+        """Analyze this run's selected GRT checkpoint with the standalone protocol."""
+        from grt.utils.posthoc import WikiTextPosthoc
+
+        reports = {}
+        for model in self.models:
+            if model != 'grt':
+                continue
+            root = self.run_dir / model
+            summary = json.loads((root / 'summary.json').read_text())
+            job = WikiTextPosthoc(checkpoint=root / 'best.pt', prepared_dir=self.prepared_dir,
+                output_dir=root / 'posthoc', device=self.device,
+                **{'slots': True, **options})
+            info = job.inspect()
+            if info['checkpoint_step'] != summary['selected_step']:
+                raise ValueError('best.pt step differs from selected training result')
+            job.run()
+            reports[model] = job.report()
+        if not reports:
+            print('No GRT selected; posthoc analysis skipped for NeoX/RMT.')
+        return reports
+
+    def report(self, *, plot=True, download=False, posthoc=False, posthoc_options=None):
+        """Export training JSON, optionally bundling full best-checkpoint analysis."""
+        if posthoc_options is not None and not posthoc:
+            raise ValueError('Set posthoc=True to use posthoc_options')
         results = {}
         if plot:
             import matplotlib.pyplot as plt
@@ -328,6 +354,17 @@ class WikiTextRun:
             plt.show()
         print('Results:', self.run_dir, '\nData/tokenizer:', self.prepared_dir)
         path = self.export_report()
+        if posthoc:
+            # Persist training results first, even if analysis is interrupted.
+            reports = self.posthoc(**(posthoc_options or {}))
+            path = self.run_dir / 'experiment_results.zip'
+            temporary = path.with_suffix('.tmp')
+            with ZipFile(temporary, 'w', compression=ZIP_DEFLATED) as bundle:
+                bundle.write(self.report_path, 'experiment_report.json')
+                for model, report in reports.items():
+                    bundle.write(report, f'posthoc/{model}/posthoc_report.json')
+            temporary.replace(path)
+            print('보내주실 학습·사후 분석 묶음:', path)
         if download:
             if self.runtime == 'colab':
                 from google.colab import files

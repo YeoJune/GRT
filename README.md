@@ -85,7 +85,7 @@ python scripts/analyze.py --checkpoint runs/wiki/grt/best.pt --output-dir runs/w
 숫자 예산/override를 바꾸면 utils의 기본 run 이름에 설정 hash가 붙는다. 기존 run과의 설정 차이는 학습 전에 거부한다.
 다른 Kaggle 세션의 데이터/결과는 `job.prepare_data(prepared_input=..., resume_input=...)`로 복원한다.
 
-Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다. 탐색은 `test_at_end=False`로 test를 생략하고 best checkpoint의 validation/RTLA를 다시 평가한다. `job.report(download=True)`는 이번 실험의 설정·환경·best validation/RTLA·학습 곡선·비용을 `experiment_report.json` 하나로 내보낸다. 이 파일을 보내면 [결과 보관 폴더](results/README.md)와 [L75 결과표](docs/experiments/20261015_l75_write_gates.md)에 정리한다. 재개용 checkpoint는 별도 보관한다.
+Config/metadata, summary/evaluation JSON·TXT, metrics JSONL·TXT, checkpoint를 기록한다. 탐색은 `test_at_end=False`로 test를 생략하고 best checkpoint의 validation/RTLA를 다시 평가한다. 학습 노트북 마지막 `job.report(posthoc=True, download=True)`는 best checkpoint의 슬롯·retention·다중 window·레지스터 분화 분석까지 실행하고 학습 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`을 **experiment_results.zip 하나**로 내보낸다. 마지막 셀의 `posthoc_options`에서 분석 조건을 직접 바꾸며 기존 사후 분석 helper를 공유한다. 학습 JSON만 필요하면 `job.report(download=True)`를 사용한다. 이 ZIP이나 JSON을 보내면 [결과 보관 폴더](results/README.md)와 [L75 결과표](docs/experiments/20261015_l75_write_gates.md)에 정리한다. 재개용 checkpoint는 별도 보관한다.
 Remember는 stage별 value+EOS exact match, WikiText는 token-weighted NLL/PPL과 score_kind를 보고한다.
 W&B는 Kaggle에서 기본 활성화하며 첫 step·주기별·평가·마지막 step을 기록한다.
 `wandb_status.json`에 URL·마지막 step·실패 수를 남기며 utils가 완료 상태를 확인한다. preflight는 W&B run을 생성하지 않는다.

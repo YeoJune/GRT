@@ -93,7 +93,7 @@ M8은 작은 차이로 p0을 유지하고, M20은 p0, M75는 p.1을 우선한다
 
 ## 4. 분화 분석과 판단란
 
-기존 Colab 사후 분석 노트북에 각 best checkpoint를 넣는다. batch8·warmup3·측정8·horizon4·window0/16/32·random 반복3/seed54·slots/registers=true를 공통 사용한다. L/M은 checkpoint에서 읽는다. L75에서 warmup225/측정600 tokens이며, 이전 L150 probe와 절대 token 범위는 다르다. 이번 run끼리는 같은 조건으로 비교한다.
+새 학습은 마지막 report 셀에서 각 best checkpoint를 자동 분석한다. 이미 완료된 run은 기존 Colab 사후 분석 노트북에 best checkpoint를 넣어 같은 helper로 분석할 수 있다. batch8·warmup3·측정8·horizon4·window0/16/32·random 반복3/seed54·slots/registers=true를 공통 사용한다. L/M은 checkpoint에서 읽는다. L75에서 warmup225/측정600 tokens이며, 이전 L150 probe와 절대 token 범위는 다르다. 이번 run끼리는 같은 조건으로 비교한다.
 
 | 비교 | 전체 val 품질 / 학습 안정성 | 현재 기본 RTLA에서 보이는 차이 | 판단 / 확장 분석 |
 |---|---|---|---|
@@ -128,10 +128,10 @@ write 평균만으로 학습 전환을 설명할 수 없다. M8/p.1은12k→13k�
 | 경로 | 자동 실행 내용 | 이번 수신 확인 |
 |---|---|---|
 | `colab.ipynb` / `kaggle.ipynb`의 `job.train()` | RTLA on이면 validation마다 및 종료 후 best 복원 시 정상/reset/swap·gate/state/update 평균 | 6run 모두 step별 RTLA20건과 selected_rtla 포함 |
-| `job.report()` | 기존 학습 결과·기본 RTLA를 experiment_report.json으로 집계 | 추가 분석을 실행하는 호출은 없음 |
+| 학습 노트북 마지막 `job.report(posthoc=True, ...)` | best.pt의 확장 분석 후 experiment_results.zip에 학습·사후 JSON 동봉 | 2026-10-16 연결; 기존 수신6파일의 확장 분석은 여전히 미수신 |
 | 별도 `colab_analysis.ipynb`의 `job.run()` | 지정 checkpoint의 slot·retention·3window·logit·rank/CKA·group 개입을 일괄 실행 | 이번6파일에 미포함, posthoc_report.json 미수신 |
 
-학습 Colab은 `WikiTextRun` → `train_stream` → `adapter.log_analysis` → `analyze_stream(horizon=0, slots=False)`를 사용한다. 실제 report도 horizon0·slot/retention 배열이 비어 있고 확장 helper의 자동 호출은 없다. **학습 종료 후 확장 사후 분석을 자동 실행하도록 연결되어 있지는 않다.** 이는 현재 repo와 받은 report의 확인이며, 사용자가 다른 세션에서 별도로 실행했는지는 판단할 수 없다. 근거는 [학습 루프](../../src/grt/stream_training.py), [공통 notebook helper](../../src/grt/utils/kaggle.py), [기본 분석](../../src/grt/memory_analysis.py)이다.
+학습 중 기본 RTLA는 `WikiTextRun` → `train_stream` → `adapter.log_analysis` → `analyze_stream(horizon=0, slots=False)`를 유지한다. 기존 수신6개 report도 horizon0·slot/retention 배열이 비어 있다. **2026-10-16부터 학습 노트북 마지막 셀에서 `job.report(posthoc=True, ...)`가 별도 `WikiTextPosthoc`을 호출해 전체 사후 분석을 실행한다.** 학습 JSON을 먼저 보존하고 두 결과를 ZIP 하나로 묶는다. 이번 코드 연결이 기존6개 checkpoint의 확장 분석 완료를 의미하지는 않는다. 근거는 [학습 루프](../../src/grt/stream_training.py), [공통 notebook helper](../../src/grt/utils/kaggle.py), [기본 분석](../../src/grt/memory_analysis.py)이다.
 
 분화 비교를 위해6조건의 best.pt를 보관하고, 기존 [Colab 분석 노트북](../../notebooks/colab_analysis.ipynb)에서 동일 옵션으로 각 checkpoint를 실행한다. 출력 posthoc_report.json을 보내면 이 문서에 합친다. M20/p0의 best는19k로 다른20k best와 step이 다름을 기록하고, 엄밀한 동일 step 비교가 필요하면 모든 조건의 last.pt/20k를 별도로 분석한다.
 
@@ -155,7 +155,7 @@ Read gate off는 model override에 명시한다. 값을 바꾸면 기존 공통 
 
 순서는 setup → 기존 prepared 데이터 복원 → preflight → train → report다. preflight의 실제 micro/accum·target tokens/update·예상 시간을 확인한다. 새 L/M의 시간을 이전 T4 실측에서 단순 환산하지 않는다. 예약 VRAM 목표95%는 정확한 점유율 보장이 아니다. 장시간 run/checkpoint·데이터는 세션 밖에 보존한다.
 
-학습 후 `job.report(download=True)`의 **experiment_report.json**, 사후 분석 후 **posthoc_report.json**을 보내면 이 문서의 해당 ID에 원본 링크·표·판단을 갱신한다. 여러 환경 결과를 CSV로 누적하지 않는다. 미실행·미측정은 빈칸/상태로 남긴다.
+학습 노트북 마지막 `job.report(posthoc=True, download=True, posthoc_options=...)`의 **experiment_results.zip** 하나를 보내면 안의 학습·사후 JSON을 이 문서의 해당 ID에 반영한다. 마지막 셀에서 batch8·warmup3·측정8·horizon4·slots/registers true·window0/16/32·group_repeats3을 직접 바꿀 수 있다. 기존 학습 JSON과 별도 사후 JSON도 계속 받을 수 있다. 여러 환경 결과를 CSV로 누적하지 않는다. 미실행·미측정은 빈칸/상태로 남긴다.
 
 ## 6. 준비 검증
 
@@ -172,4 +172,4 @@ Read gate off는 model override에 명시한다. 값을 바꾸면 기존 공통 
 | A75-0 | [b4b4414578524de0a6e9de50851b91b2](../../results/b4b4414578524de0a6e9de50851b91b2.json) | [run](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/feb72c65) |
 | A75-1 | [06fe396a3e6b4e258b779481409de1ba](../../results/06fe396a3e6b4e258b779481409de1ba.json) | [run](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/761c6ca9) |
 
-원본 JSON bytes를 그대로 보관했다. best·최종20k·selected RTLA를 구분해 검증했고, 학습 curve20개 평가점·기본 RTLA20건·환경·Config를 대조했다. 이번 결과 정리에서는 학습을 추가 실행하거나 자동 분석 동작을 변경하지 않았다.
+원본 JSON bytes를 그대로 보관했다. best·최종20k·selected RTLA를 구분해 검증했고, 학습 curve20개 평가점·기본 RTLA20건·환경·Config를 대조했다. 결과 정리 시 학습을 추가 실행하지 않았다. 이후 2026-10-16 사용자 요청으로 학습 노트북 마지막 셀의 확장 분석과 ZIP 전달을 연결했다. 기존 수신 원본은 수정하지 않았다.
