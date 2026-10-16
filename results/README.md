@@ -1,6 +1,6 @@
 # 실험 결과 원본
 
-[L150 용량 비교](../docs/experiments/20261012_small_register_sweep.md)의 학습5개·확장 사후3개와 [L75 write gate 비교](../docs/experiments/20261015_l75_write_gates.md)의 bias0/dropout 학습6개를 보관한다. 총 학습 JSON11개·사후 JSON3개다. L75의 확장 posthoc_report.json은 아직 받지 않았다. 실행과 파일 전달은 [공통 workflow](../docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
+[L150 용량 비교](../docs/experiments/20261012_small_register_sweep.md)의 학습5개·확장 사후3개와 [L75 write gate 비교](../docs/experiments/20261015_l75_write_gates.md)의 bias0/dropout 학습6개·확장 사후6개를 보관한다. 총 학습 JSON11개·사후 JSON9개다. L75는 gate 포화·표현·그룹 개입·retention까지 같은 실험 문서에 반영했다. 실행과 파일 전달은 [공통 workflow](../docs/20261011_experiment_workflow.md#posthoc-colab)를 따른다.
 
 | 경로 / 형식 | 내용 |
 |---|---|
