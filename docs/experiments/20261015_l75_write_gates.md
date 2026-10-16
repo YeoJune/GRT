@@ -2,7 +2,7 @@
 
 작성: 2026-10-15 · 갱신: 2026-10-16 · 상태: dropout A단계 학습·확장 사후 분석 각6개 완료, bias B단계 미실행
 
-[공통 실행 안내](../20261011_experiment_workflow.md) · [이전 L150 용량 실험](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md)
+[공통 실행 안내](../20261011_experiment_workflow.md) · [이전 L150 용량 실험](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Write 구조·정규화 검토](#write-normalization-review)
 
 ## 1. 목적과 고정 조건
 
@@ -29,21 +29,21 @@ L과 M을 함께 줄인 별도 실험으로, write dropout이 품질·분화에 
 
 **A. 각 M에서 bias0으로 dropout0과0.1을 비교한다(6회).** best validation NLL/PPL을 우선 보고 학습 곡선·시간·분화 지표를 함께 확인한다. 품질 차이를 확신하기 어려우면 dropout0을 우선하는 잠정 선택을 기록한다. 한 seed에서 작은 차이를 확정하지 않는다.
 
-**B. 각 M에서 선택한 dropout을 고정하고 bias−2/0/+2를 비교한다(추가6회).** bias0은 A의 해당 run/checkpoint/report를 그대로 재사용한다. bias만 바꾼 두 조건은 매번 새로 초기화해20k 학습한다. dropout 선택은 M별로 기록한다. 서로 다른 dropout을 고른 M 사이의 비교는 선택된 조건의 비교이며 순수 M 효과로 해석하지 않는다.
+**B. 사용자 최신 결정에 따라 모든 M에서 dropout0을 고정하고 bias−2/0/+2를 비교한다(추가6회).** bias0은 A8-0/A20-0/A75-0의 run/checkpoint/report를 그대로 재사용한다. bias만 바꾼 두 조건은 매번 새로 초기화해20k 학습한다. A의 품질 기준 dropout 선택은 M별 결과로 남기되 이번 B에는 적용하지 않는다. B는 세 M 모두 dropout0으로 통제한다.
 
 Bias는 모든 슬롯의 write MLP 마지막 bias 초깃값이며 학습 가능하다. bias−2/0/+2의 sigmoid 기준값은 약.119/.500/.881이지만 실제 gate는 hidden 출력에 따라 달라진다. write dropout.1은 학습 중 example·slot별 확률.1로 write logit을−∞로 만들어 기존 state를 보존하며, state를 지우거나 rescaling하지 않는다. 평가·사후 분석에서는 dropout을 끈다. 새 정규화·분화 보조 손실은 이번 비교에 넣지 않는다.
 
-| M | A의 잠정 선택 dropout | 근거 / best PPL (p0 → p.1) | B 실행 여부 |
-|---:|---:|---|---|
-| 8 | 0 | 34.1048 → 34.2791; 차이가 작아 p0 우선 | 미실행 |
-| 20 | 0 | 33.7436 → 34.2129; 한 seed에서 더 낮은 validation NLL | 미실행 |
-| 75 | 0.1 | 33.7629 → 32.8984; 한 seed에서 더 낮은 validation NLL | 미실행 |
+| M | A의 품질 기준 잠정 dropout | B의 고정 dropout | 근거 / best PPL (p0 → p.1) | B 실행 여부 |
+|---:|---:|---:|---|---|
+| 8 | 0 | 0 | 34.1048 → 34.2791; 차이가 작아 p0 우선 | 미실행 |
+| 20 | 0 | 0 | 33.7436 → 34.2129; 한 seed에서 더 낮은 validation NLL | 미실행 |
+| 75 | 0.1 | 0 | 33.7629 → 32.8984; 한 seed에서 더 낮은 validation NLL | 미실행 |
 
-선택은 B단계를 진행하기 위한 잠정 기준이다. 사용자 최종 판단 전이며, seed54 한 번의 결과로 유의성을 주장하지 않는다. 선택한 bias0 run을 재사용하고 새 bias−2/+2만 학습하면 된다.
+A의 선택은 seed54 한 번의 품질 기준이며 유의성을 주장하지 않는다. B에서는 dropout0의 bias0 결과를 재사용하고 새 bias−2/+2만 학습한다.
 
 ## 3. 학습 결과 기록
 
-각 행은 별도 run이다. B의 bias0 결과는 A에서 선택한 행을 참조해 중복 학습하지 않는다. 실제 micro/accum/GPU·환경·target 예산·코드 hash는 원본 report에 보관하고 차이가 있으면 판단에 적는다.
+각 행은 별도 run이다. B의 bias0 결과는 A의 dropout0 행을 참조해 중복 학습하지 않는다. 실제 micro/accum/GPU·환경·target 예산·코드 hash는 원본 report에 보관하고 차이가 있으면 판단에 적는다.
 
 | ID | M | bias init | write dropout | 상태 | best step / PPL(best·20k) | wall h / peak GiB | 학습 JSON / 확장 사후 JSON |
 |---|---:|---:|---|---|---|---|---|
@@ -53,12 +53,12 @@ Bias는 모든 슬롯의 write MLP 마지막 bias 초깃값이며 학습 가능�
 | A20-1 | 20 | 0 | 0.1 | 완료 | 20,000 / 34.2129 · 34.2129 | 6.442 / 11.721 | [학습](../../results/51bafa3f611d48c2808a7a55d732c91d.json) / [사후](../../results/posthoc/1ae377fe64e243749040cf61991c37f0.json) |
 | A75-0 | 75 | 0 | 0 | 완료 | 20,000 / 33.7629 · 33.7629 | 10.093 / 8.326 | [학습](../../results/b4b4414578524de0a6e9de50851b91b2.json) / [사후](../../results/posthoc/f5a1825cc5d84f6da400eb249ec409ac.json) |
 | A75-1 | 75 | 0 | 0.1 | 완료 | 20,000 / 32.8984 · 32.8984 | 10.041 / 8.326 | [학습](../../results/06fe396a3e6b4e258b779481409de1ba.json) / [사후](../../results/posthoc/df797486d1cd4606acc91fc478535e33.json) |
-| B8− | 8 | -2 | 0 (잠정) | 미실행 | | | |
-| B8+ | 8 | +2 | 0 (잠정) | 미실행 | | | |
-| B20− | 20 | -2 | 0 (잠정) | 미실행 | | | |
-| B20+ | 20 | +2 | 0 (잠정) | 미실행 | | | |
-| B75− | 75 | -2 | 0.1 (잠정) | 미실행 | | | |
-| B75+ | 75 | +2 | 0.1 (잠정) | 미실행 | | | |
+| B8− | 8 | -2 | 0 | 미실행 | | | |
+| B8+ | 8 | +2 | 0 | 미실행 | | | |
+| B20− | 20 | -2 | 0 | 미실행 | | | |
+| B20+ | 20 | +2 | 0 | 미실행 | | | |
+| B75− | 75 | -2 | 0 | 미실행 | | | |
+| B75+ | 75 | +2 | 0 | 미실행 | | | |
 
 ### 3.1 조건 검증과 품질·비용
 
@@ -263,7 +263,7 @@ num_registers = 8        # 8 / 20 / 75
 budget = '20k'
 router_hidden = 512
 write_gate_bias = 0.0    # A: 0, B: -2 / 0 / +2
-write_dropout = 0.0      # A: 0 / .1, B: 해당 M에서 선택한 값
+write_dropout = 0.0      # A: 0 / .1, B: 모든 M에서 0 고정
 ```
 
 Read gate off는 model override에 명시한다. 값을 바꾸면 기존 공통 helper의 설정 hash가 달라져 별도 run이 된다. 같은 값·환경은 기존 last.pt를 재개하므로, 동일 조건을 새 폴더에서 재실행하려면 명시적 run_id를 사용하고, 독립 seed 검증은 seed를 바꾼다. GPU 수가 다른 환경으로 학습을 재개하지 않는다. 초기값·dropout·M·L을 바꾼 기존 checkpoint에서 이어 학습하지 않는다.
@@ -299,3 +299,246 @@ Read gate off는 model override에 명시한다. 값을 바꾸면 기존 공통 
 | A75-1 | [df797486d1cd4606acc91fc478535e33](../../results/posthoc/df797486d1cd4606acc91fc478535e33.json) | `9f53f8caa51467c29beee91f098dae758dcec9635c5336d267ac26cbcbb877e3` |
 
 사후 원본6개의 bytes를 그대로 보관했다. 원본 학습·사후 JSON과 기존 L150 결과는 수정하지 않았다. 이번 추가 분석은 받은 자료를 재집계한 것으로 GPU 추론·학습을 새로 실행하지 않았다.
+
+<a id="write-normalization-review"></a>
+## 8. Write 아키텍처와 정규화 설계 검토
+
+검토: 2026-10-16 · 대상: 현재 GRT small write 경로 · 상태: 설계 제안, 정규화 미구현·미실험. 현재 동작은 [router.py](../../src/grt/models/router.py)·[neox.py](../../src/grt/models/neox.py), 공통 계약은 [통합 명세](../20261011_current_spec.md#3-grt-공통-계산)를 따른다.
+
+**권고는 write MLP 직전의 토큰 요약·메모리 요약에 각각 feature-wise LayerNorm을 넣는 비교부터 시작하는 것이다.** 같은 위치의 RMSNorm은 대안이며 둘을 겹쳐 쓰지 않는다. 이 첫 비교는 branch 간 scale 불균형을 겨냥한다. Attention 내부의 포화, 출력 weight 성장, 저장 state의 안정성까지 한 번에 해결하는 제안은 아니다. 정규화의 목표는 균등한 세 유형 비율이 아니라 초기 조건 변화에도 validation 품질과 유용한 문맥 기여를 유지하는 것이다.
+
+### 8.1 현재 계산 경로: 내용을 만드는 경로와 쓰기를 결정하는 경로
+
+배치 축을 생략하면 segment 입력은 `X=Embedding(ids)`∈R^(L×D), 시작 메모리는 S∈R^(M×D)다. Small은 D256·router head8(각32차원)·write MLP hidden512이며, M은8/20/75다. 현재 read gate는 off다.
+
+```mermaid
+flowchart LR
+    X["원래 token embedding X"] --> P["학습 query 1개로 attention pooling"]
+    P --> U["token 요약 u: D"]
+    U --> A["u를 query로 S에 cross-attention"]
+    S["segment 시작 메모리 S: M × D"] --> A
+    A --> V["memory 요약 v: D"]
+    U --> Z["concat u, v: 2D"]
+    V --> Z
+    Z --> G["Linear → GELU → Linear: M logits"]
+    G --> W["sigmoid + 학습 중 write mask"]
+    X --> B["NeoX stack: 기존 LayerNorm 포함"]
+    S --> B
+    B --> C["final LayerNorm 뒤 candidate C: M × D"]
+    S --> F["S_next = S + w · (C − S)"]
+    C --> F
+    W --> F
+```
+
+Router가 쓰는 X는 backbone 출력이나 contextual hidden이 아니라 **backbone embedding을 조회한 직후의 원래 X**다. Router 호출은 backbone의 input dropout보다 앞이고, 두 router attention의 dropout은0이다. 별도의 router 위치 embedding·RoPE·attention residual·LayerNorm은 없다. 이 순서를 기준으로 정규화 위치를 지정해야 한다.
+
+각 multi-head attention은 head별로 다음 계산을 하고 concat 뒤 출력 projection을 적용한다. 현재 PyTorch MHA의 학습 가능한 projection bias도 포함되며, 아래 수식에서는 생략한다.
+
+$$
+A(Q,K,V)=\operatorname{Concat}_h\left[\operatorname{softmax}\left(\frac{(QW_Q^h)(KW_K^h)^T}{\sqrt{d_h}}\right)VW_V^h\right]W_O.
+$$
+
+공통 학습 query q_pool 한 개로 segment를 요약하고, 그 요약으로 시작 메모리를 조회한다.
+
+$$
+u_t=A_{pool}(q_{pool},X_t,X_t),\qquad
+v_t=A_{mem}(u_t,S_t,S_t),\qquad z_t=[u_t;v_t].
+$$
+
+이 router attention에는 위치가 없으므로 token 행 또는 memory 행을 순열로 바꾸면 해당 attention 요약은 수학적으로 불변이다(dropout0, 실수 연산 기준). Backbone에는 위치 정보가 있지만 router 자체는 현재 입력의 순서와 각 슬롯의 주소를 직접 보존한 요약이 아니다. **모든 슬롯이 공유하는 한 요약 벡터**라는 병목과 정규화의 문제를 구분한다. 정규화를 넣어도 슬롯별 query가 생기지는 않는다.
+
+Write MLP와 슬롯별 gate는 다음과 같다.
+
+$$
+h_t=\operatorname{GELU}(W_1z_t+b_1),\qquad
+\ell_{t,i}=a_i^Th_t+b_{2,i},\qquad w_{t,i}=\sigma(\ell_{t,i}).
+$$
+
+W1은512×512, W2=[a_i^T]는M×512다. 슬롯별 a_i와 b2_i는 독립 파라미터이며 모든 슬롯에 같은 h를 사용한다. b2_i만 선택한 bias로 동일 초기화하고, W1/W2와 b1은 PyTorch Linear 기본 초기화를 사용한다. Backbone Linear/embedding의 std=.02 초기화를 router에 동일 적용하는 구조가 아니다. q_pool은 Xavier 초기화하며, 공유 pool_attn/reg_attn은 read 계산에도 사용하지만 read/write MLP는 별개다. Read off에서는 계산된 read gate가 저장 state 읽기에 적용되지 않는다.
+
+평가에서는 위 w를 그대로 쓰고, 학습 중 dropout p에서는 example·segment·slot별 독립 mask d_i∼Bernoulli(1−p)를 적용한다.
+
+$$
+\widetilde w_{t,i}=d_{t,i}\sigma(\ell_{t,i}),\qquad
+s_{t+1,i}=s_{t,i}+\widetilde w_{t,i}(c_{t,i}-s_{t,i}).
+$$
+
+구현은 mask된 logit을−∞로 만들어 gate0을 얻는다. Mask는 한 슬롯의 D개 feature에 공통이며 1/(1−p) rescaling은 없다. Sigmoid들은 독립적이므로 합1·총 write 예산·슬롯 간 경쟁 제약도 없다.
+
+Candidate C는 `[X; S]`를 공통 NeoX stack에 넣은 뒤 **final LayerNorm 이후** register 행에서 꺼낸다. Backbone은 layer별 attention/MLP 전에 이미 LayerNorm을 사용한다. Token은 모든 layer에서 시작 S를 정규화·projection한 K/V만 읽고, 중간 candidate hidden은 읽지 않는다. Candidate는 전체 segment 정보를 모을 수 있지만 write-back은 stack 종료 후 한 번, 다음 segment에만 적용한다.
+
+슬롯의 구분 근거는 독립적인 S0의 각 행(현재 모두0에서 시작), W2의 슬롯별 행, backbone RoPE 위치 L+i다(i=0..M−1). Slot-specific backbone weight나 직교·비중복 제약은 없다. 같은 역할이나 유사한 표현으로 학습되는 것을 막지는 않는다.
+
+### 8.2 이미 정규화된 곳과 아직 통제되지 않는 곳
+
+| 위치 | 현재 처리 | 남는 문제 |
+|---|---|---|
+| Router의 원래 X·S | 별도 normalization 없음 | 메모리·embedding 크기가 attention Q/K/V와 gate 입력에 직접 전달됨 |
+| Router attention score | head 차원 제곱근32^(1/2)로 나눔 | 학습 중 Q/K norm 증가를 제한하는 연산은 아님 |
+| u·v와 concat z | 별도 normalization/residual 없음 | 두 요약의 크기 차이가 shared MLP로 전달됨 |
+| Write MLP hidden·최종 logit | Linear/GELU, 별도 normalization 없음 | hidden·출력 weight·정렬 방향 성장에 의해 sigmoid 포화 가능 |
+| Backbone·candidate | pre-LayerNorm, 최종 LayerNorm | Router 경로는 우회함; 학습 가능한 affine scale로 candidate norm도 고정 상수는 아님 |
+| 저장 S·write-back 결과 | 직접 convex blend | gate0일 때 보존되는 identity 경로가 있으나 state norm을 별도로 고정하지 않음 |
+| Optimizer | Adam, weight_decay0, global gradient clip .25 | clipping은 gradient norm을 제한하며 activation·weight·logit 크기의 상한이 아님 |
+
+Write-back 자체는 scalar gate가0~1인 convex blend라서 다음 부등식을 만족한다.
+
+$$
+\|s'_{i}\|\le(1-w_i)\|s_i\|+w_i\|c_i\|\le\max(\|s_i\|,\|c_i\|).
+$$
+
+따라서 초기 state와 candidate norm이 제한돼 있으면 blend의 반복만으로 state norm이 계속 증폭되지는 않는다. 이것이 recurrent gradient 안정성을 보장하는 것은 아니며, 학습 중 candidate의 affine scale이나 router projection/MLP의 증폭은 별개다. 현재 큰 router activation을 단순한 state 누적 폭발로 설명하지 않는 이유다.
+
+아래는 평가 window16·32의 평균으로 기존 사후 원본에서 재집계했다. u/v는 MHA 출력 projection 이후 norm이고, Q/K score·attention entropy는 아니다.
+
+| 조건 | token 요약 norm u | memory 요약 norm v | GELU hidden norm | median abs(logit) |
+|---|---:|---:|---:|---:|
+| M20 / p0 | 0.561 | 44.361 | 108.06 | 18.08 |
+| M20 / p.1 | 0.385 | 160.740 | 778.41 | 276.33 |
+| M75 / p0 | 1.745 | 134.557 | 484.43 | 88.29 |
+| M75 / p.1 | 2.444 | 5.783 | 37.54 | 10.63 |
+
+M20/p.1은 메모리 요약의 평균 norm이 token 요약보다 약418배, M75/p0는 약77배다. **Token 요약이 실제 gate 결정에 그만큼 덜 기여한다고 단정할 수는 없다.** W1의 branch별 weight와 방향이 보상할 수 있고, u는 v를 만드는 query이기도 하다. 다만 concat 이전 branch별 scale 통제를 먼저 시험할 충분한 근거다. 큰 출력 norm만으로 attention이 이미 one-hot이라고 판단하지 않는다.
+
+포화는 gate 학습에도 영향을 준다. 다음은 dropout을 끄고 candidate·이전 state를 고정한 gate 경로의 편미분이다.
+
+$$
+\frac{\partial\mathcal L}{\partial\ell_i}
+=w_i(1-w_i)\left\langle\frac{\partial\mathcal L}{\partial s'_i},c_i-s_i\right\rangle.
+$$
+
+이상적인 실수 sigmoid slope는 logit0에서.25, ±2에서약.105, ±10에서약4.54e−5, ±20에서약2.06e−9다. FP32에서는 큰 양의 logit이 gate1로 반올림될 수도 있다. 포화 gate의 logit 경로 gradient가 약해지는 것은 맞지만, backbone/candidate 경로의 gradient까지 모두 사라진다는 뜻은 아니다. State의 직접 보존 경로 미분은 `(1−w)I`이며 전체 recurrent Jacobian에는 gate와 candidate가 S에 의존하는 항이 추가된다.
+
+### 8.3 첫 후보: branch별 feature LayerNorm 또는 RMSNorm
+
+**우선 추천: u와 v를 따로 정규화한 뒤 concat한다.** 저장 S·candidate·attention 본체는 그대로 두고 gate MLP에 전달되는 표현만 바꾼다.
+
+$$
+\bar u=N_u(u),\quad \bar v=N_v(v),\quad
+h=\operatorname{GELU}(W_1[\bar u;\bar v]+b_1),\quad
+\ell=W_2h+b_2.
+$$
+
+각 example의 D=256 feature 축에서 통계를 계산하고, 두 norm module은 서로 독립적이며 segment·batch·slot 사이의 통계를 섞지 않는다. 표준 LayerNorm은
+
+$$
+\operatorname{LN}(x)=\gamma\odot\frac{x-\mu(x)}{\sqrt{\operatorname{Var}(x)+\epsilon}}+\beta
+$$
+
+이며, RMSNorm은 평균을 빼지 않고
+
+$$
+\operatorname{RMSNorm}(x)=\gamma\odot\frac{x}{\sqrt{D^{-1}\sum_jx_j^2+\epsilon}}
+$$
+
+로 쓴다. 위 beta는 normalization의 affine shift로, 마지막 write bias b2와 다른 파라미터다.
+
+| 선택 | 기대 효과 | 한계 / 의견 |
+|---|---|---|
+| branch별 LayerNorm | u/v의 평균·scale을 각각 통제, backbone과 같은 익숙한 연산 | 절대 크기·공통 offset 정보도 제거; 첫 기준 비교로 추천 |
+| 같은 위치의 RMSNorm | 평균 offset을 보존하면서 RMS scale 통제, LM에서 널리 쓰임 | 큰 공통 offset이 feature 방향을 지배하는 현상까지 제거하지 않음; LN과 같은 위치에서 대안 비교 |
+| concat 전체에 단일 LayerNorm | 구현과 module 수가 가장 단순 | 큰 v가 전체 분산을 지배하면 작은 u가 상대적으로 작게 남음; 두 branch 균형 문제에는 첫 선택으로 덜 직접적 |
+| affine 없는 LN/RMSNorm | 해당 지점에서 scale 재팽창 경로를 줄이는 진단 | 표현 유연성도 제한; 뒤 Linear가 scale을 다시 키울 수 있으므로 gate 상한 보장은 아님 |
+
+첫 비교는 feature별 affine를 쓰는 표준 LN(gamma1/beta0, epsilon1e−5)부터 제안한다. RMSNorm 비교에서도 epsilon을 맞추고 실제 dtype을 기록한다. 두 branch에 같은 norm module을 공유하는 것과 별도 module을 두는 것은 다른 가설이므로, 첫 제안은 별도 module이다. LN 두 개의 추가 학습 파라미터는4D=1,024개, 일반적인 scale-only RMSNorm 두 개는2D=512개로 small 모델에 비해 작다. 실제 T4 시간은 미측정이며 큰 학습 속도 개선을 기대하는 변경은 아니다.
+
+이 방식은 u/v를 계산한 뒤 적용하므로 **두 MHA 내부의 원래 Q/K/V scale은 통제하지 못한다.** 또한 gate 결정에서 쓰던 메모리 크기 정보가 줄어드는 변화이며 무조건적인 개선이 아니다. 학습 가능한 gamma·뒤 Linear가 scale을 다시 키울 수 있어 logit 분포를 끝까지 확인한다. 역할 차이를 강제하거나 슬롯별 query를 추가하는 구조 변경도 아니다.
+
+### 8.4 Attention 앞과 내부의 표준 대안
+
+**입력 pre-norm.** MHA에 들어갈 X/S를 feature 축으로 정규화한 복사본으로 사용한다. 저장 state는 바꾸지 않는다.
+
+$$
+u=A_{pool}(q,N_X(X),N_X(X)),\qquad
+v=A_{mem}(N_u(u),N_S(S),N_S(S)).
+$$
+
+N_S는 각 슬롯의 D개 feature를 독립적으로 정규화하며 모든 슬롯에 같은 파라미터를 공유한다. 첫 식의 query는 기존 q를 유지한 예이고, q까지 정규화하는 것은 추가 선택이다. 위 수식은 여러 위치를 포함한 확장 예시로 첫 실험에서 전부 동시에 켜자는 뜻은 아니다. 메모리 입력 정규화 하나씩 분리해 본다. `v=A_mem(u,N_S(S),N_S(S))`는 특히 메모리 norm의 gate 피드백을 겨냥한다.
+
+Pre-norm은 projection 전 입력 스케일을 통제하지만 학습 가능한 W_Q/W_K/W_V/W_O 뒤의 크기까지 고정하지는 않는다. S0=0인 상태와 매우 작은 분산에서는 epsilon과 affine 처리에 따른 값·gradient도 확인해야 한다. 저장 S를 바꾸지 않아도 router가 메모리의 절대 크기를 보는 방식은 달라진다. Branch 출력 LN과는 개입 위치가 달라 별도 조건으로 비교한다.
+
+**QK normalization.** Head별 projected q/k를 정규화하고 temperature scale tau를 사용한다. L2 정규화 버전의 score는
+
+$$
+\operatorname{score}_{ij}=\tau_h\left\langle\frac{q_i}{\max(\|q_i\|,\epsilon)},\frac{k_j}{\max(\|k_j\|,\epsilon)}\right\rangle.
+$$
+
+고정 tau에서 score 절댓값을 tau 이하로 제한해 Q/K norm 성장에 의한 attention 포화를 직접 겨냥한다. Tau가 학습 가능하면 다시 커질 수 있다. RMS 기반 q/k 정규화는 scaling convention이 달라 위 L2 식과 숫자를 그대로 교환하지 않는다. V/W_O·최종 gate logit의 크기를 제한하는 방법은 아니며, L/M에 따른 softmax의 후보 수 효과도 남는다.
+
+현재 큰 v만으로 QK 포화를 확정할 수 없으므로, QK norm은 attention score·entropy가 실제로 극단화된 경우 우선순위를 올린다. 현재 router는 일반 nn.MultiheadAttention이어서 projected Q/K 정규화는 단순 LN 삽입보다 코드 변경이 크다. Backbone attention까지 함께 바꾸지 않고 write router만 대상으로 한다. 기존 trace의 pooling weights는 head·example 평균이므로 그 평균의 entropy를 원래 per-head entropy로 해석하면 안 된다. Memory attention의 상세 weights도 현재 report에는 없어 추가 진단이 필요하다.
+
+### 8.5 MLP·weight·logit 수준의 통제
+
+| 방법 | 넣을 위치 / 형태 | 판단 |
+|---|---|---|
+| MLP hidden LayerNorm/RMSNorm | GELU 전 `GELU(N_h(W1 z+b1))` 또는 후 `N_h(GELU(...))` | 입력 norm 뒤에도 hidden이 커질 때 후보. 전/후는 다른 구조이며 한 곳씩 비교 |
+| Weight normalization | 출력 행 `a_i=g_i v_i/||v_i||` | 방향·크기를 분리하는 표준 재파라미터화. g_i가 자라므로 포화 방지 보장은 없음 |
+| Spectral normalization | W1/W2의 최대 singular value 통제 | 선형 증폭 제한에 더 직접적. Hidden·bias도 제한돼야 logit bound로 이어짐; 추가 제약/계산이 있어 후순위 |
+| Q/K 또는 출력 weight norm 모니터링 | 학습 중 행 norm·activation norm 추적 | 정규화가 아니지만 어떤 경로가 커지는지 구분하는 데 필요 |
+
+Hidden norm은 실제로 W2에 들어가는 h를 통제한다는 장점이 있다. 하지만 W2가 커지거나 방향이 h에 더 정렬되면 포화가 다시 생길 수 있다. 출력 행 norm을 함께 본다. 반대로 현재 출력 행 norm이 전부 비정상적으로 큰 상태라고 단정할 근거도 없다. 사후 결과에서 M20/p.1 W2 행 norm은약.630~.787이고 M75/p.1은약.620~.933인데, logit은 M20 쪽이 훨씬 크다. **출력 weight 크기 하나보다 context·hidden과의 결합을 먼저 의심하는 이유**다.
+
+Sigmoid 직전 통제는 적용이 쉽지만 다음처럼 별도로 평가한다.
+
+- 고정 temperature: `w=sigmoid(ell/T)`. 같은 ell에서 T>1은 포화를 줄이지만 ell에 대한 미분에는1/T도 들어가며, 학습 중 W2가 커져 상쇄할 수 있다. `sigmoid((W2 h)/T+b2)`와 `sigmoid((W2 h+b2)/T)`는 bias 의미가 다르므로 혼용하지 않는다.
+- Logit soft cap: `ell_cap=c*tanh(ell/c)` 뒤 sigmoid. Logit 절댓값을 제한하지만 모델 함수를 바꾸며, 큰 원래 ell에서는 tanh 경로도 포화한다. 이미 포화된 체크포인트를 붙여서 즉시 정상화하는 해법으로 보지 않는다.
+- Hard clamp: 범위 밖 ell의 gradient가0이어서 gate 학습을 더 막을 수 있다. 첫 해법으로 권하지 않는다.
+- M개 logits 전체 LayerNorm: 슬롯 간 상대적인 값으로 gate를 결정하게 해, 독립적인 절대 write 성향을 바꾸는 결합을 도입한다. M과 affine 설정에도 의존하므로 hidden 정규화와 구분한다. **슬롯마다 logit 하나에 LayerNorm을 따로 적용하면 중심화 결과가0이 돼 정보가 사라지므로 적절한 대안이 아니다.**
+
+LayerNorm/RMSNorm은 대체로 위치·방향의 자유도를 남긴 채 scale을 조절하는 방법이고, temperature/cap은 gate의 동작 범위와 민감도를 더 직접적으로 바꾼다. 처음부터 함께 적용하면 개선 원인을 분리하기 어렵다.
+
+### 8.6 처음에는 권하지 않는 개입과 보조 정규화
+
+**저장 state의 매-step post-norm은 후순위다.** `S_next=N(S+w(C−S))`로 바꾸면 w=0에서도 `S_next=N(S)`가 되어 기존 상태 보존이 일반적으로 깨진다. 장기 기억의 identity 경로·상태 크기·반복 gradient를 바꾸는 구조 변경이다. 우선은 `N(S)`를 router 입력의 view로만 사용하고 저장 S는 그대로 둔다. Candidate C도 이미 final LayerNorm 뒤이므로 추가 norm은 중복 가능성과 학습된 affine/scale 변경을 따져야 한다.
+
+**BatchNorm은 첫 후보로 권하지 않는다.** Microbatch·분산 rank·train/eval running statistics·연속 stream의 상태 분포에 의존해, GPU 환경별 비교와 고정 checkpoint 분석을 복잡하게 한다. GroupNorm/InstanceNorm도 어떤 축을 묶는지에 따라 슬롯·segment를 결합하며, 여기서는 feature-wise LN/RMSNorm보다 우선할 근거가 적다.
+
+**보조 손실과 optimizer 정규화는 activation normalization과 구분한다.**
+
+| 방법 | 가능한 장점 | 위험 / 순서 |
+|---|---|---|
+| Gate logit L2 또는 큰 logit에만 penalty | 불필요한 극단 포화를 직접 억제 | 계수 HPO 필요; 장기 보존에 필요한 닫힘·빠른 갱신의 열림도 억제 가능 |
+| Gate entropy 보상 | gate0/1 고착 완화 | scalar sigmoid의 최대 entropy는.5이므로 내용 분화나 문맥 선택성을 보장하지 않음 |
+| 슬롯 평균 write 균형·비율 제약 | 특정 소수 슬롯 독점 완화 | 모든 슬롯에 같은 write를 강제하거나 근거 없는 비율에 맞출 위험 |
+| State/update decorrelation·orthogonality | 내용 중복을 직접 겨냥 | 유용한 공통 정보·보존 상태도 손상 가능, 어떤 표현/관측을 정규화할지 추가 선택 필요 |
+| Gate MLP에 선택적 weight decay | weight 성장에 대한 완만한 압력 | activation/logit 상한은 없음; 현재 Adam의 decay0과 다른 조건이며 AdamW 도입은 optimizer 변경으로 분리 |
+
+이 보조 손실들은 균등한 비율을 만들기 쉽다는 이유만으로 선택하지 않는다. Gate=0이더라도 warmup 정보를 보존할 수 있고, open끼리도 같은 내용을 갱신할 수 있기 때문이다. 먼저 activation scale을 통제한 뒤에도 기능적 중복이 지속되는지를 본다.
+
+### 8.7 권장 비교 순서와 성공 기준
+
+사용자 최신 결정에 따라 **bias 비교는 M8/20/75 모두 dropout0에서−2/0/+2**다. Bias0은 기존 A8-0/A20-0/A75-0을 재사용하고−2/+2만 추가6run이다. A의 성능 기준 선택(M75의 dropout.1)은 결과로 남기되 이번 bias 비교에 적용하지 않는다. Bias는 초기 gate 경로에 대한 진단이며 최종 해법을 좋은 초기값 탐색으로 한정하지 않는다.
+
+정규화는 다음 후보 순서로 제안하며, 아직 실행 조건을 구현하거나 새 학습을 시작하지 않았다.
+
+1. **N0:** 기존 no-norm·dropout0·bias0 재사용.
+2. **N1:** write MLP 직전 branch별 LayerNorm만 추가. 초기 bias0·dropout0·기존20k 등은 고정. 서로 다른 실패 양상을 보인 M20/M75부터 살펴볼 수 있으나 M 선택 자체도 명시한다.
+3. **N2:** 필요하면 같은 위치의 RMSNorm과 비교. N1에 RMSNorm을 추가로 쌓지 않는다.
+4. **조건부 후속:** output norm만으로 attention의 극단화가 남으면 memory 입력 pre-norm 또는 QK norm, attention은 정상인데 hidden/logit만 커지면 hidden norm·출력 scale 통제를 하나씩 비교.
+5. **보편성 확인:** 유망한 norm과 no-norm을 같은 추가 seed에서 쌍으로 비교하고, bias−2/0/+2에 따른 품질·분화 변화가 실제로 줄었는지 확인. 초기값 민감성 개선을 한 seed의 좋은 비율만으로 주장하지 않는다.
+
+정규화를 넣으면 계산 함수와 gradient가 바뀌므로 새 초기화의 별도 run을 사용한다. 기존 학습 완료 가중치에 norm을 끼워 넣은 결과를 학습 효과와 섞지 않는다. 표준 LN/RMSNorm의1/0 affine 초기화 자체는 난수를 소비하지 않지만, 추가 projection이나 module 생성 순서를 바꾸면 같은 seed라도 뒤 파라미터가 달라질 수 있어 공통 초기 backbone·router weight의 대응도 확인한다. 작은 CPU 검사는 shape/gradient와 gate0 보존, read 고정·종료 write-back·prefix 동등성에 한정하고 품질·분화 판단은 GPU 학습 결과로 한다.
+
+성공 기준은 다음을 함께 만족하는 방향이다.
+
+- **품질:** 같은 budget의 전체 validation NLL/PPL이 유지·개선되고 후반 곡선도 확인됨. 6k/12k 경계 전 pilot만으로 순위를 확정하지 않음.
+- **안정성:** u/v·hidden·logit의 분포와 극단 포화가 덜 불안정하고, 필요할 때 gate가 닫히거나 열리는 자유도는 남음. 포화율0 자체를 목표로 삼지 않음.
+- **기능:** held-out window의 그룹 개입이 동일 크기 무작위 대조군과 구별되고, 실제 update 다양성과 조건부 복원 효과가 뒷받침됨. 균등 유형 비율·rank 최대화는 목표가 아님.
+- **재현성:** 추가 seed와 초기 bias 변화에서도 위 품질·기능이 유지됨. 비율이 달라도 기능이 유지되면 실패로 판정하지 않음.
+
+기존 사후 report에는 u/v·hidden norm, 원 logit·sigmoid slope·출력 bias/행 norm·gate 분류·표현·그룹 개입·retention이 있다. 학습 전체의 per-head QK score/entropy·W1 spectral norm·router 전용 gradient 이력은 없다. 필요하면 이 지표를 따로 추가해야 하며 현재 문서만으로 수집이 구현됐다고 보지 않는다. 초기 및 epoch 경계 전후의 gate/scale 관측은 포화가 언제 생겼는지 구분하는 데 유용하다.
+
+검토 결론은 **branch별 LayerNorm을 가장 작은 첫 개입으로, RMSNorm을 같은 위치의 대안으로 두고, 진단에 따라 더 앞의 attention 또는 더 뒤의 hidden/logit으로 이동하는 순서**다. 이는 scale 불균형에 대한 검증 가능한 가설이며 분화의 원인이나 성능 개선을 확인한 결과는 아니다.
+
+### 8.8 표준 방법의 참고 문헌
+
+아래는 방법의 원 논문이다. 이 GRT에서의 효과를 입증하는 자료는 아니며 적용 위치·우선순위는 위 코드와 실측 결과에 근거한 제안이다.
+
+- [Layer Normalization — Ba, Kiros, Hinton (2016)](https://arxiv.org/abs/1607.06450)
+- [Root Mean Square Layer Normalization — Zhang, Sennrich (2019)](https://arxiv.org/abs/1910.07467)
+- [Query-Key Normalization for Transformers — Henry et al. (2020)](https://arxiv.org/abs/2010.04245)
+- [Weight Normalization — Salimans, Kingma (2016)](https://arxiv.org/abs/1602.07868)
+- [Spectral Normalization for GANs — Miyato et al. (2018)](https://arxiv.org/abs/1802.05957)
+- [Decoupled Weight Decay Regularization — Loshchilov, Hutter (2017)](https://arxiv.org/abs/1711.05101)
+
+문서 검증: 현재 router의 실제 weight shape·요약의 순열 불변성, gate0 state 보존·convex blend norm bound·LN parameter 수를 작은 CPU 연산으로 대조했다. 새 수치4행은 기존 사후 JSON에서 재계산했고, 문서 링크·수식/code fence·B단계6행의 dropout0·학습 notebook code AST 불변을 확인했다. 정규화 모델의 학습 효과를 검사한 것은 아니다.
