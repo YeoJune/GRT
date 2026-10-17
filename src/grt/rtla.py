@@ -52,6 +52,21 @@ class TraceBuffer:
             for key, value in values.items():
                 self.records.setdefault(key, []).append(value.detach().cpu())
 
+    def record_refine(self, base, refine, base_logits, refine_logits):
+        """Internal write gates before dropout; effective writes use w_gates."""
+        with torch.no_grad():
+            p, q = base.float(), refine.float()
+            values = {
+                'base_write_gates': p.mean(0), 'refine_gates': q.mean(0),
+                'base_write_abs_logits': base_logits.detach().float().abs().mean(0),
+                'refine_abs_logits': refine_logits.detach().float().abs().mean(0),
+                'write_base_logit_derivative':
+                    (p*(1-p)*(1+(2*q-1)*(1-2*p))).mean(0),
+                'write_refine_logit_derivative': (2*p*(1-p)*q*(1-q)).mean(0),
+            }
+            for key, value in values.items():
+                self.records.setdefault(key, []).append(value.detach().cpu())
+
     def to_numpy(self):
         if not self.records["w_gates"]:
             raise ValueError("Empty trace")
@@ -140,4 +155,13 @@ def trace_metrics(arrays, read_active):
     }
     if read_active:
         metrics['grt/read_mean'] = float(arrays['r_gates'].mean())
+    if 'refine_gates' in arrays:
+        for name, key in (
+            ('base_write_mean', 'base_write_gates'), ('refine_mean', 'refine_gates'),
+            ('base_abs_logit_mean', 'base_write_abs_logits'),
+            ('refine_abs_logit_mean', 'refine_abs_logits'),
+            ('base_logit_derivative_mean', 'write_base_logit_derivative'),
+            ('refine_logit_derivative_mean', 'write_refine_logit_derivative'),
+        ):
+            metrics['grt/refine/'+name] = float(arrays[key].mean())
     return metrics

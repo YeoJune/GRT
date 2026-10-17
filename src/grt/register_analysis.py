@@ -83,14 +83,21 @@ class RegisterObserver:
 
         def logits_hook(module, args, output):
             self._captured['logits'] = output.detach().cpu().clone()
+            self._captured['base_gates'] = output.detach().sigmoid().cpu()
             self._captured['hidden_norm'] = args[0].detach().float().norm(dim=-1).cpu()
+
+        def refine_hook(module, args, output):
+            self._captured['refine_logits'] = output.detach().cpu().clone()
+            self._captured['refine_gates'] = output.detach().sigmoid().cpu()
 
         def router_hook(module, args, output):
             self._captured['gates'] = output[1].detach().squeeze(-1).cpu().clone()
 
-        handles = [model.router.mlp_w.register_forward_pre_hook(context_hook),
+        handles = [model.router.mlp_w[0].register_forward_pre_hook(context_hook),
                    model.router.mlp_w[-1].register_forward_hook(logits_hook),
                    model.router.register_forward_hook(router_hook)]
+        if model.router.refine_head is not None:
+            handles.append(model.router.refine_head.register_forward_hook(refine_hook))
         try:
             yield
         finally:
@@ -108,21 +115,23 @@ class RegisterObserver:
         updates = torch.stack([r['update'] for r in self.samples]).flatten(0, 1)
         initial = model.initial_state(1).detach().cpu()
         gates = torch.stack([r['gates'] for r in self.samples]).numpy()
+        base = (torch.stack([r['base_gates'] for r in self.samples]).numpy()
+                if model.router.refine_head is not None else gates)
         logits = torch.stack([r['logits'] for r in self.samples]).numpy().astype(np.float64)
         context = torch.stack([r['context'] for r in self.samples]).double()
         head = model.router.mlp_w[-1]
         bias = head.bias.detach().cpu().double().numpy()
         norms = head.weight.detach().float().norm(dim=-1).cpu().numpy()
         centered = states-states.mean(0, keepdim=True)
-        return dict(
+        result = dict(
             gate_logits=dict(raw=logits, per_slot=distribution(logits, (0, 1)),
                 output_bias=bias, output_weight_row_norm=norms,
                 context_contribution=distribution(logits-bias, (0, 1)),
                 fraction_abs_over_10=float((np.abs(logits) > 10).mean()),
                 fraction_abs_over_20=float((np.abs(logits) > 20).mean()),
-                fraction_exact_zero=float((gates == 0).mean()),
-                fraction_exact_one=float((gates == 1).mean()),
-                mean_sigmoid_slope_per_slot=(gates*(1-gates)).mean((0, 1))),
+                fraction_exact_zero=float((base == 0).mean()),
+                fraction_exact_one=float((base == 1).mean()),
+                mean_sigmoid_slope_per_slot=(base*(1-base)).mean((0, 1))),
             router_input=dict(
                 context_norm=distribution(context.norm(dim=-1).numpy()),
                 token_context_norm=distribution(context[..., :context.shape[-1]//2].norm(dim=-1).numpy()),
@@ -140,6 +149,24 @@ class RegisterObserver:
                 cka_scope='same segment/example observations, centered per slot; constant=null; '
                           'finite-sample bias, especially observations<features; no independent-sample claim'),
             write_gates=gates)
+        if model.router.refine_head is not None:
+            refine = torch.stack([r['refine_gates'] for r in self.samples]).numpy()
+            refine_logits = torch.stack([r['refine_logits'] for r in self.samples]).numpy()
+            p_slope = base*(1-base)
+            result['gate_logits']['scope'] = 'base write sigmoid, before refinement'
+            result['refine_gate'] = dict(
+                scope='write_gates are effective writes; derivatives are local partials '
+                      'with respect to each internal logit, not parameter gradients',
+                base_write_gates=base, raw_logits=refine_logits, raw_gates=refine,
+                per_slot=distribution(refine, (0, 1)),
+                output_bias=model.router.refine_head.bias.detach().cpu().numpy(),
+                output_weight_row_norm=model.router.refine_head.weight.detach().norm(dim=-1).cpu().numpy(),
+                fraction_abs_over_20=float((np.abs(refine_logits) > 20).mean()),
+                mean_base_logit_derivative_per_slot=
+                    (p_slope*(1+(2*refine-1)*(1-2*base))).mean((0, 1)),
+                mean_refine_logit_derivative_per_slot=
+                    (2*p_slope*refine*(1-refine)).mean((0, 1)))
+        return result
 
 
 def group_stability(gates, calibration_labels, thresholds=(.001, .01, .05)):

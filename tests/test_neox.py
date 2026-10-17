@@ -60,12 +60,14 @@ def test_parallel_query_has_no_answer_and_one_stack_per_segment(tmp_path, name):
     assert restored.backbone.embedding.weight is restored.backbone.lm_head.weight
 
 
-@pytest.mark.parametrize('name,read', [('rmt',False),('grt',False),('grt',True)])
-def test_decoder_causality_including_register_path(tmp_path,name,read):
+@pytest.mark.parametrize('name,read,refine', [('rmt',False,False),('grt',False,False),
+    ('grt',True,False),('grt',False,True)])
+def test_decoder_causality_including_register_path(tmp_path,name,read,refine):
     torch.manual_seed(19)
     cfg=config(tmp_path,name,'decoder')
     if name == 'grt':
         cfg.model.register.conditional_read=read
+        cfg.model.register.refine_gate=refine
     cfg.model.segment_len=8
     model=create_model(cfg).eval()
     ids=torch.tensor([[1,2,3,4,5,6]])
@@ -169,9 +171,11 @@ def stream_config(tmp_path, name='grt'):
     return cfg
 
 
-@pytest.mark.parametrize('name',['grt','rmt'])
-def test_word_stream_boundary_loss_and_exact_resume(tmp_path,monkeypatch,name):
+@pytest.mark.parametrize('name,refine',[('grt',False),('rmt',False),('grt',True)])
+def test_word_stream_boundary_loss_and_exact_resume(tmp_path,monkeypatch,name,refine):
     cfg=stream_config(tmp_path,name);validate_config(cfg)
+    if name == 'grt':
+        cfg.model.register.refine_gate=refine
     cfg.model.alu.dropout=0.1
     from grt import stream_training
     save=stream_training.atomic_save
@@ -232,13 +236,15 @@ def test_stream_preflight_preserves_effective_batch(tmp_path):
     assert not (Path(cfg.run.output_dir)/'last.pt').exists()
 
 
-@pytest.mark.parametrize('name',['grt','rmt'])
-def test_stream_distributed_cli_and_checkpoint_state(tmp_path,name):
+@pytest.mark.parametrize('name,refine',[('grt',False),('rmt',False),('grt',True)])
+def test_stream_distributed_cli_and_checkpoint_state(tmp_path,name,refine):
     from dataclasses import asdict
     import json
     import yaml
     from test_distributed import invoke
     cfg=stream_config(tmp_path,name)
+    if name == 'grt':
+        cfg.model.register.refine_gate=refine
     cfg.training.batch_size=1;cfg.training.grad_accum_steps=2;cfg.training.global_batch_size=4
     path=tmp_path/'cfg.yaml';path.write_text(yaml.safe_dump(asdict(cfg)))
     root=Path(cfg.run.output_dir)

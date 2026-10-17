@@ -10,6 +10,7 @@
 
 | 실험 | 현재 상태 | 문서 |
 |---|---|---|
+| L75/M20 Refine gate | 중립 초기화·on/off 구현, seed54 on 실행 준비. 기존 off 재사용 후 유망하면 추가2seed 비교 | [계획·결과란](experiments/20261017_l75_refine_gate.md) |
 | L75 small write gate 비교 | A단계 학습·확장 사후 각6개 완료: dropout0/0/.1 잠정 선택(M8/20/75), M75 중간형의 문맥 기여 확인. M20 bias−2/0/+2 완료: best PPL32.6100/33.7436/33.0599, −2 잠정 우선; M8/M75 bias 미실행 | [계획·결과·판단](experiments/20261015_l75_write_gates.md) |
 | small 레지스터 용량 비교 | NeoX/RMT baseline, GRT M10/M40/M160의10k 학습·다중 window/그룹 사후 분석 완료; 선택 M 미정 | [계획·결과·해석·사용자 판단](experiments/20261012_small_register_sweep.md) |
 

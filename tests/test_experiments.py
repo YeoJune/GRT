@@ -97,7 +97,8 @@ def test_colab_shared_budget_and_secret_setup(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('runtime', ['kaggle', 'colab'])
-def test_l75_gate_grid_through_actual_notebook_selection(runtime, monkeypatch):
+@pytest.mark.parametrize('refine', [False, True])
+def test_l75_gate_grid_through_actual_notebook_selection(runtime, monkeypatch, refine):
     """The real manual entrypoint must preserve budgets and isolate every condition."""
     import ast
     notebook = json.loads((REPO/'notebooks'/f'{runtime}.ipynb').read_text())
@@ -107,7 +108,8 @@ def test_l75_gate_grid_through_actual_notebook_selection(runtime, monkeypatch):
     for memory in (8, 20, 75):
         for bias in (-2., 0., 2.):
             for dropout in (0., .1):
-                values = dict(num_registers=memory, write_gate_bias=bias, write_dropout=dropout)
+                values = dict(num_registers=memory, write_gate_bias=bias, write_dropout=dropout,
+                              refine_gate=refine)
                 for node in selection.body:
                     if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                         key = node.targets[0].id
@@ -121,6 +123,7 @@ def test_l75_gate_grid_through_actual_notebook_selection(runtime, monkeypatch):
                 assert cfg.model.segment_len == 75 and cfg.model.num_registers == memory
                 assert cfg.model.register.write_gate_bias_init == bias
                 assert cfg.model.register.dropout_prob == dropout
+                assert cfg.model.register.refine_gate is refine
                 assert cfg.model.register.conditional_read is False
                 assert cfg.model.d_model == 256 and cfg.model.alu.num_layers == 6
                 assert cfg.model.router.pool_nhead == 8 and cfg.model.router.mlp_hidden == 512

@@ -30,6 +30,7 @@ class RegisterConfig:
     conditional_read: bool = False
     dropout_prob: float = 0.0
     write_gate_bias_init: float = -2.0
+    refine_gate: bool = False
     s0_learnable: bool = True
 
 

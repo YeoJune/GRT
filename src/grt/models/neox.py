@@ -123,7 +123,8 @@ class RecurrentNeoX(nn.Module):
             nn.init.normal_(self.initial_memory, std=0.02)
         elif m.name == 'grt':
             self.router = GlobalRouterUnit(m.router, m.num_registers, m.d_model,
-                m.register.write_gate_bias_init, m.register.dropout_prob)
+                m.register.write_gate_bias_init, m.register.dropout_prob,
+                refine_gate=m.register.refine_gate)
 
     def initial_state(self, batch_size):
         if self.cfg.name == 'neox':
@@ -159,7 +160,7 @@ class RecurrentNeoX(nn.Module):
             y, candidate = h[:, m:m+n], h[:, -m:]
             next_state = candidate
         else:
-            read, write, alpha = self.router(x, state)
+            read, write, alpha = self.router(x, state, trace=trace)
             source = read * state if self.cfg.register.conditional_read else state
             # Reserve memory positions after a full segment even for a shorter prefix.
             # Otherwise future sequence length would change token-to-memory RoPE.

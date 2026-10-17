@@ -1,6 +1,6 @@
 # GRT/RMT/NeoX 최신 실험·구현 명세
 
-갱신일: 2026-10-11. 사용자 합의를 통합한 유일한 최신 설계 기준이다.
+갱신일: 2026-10-17. 사용자 합의를 통합한 유일한 최신 설계 기준이다.
 상태: 문서 정리 후 새 인코더·디코더, Remember 병렬 slot, WikiText 학습·평가 경로 구현. 검증 결과는 9절에 기록한다.
 이전 문서는 archive에 보존하며 현재 설정을 선택하는 근거로 사용하지 않는다.
 현재 실행 구조는 공통 NeoX 하나다. 과거 모델/설정/checkpoint 호환 경로는 제공하지 않는다.
@@ -62,6 +62,8 @@ S_read = R*S if conditional_read else S
 logits = tied_lm_head(Y)
 S_next = (1-W)*S + W*C
 ```
+
+2026-10-17 추가: `model.register.refine_gate`(기본false)를 켜면 write MLP hidden h를 공유하는 중립 초기화 보정 head를 추가한다. p는 기존 write sigmoid, q는 새 head의 sigmoid이며 유효 W=p+(2q−1)p(1−p)로 바뀐다. 새 head weight·bias는0이고 초기화 RNG를 소모하지 않아 시작 시 q=.5, W=p다. Uniform Gate Initialization과 추가 loss는 넣지 않는다. Read gate와 독립적이며 candidate·고정 state 읽기·종료 후 write-back은 동일하다. Write dropout은 on에서 유효 W를0으로 mask한다. [실험 조건과 전달 방법](experiments/20261017_l75_refine_gate.md)을 따른다.
 
 R/W는 register별 scalar [B,M,1], S/C는 [B,M,D].
 read gate는 on/off 가능하고 기본 conditional_read=false. write gate는 항상 적용한다.

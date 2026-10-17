@@ -122,7 +122,8 @@ def test_raw_gates_expose_saturation_hidden_by_batch_mean():
     np.testing.assert_allclose(arrays['update_distances'], plain.to_numpy()['update_distances'])
 
 
-def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path):
+@pytest.mark.parametrize('refine', [False, True])
+def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path, refine):
     checkpoint, data, cfg, model, _ = inputs
     # Three disjoint four-segment windows in each of the two fixed streams.
     torch.save(torch.arange(160, dtype=torch.long)%128, data/'validation.pt')
@@ -130,6 +131,11 @@ def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path):
     manifest['sha256']['validation'] = file_hash(data/'validation.pt')
     (data/'manifest.json').write_text(json.dumps(manifest))
     state = torch.load(checkpoint, weights_only=False)
+    if refine:
+        cfg.model.register.refine_gate = True
+        state['config'] = asdict(cfg)
+        state['model'] = create_model(cfg).state_dict()
+        state['model']['router.refine_head.bias'].fill_(1.)
     state['dataset_manifest'] = manifest
     # Exercise all three groups, including the empty complement of their union.
     state['model']['router.mlp_w.2.weight'].zero_()
@@ -152,6 +158,9 @@ def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path):
     for window in result['windows']:
         assert window['summary']['target_tokens'] == 16
         assert np.array(window['diagnostics']['gate_logits']['raw']).shape == (2, 2, 3)
+        if refine:
+            assert np.array(window['diagnostics']['refine_gate']['raw_logits']).shape == (2, 2, 3)
+            assert report['metrics']['grt/refine/refine_mean'] > .5
         assert sum(window['stability']['threshold_sensitivity']['0.01']['counts'].values()) == 3
         all_key = result['intervention_plan'][0]['mask']
         for mode in ('reset', 'swap'):
