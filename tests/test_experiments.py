@@ -1,7 +1,9 @@
 """Current catalog selection and one short production-utils CPU workflow."""
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 from zipfile import ZipFile
@@ -15,6 +17,15 @@ from grt.experiments import load_experiment, parse_overrides
 from grt.utils.kaggle import WikiTextRun, file_hash
 
 REPO = Path(__file__).resolve().parents[1]
+
+
+def test_notebook_selection_does_not_import_transformers_before_setup():
+    code = ("import sys; from grt.utils.kaggle import WikiTextRun; "
+            f"WikiTextRun({str(REPO)!r}, wandb=False); "
+            "assert 'transformers' not in sys.modules; "
+            "assert 'grt.models.neox' not in sys.modules")
+    subprocess.run([sys.executable, '-c', code], check=True, cwd=REPO,
+                   env={**os.environ, 'PYTHONPATH': str(REPO/'src')})
 
 
 @pytest.mark.parametrize('model', ['rmt', 'grt'])
@@ -211,14 +222,27 @@ def test_training_report_bundles_real_posthoc_and_reuses_analysis(tmp_path, monk
     checkpoint = job.run_dir/'grt/best.pt'
     before = file_hash(checkpoint)
     bundle_path = job.run_dir/'experiment_results.zip'
-    with pytest.raises(ValueError, match='disjoint'):
+    with pytest.raises(subprocess.CalledProcessError):
         job.report(plot=False, posthoc=True, posthoc_options={'window_starts': (0, 1)})
+    assert 'disjoint' in (job.run_dir/'grt_posthoc_console.txt').read_text()
     assert job.report_path.is_file() and not bundle_path.exists()
     options = dict(batch_size=2, segments=2, warmup_segments=1, horizon=2,
                    window_starts=(0, 6, 12), group_repeats=1, lesion_fractions=(.5,))
     downloads = []
     monkeypatch.setitem(sys.modules, 'google.colab',
                         SimpleNamespace(files=SimpleNamespace(download=downloads.append)))
+    # A Kaggle kernel may retain a preinstalled Config after setup downgrades the
+    # files on disk. Reproduce the missing rotary_pct in the parent interpreter.
+    from grt.models import neox
+    from grt.checkpoint import restore_model
+    original_config = neox.GPTNeoXConfig
+    def stale_config(**kwargs):
+        config = original_config(**kwargs)
+        del config.rotary_pct
+        return config
+    monkeypatch.setattr(neox, 'GPTNeoXConfig', stale_config)
+    with pytest.raises(AttributeError, match='rotary_pct'):
+        restore_model(load_checkpoint(checkpoint), 'cpu')
     results = job.report(plot=False, posthoc=True, posthoc_options=options, download=True)
     assert results['grt'] == summary and downloads == [str(bundle_path)]
     with ZipFile(bundle_path) as bundle:
@@ -241,8 +265,9 @@ def test_training_report_bundles_real_posthoc_and_reuses_analysis(tmp_path, monk
         job.report(plot=False, posthoc_options=options)
     wrong_summary = {**summary, 'selected_step': summary['selected_step']+1}
     (job.run_dir/'grt/summary.json').write_text(json.dumps(wrong_summary))
-    with pytest.raises(ValueError, match='step differs'):
+    with pytest.raises(subprocess.CalledProcessError):
         job.report(plot=False, posthoc=True, posthoc_options=options)
+    assert 'step differs' in (job.run_dir/'grt_posthoc_console.txt').read_text()
     assert file_hash(checkpoint) == before
 
 

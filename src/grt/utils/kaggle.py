@@ -303,23 +303,22 @@ class WikiTextRun:
         return results
 
     def posthoc(self, **options):
-        """Analyze this run's selected GRT checkpoint with the standalone protocol."""
-        from grt.utils.posthoc import WikiTextPosthoc
-
+        """Use a fresh interpreter, just like training, after notebook pip setup."""
         reports = {}
         for model in self.models:
             if model != 'grt':
                 continue
             root = self.run_dir / model
             summary = json.loads((root / 'summary.json').read_text())
-            job = WikiTextPosthoc(checkpoint=root / 'best.pt', prepared_dir=self.prepared_dir,
-                output_dir=root / 'posthoc', device=self.device,
-                **{'slots': True, **options})
-            info = job.inspect()
-            if info['checkpoint_step'] != summary['selected_step']:
-                raise ValueError('best.pt step differs from selected training result')
-            job.run()
-            reports[model] = job.report()
+            index = root / 'posthoc_report_path.json'
+            command = [sys.executable, '-u', 'scripts/posthoc.py',
+                '--checkpoint', root / 'best.pt', '--prepared-dir', self.prepared_dir,
+                '--output-dir', root / 'posthoc', '--device', self.device,
+                '--selected-step', str(summary['selected_step']),
+                '--options-json', json.dumps({'slots': True, **options}),
+                '--report-index', index]
+            self._logged(command, model + '_posthoc_console.txt')
+            reports[model] = Path(json.loads(index.read_text())['report_path'])
         if not reports:
             print('No GRT selected; posthoc analysis skipped for NeoX/RMT.')
         return reports

@@ -7,7 +7,6 @@ from pathlib import Path
 import torch
 from grt.checkpoint import seed_all
 from grt.config import Config, build_config, load_config, merge_dicts, validate_config
-from grt.models.factory import create_model
 
 
 def peak_fraction(ctx):
@@ -31,6 +30,9 @@ def select_batch(training, device, probe):
 
 
 def calibrate_batch(cfg, ctx, optimizer_factory, update, evaluate):
+    # Config selection precedes notebook setup/pip; do not import Transformers there.
+    from grt.models.factory import create_model
+
     t, device = cfg.training, ctx.device
     policy = dict(enabled=t.auto_batch, applied=t.auto_batch and device.type == 'cuda',
                   memory_fraction=t.memory_fraction,

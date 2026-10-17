@@ -161,7 +161,21 @@ job.report(posthoc=True, download=True, posthoc_options=dict(
 
 `WikiTextRun.posthoc()`가 이번 run의 `grt/best.pt`와 prepared 폴더를 자동 선택하고 `WikiTextPosthoc`을 그대로 사용한다. checkpoint step이 학습 summary의 selected_step과 다르면 거부한다. 학습 GPU 수와 관계없이 단일 장치·FP32에서 실행하며 GRT 이외 모델은 생략한다. 분석 옵션은 학습 Config/run hash를 바꾸지 않고 분석 signature에 반영한다.
 
+2026-10-17 수정: 학습 Config 선택 단계에서 model/Transformers를 미리 import하지 않는다. `job.report(posthoc=True, ...)`는 `scripts/posthoc.py`를 새 Python 프로세스로 실행해, `setup()`의 pip 설치 이전에 커널에 남은 Transformers 클래스가 분석에 섞이지 않게 한다. 지원 버전은 `pyproject.toml`의 `transformers==4.45.2`다. 모델·checkpoint 형식·회전 위치 계산은 바꾸지 않는다. `grt_posthoc_console.txt`에서 분석 stdout/stderr를 확인한다. 관련 CPU 검사85개에서 조기 import 방지, 부모의 rotary_pct 누락 재현 후 자식 분석·ZIP 생성·캐시 재사용, 실패 시 학습 JSON 보존을 확인했다. 실제 Kaggle GPU 재실행은 사용자 환경에서 확인한다.
+
 학습 JSON을 먼저 저장한 뒤 분석하고, 성공하면 `experiment_results.zip`에 학습 JSON과 `posthoc/grt/posthoc_report.json`만 넣는다. 가중치·optimizer·원본 token·PNG/NPZ는 묶지 않는다. 학습 checkpoint와 분석 로컬 산출물은 run 폴더에 남는다. 분석 실패는 셀 오류로 표시하며 학습 결과는 유지한다. 마지막 셀 재실행 시 완료된 동일 분석을 재사용하고 미완료 분석은 다시 실행한다. 추가 GPU 시간은 preflight 학습 ETA에 포함되지 않으며 분석 진행률·단계별 ETA를 출력한다. Colab은 ZIP 다운로드, Kaggle은 ZIP 링크를 제공한다. **이 ZIP 하나를 보내면 학습과 사후 분석을 같은 실험 문서에 정리한다.**
+
+이미 `GPTNeoXConfig.rotary_pct` 오류가 발생한 학습 세션에서는 세션을 종료하거나 다시 학습하지 않고 다음 셀로 코드·의존성과 기존 `job`의 실행 메서드를 갱신한 뒤 마지막 report 셀만 재실행한다. `job.__class__` 갱신은 같은 WikiTextRun의 최신 메서드로 바꾸며 run 경로·학습 설정은 유지한다.
+
+```python
+import importlib, subprocess, sys
+import grt.utils.kaggle as notebook_runtime
+
+subprocess.run(['git', '-C', str(job.repo_dir), 'pull', '--ff-only', 'origin', 'main'], check=True)
+subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'transformers==4.45.2'], check=True)
+job.__class__ = importlib.reload(notebook_runtime).WikiTextRun
+# 이어서 기존 job.report(posthoc=True, download=True, posthoc_options=...) 셀 재실행
+```
 
 아래 별도 노트북은 이미 학습한 checkpoint를 다른 세션에서 분석할 때 사용한다. 분석 helper와 기본 조건은 학습 마지막 셀과 같다.
 

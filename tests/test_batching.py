@@ -51,7 +51,7 @@ def test_calibration_handles_oom_and_remote_rank_limit(monkeypatch, tmp_path):
     class Model(torch.nn.Linear):
         def to(self, device):
             return self  # CPU arithmetic; CUDA memory/collectives are simulated below.
-    monkeypatch.setattr('grt.utils.batching.create_model', lambda cfg: Model(1, 1))
+    monkeypatch.setattr('grt.models.factory.create_model', lambda cfg: Model(1, 1))
     monkeypatch.setattr(torch.cuda, 'reset_peak_memory_stats', lambda device: None)
     monkeypatch.setattr(torch.cuda, 'get_device_properties', lambda device: SimpleNamespace(total_memory=1000))
     monkeypatch.setattr(torch.cuda, 'max_memory_reserved', lambda device: cfg.training.batch_size * 50)
