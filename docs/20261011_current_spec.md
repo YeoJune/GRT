@@ -63,7 +63,9 @@ logits = tied_lm_head(Y)
 S_next = (1-W)*S + W*C
 ```
 
-2026-10-17 추가: `model.register.refine_gate`(기본false)를 켜면 write MLP hidden h를 공유하는 중립 초기화 보정 head를 추가한다. p는 기존 write sigmoid, q는 새 head의 sigmoid이며 유효 W=p+(2q−1)p(1−p)로 바뀐다. 새 head weight·bias는0이고 초기화 RNG를 소모하지 않아 시작 시 q=.5, W=p다. Uniform Gate Initialization과 추가 loss는 넣지 않는다. Read gate와 독립적이며 candidate·고정 state 읽기·종료 후 write-back은 동일하다. Write dropout은 on에서 유효 W를0으로 mask한다. [실험 조건과 전달 방법](experiments/20261017_l75_refine_gate.md)을 따른다.
+2026-10-17 추가: `model.register.refine_gate`(기본false)를 켜면 write MLP hidden h를 공유하는 중립 초기화 보정 head를 추가한다. p는 기존 write sigmoid, q는 새 head의 sigmoid이며 유효 W=p+(2q−1)p(1−p)로 바뀐다. 새 head weight·bias는0이고 초기화 RNG를 소모하지 않아 시작 시 q=.5, W=p다. Refine 옵션 자체는 Uniform Gate Initialization이나 추가 loss를 켜지 않는다. Read gate와 독립적이며 candidate·고정 state 읽기·종료 후 write-back은 동일하다. Write dropout은 on에서 유효 W를0으로 mask한다. [실험 조건과 전달 방법](experiments/20261017_l75_refine_gate.md)을 따른다.
+
+2026-10-18 추가: `model.register.uniform_gate_init`(기본false)는 write 출력층 bias만 `logit(U[1/M,1−1/M])`로 초기화한다(M≥3). On이면 `write_gate_bias_init` 대신 사용하며 공통 가중치·이후 CPU RNG 상태를 보존한다. Refine과 독립적이며 현재 [Uniform 단독 비교](experiments/20261018_l75_uniform_gate.md)는 Refine off다. 추가 loss·파라미터·forward 변경 없이 초기 bias만 바꾼다.
 
 R/W는 register별 scalar [B,M,1], S/C는 [B,M,D].
 read gate는 on/off 가능하고 기본 conditional_read=false. write gate는 항상 적용한다.

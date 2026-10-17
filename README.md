@@ -25,7 +25,7 @@ Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타�
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
 반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
-현재 노트북 기본은 **GRT small·L75/M20·20k·seed54·bias0·write dropout0·read off·Refine on**이다. [Refine 비교 계획·결과표](docs/experiments/20261017_l75_refine_gate.md)에 기존 seed54 off 결과를 재사용하고 on 한 번을 새로 학습한다. `refine_gate=False`로 기존 sigmoid를 선택할 수 있고 카탈로그 기본도 false다. [이전 dropout/bias 결과](docs/experiments/20261015_l75_write_gates.md)와 [L150 baseline·용량 결과](docs/experiments/20261012_small_register_sweep.md)는 별도로 유지한다.
+현재 노트북 기본은 **GRT small·L75/M20·20k·seed54·Uniform 초기화 on·Refine off·write dropout0·read off**이다. [Uniform 비교 계획·결과란](docs/experiments/20261018_l75_uniform_gate.md)에 기존 bias0 대조군과 신규 결과를 정리한다. [Refine 단독 실험](docs/experiments/20261017_l75_refine_gate.md)은 이번 seed54에서 품질 개선·고착 완화 효과가 없어 추가 seed를 중단했다. `uniform_gate_init=False`로 기존 고정 bias 초기화를 선택하며 카탈로그의 Uniform·Refine 기본은 모두 false다. [이전 dropout/bias 결과](docs/experiments/20261015_l75_write_gates.md)와 [L150 baseline·용량 결과](docs/experiments/20261012_small_register_sweep.md)는 별도로 유지한다.
 
 ```python
 job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
@@ -33,7 +33,7 @@ job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
     overrides={'model': {'segment_len': 75,
                         'register': {'conditional_read': False,
                                      'write_gate_bias_init': 0.0, 'dropout_prob': 0.0,
-                                     'refine_gate': True}},
+                                     'refine_gate': False, 'uniform_gate_init': True}},
                'training': {'memory_fraction': 0.95}, 'rtla': {'enabled': True}})
 ```
 
@@ -48,7 +48,8 @@ job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
 | router_hidden | GRT read/write MLP hidden, 기본512; attention 차원/head는 backbone 고정 |
 | bptt_segments | RMT/GRT 이전 segment3; NeoX0, 현재 sweep에서 고정 |
 | write_gate_bias / write_dropout | 노트북 수동 변수; 기존 model.register override로 전달, read gate off |
-| refine_gate | `model.register.refine_gate`: 공통 기본false, 현재 노트북true; 중립 초기화 보정 head를 추가 |
+| refine_gate | `model.register.refine_gate`: 공통·현재 노트북false; true이면 중립 초기화 보정 head 추가 |
+| uniform_gate_init | `model.register.uniform_gate_init`: 공통 기본false·현재 노트북true; 슬롯별 bias를 logit(U[1/M,1−1/M])로 초기화(M≥3), on이면 고정 bias 대신 사용 |
 
 WikiText는 문장별 길이 제한 없이 연속 스트림으로 처리한다. 전체 segment 수는 스트림 길이와 segment_len에 따라 정해지며 마지막 짧은 segment도 사용한다. bptt_segments는 과거 토큰의 재계산·gradient 범위만 제한하며, 그 이전 문맥의 정보는 저장 state로 이어진다. 스트림 분할 시 batch_size로 나누어떨어지지 않는 끝의 소수 토큰은 제외하고 metadata에 기록한다.
 

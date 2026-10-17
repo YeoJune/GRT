@@ -122,8 +122,8 @@ def test_raw_gates_expose_saturation_hidden_by_batch_mean():
     np.testing.assert_allclose(arrays['update_distances'], plain.to_numpy()['update_distances'])
 
 
-@pytest.mark.parametrize('refine', [False, True])
-def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path, refine):
+@pytest.mark.parametrize('refine,uniform', [(False,False), (True,False), (False,True)])
+def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path, refine, uniform):
     checkpoint, data, cfg, model, _ = inputs
     # Three disjoint four-segment windows in each of the two fixed streams.
     torch.save(torch.arange(160, dtype=torch.long)%128, data/'validation.pt')
@@ -131,10 +131,12 @@ def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path, ref
     manifest['sha256']['validation'] = file_hash(data/'validation.pt')
     (data/'manifest.json').write_text(json.dumps(manifest))
     state = torch.load(checkpoint, weights_only=False)
-    if refine:
-        cfg.model.register.refine_gate = True
+    if refine or uniform:
+        cfg.model.register.refine_gate = refine
+        cfg.model.register.uniform_gate_init = uniform
         state['config'] = asdict(cfg)
         state['model'] = create_model(cfg).state_dict()
+    if refine:
         state['model']['router.refine_head.bias'].fill_(1.)
     state['dataset_manifest'] = manifest
     # Exercise all three groups, including the empty complement of their union.

@@ -124,7 +124,8 @@ class RecurrentNeoX(nn.Module):
         elif m.name == 'grt':
             self.router = GlobalRouterUnit(m.router, m.num_registers, m.d_model,
                 m.register.write_gate_bias_init, m.register.dropout_prob,
-                refine_gate=m.register.refine_gate)
+                refine_gate=m.register.refine_gate,
+                uniform_gate_init=m.register.uniform_gate_init)
 
     def initial_state(self, batch_size):
         if self.cfg.name == 'neox':

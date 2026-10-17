@@ -2,7 +2,7 @@
 
 현재 실행 규칙은 이 문서를 따른다. 모델/gradient/데이터 계약은 [통합 명세](20261011_current_spec.md)를 따른다. 모델 구조와 실험 조건은 카탈로그와 명시 override로 관리하며 자동 조정은 확정된 실질 배치를 바꾸지 않는다.
 
-2026-10-17 Kaggle/Colab 학습 노트북 기본은 [L75/M20 Refine 실험](experiments/20261017_l75_refine_gate.md)의 GRT/small/20k/seed54/bias0/write dropout0/read off/Refine on이다. 같은 선택 셀에서 `refine_gate`를 바꾸고 `overrides.model.register.refine_gate`로 전달한다. 공통 카탈로그 기본은false다. [기존 dropout/bias](experiments/20261015_l75_write_gates.md)와 [L150 용량 비교](experiments/20261012_small_register_sweep.md)는 별도 기록이다. `WikiTextRun(num_registers=..., router_hidden=..., seed=...)`와 typed override를 사용하고, attention은 size의 차원/head를 유지한다. VRAM 예약 목표95%에서 실질 배치를 보존한다.
+2026-10-18 Kaggle/Colab 학습 노트북 기본은 [Uniform 초기화 실험](experiments/20261018_l75_uniform_gate.md)의 GRT/small/L75/M20/20k/seed54/write dropout0/read off/Refine off/Uniform on이다. `uniform_gate_init`를 `overrides.model.register.uniform_gate_init`로 전달한다. Uniform on에서는 고정 bias 대신 슬롯별 `logit(U[1/M,1−1/M])`를 사용하며 M≥3이다. 공통 카탈로그의 Uniform·Refine 기본은false다. [Refine 단독 결과](experiments/20261017_l75_refine_gate.md)는 이번 seed54에서 효과가 없어 추가 seed를 중단했다. `WikiTextRun(num_registers=..., router_hidden=..., seed=...)`와 typed override를 사용하고, attention은 size의 차원/head를 유지한다. VRAM 예약 목표95%에서 실질 배치를 보존한다.
 
 `WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. 2026-10-16부터 학습 노트북 마지막 `job.report(posthoc=True, download=True, posthoc_options=...)`는 GRT best checkpoint의 확장 사후 분석까지 실행하고 `experiment_results.zip` 하나를 내보낸다. ZIP에는 이번 run의 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`이 들어간다. `job.report(download=True)`는 분석 없이 학습 JSON만 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
@@ -58,7 +58,7 @@ job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
     overrides={'model': {'segment_len': 75,
                         'register': {'conditional_read': False,
                                      'write_gate_bias_init': 0.0, 'dropout_prob': 0.0,
-                                     'refine_gate': True}},
+                                     'refine_gate': False, 'uniform_gate_init': True}},
                'training': {'auto_batch': True, 'memory_fraction': 0.95},
                'rtla': {'enabled': True}})
 job.setup()
@@ -70,7 +70,7 @@ job.report(posthoc=True, download=True)
 
 `models=('rmt','grt')`는 둘을 순차 실행한다. budget에 따라 모델 수를 자동 변경하지 않는다. tiny/smoke 동작 확인도 동일 API를 사용한다. 현재 노트북 기본은 GRT/small/L75/20k이며 크기와 예산을 명시적으로 바꿀 수 있다. 3만 updates는 `steps=30000`으로 지정한다. GRT의 segment 시작 state 읽기는 표준이며 별도 override가 필요 없다. 중간 register 읽기 구현과 register_read_source 선택 필드는 제거한다.
 
-현재 WikiText 노트북은 `segment_len`·`num_registers`·`budget`·`router_hidden`·`write_gate_bias`·`write_dropout`·`refine_gate`·`seed`를 선택 셀에 노출한다. L/M/budget과 GRT gate 설정은 카탈로그/typed override로, memory/MLP는 기존 named 인자로 연결한다. read off를 명시하며 GRT register override를 넣는 이번 선택 셀은 GRT 단독용이다. 일반 API에서 num_registers는 RMT/GRT에, router_hidden은 GRT에만 적용한다. 어텐션 차원/head는 size를 따른다. Remember 템플릿은 별도 CLI override를 사용한다.
+현재 WikiText 노트북은 `segment_len`·`num_registers`·`budget`·`router_hidden`·`write_gate_bias`·`write_dropout`·`refine_gate`·`uniform_gate_init`·`seed`를 선택 셀에 노출한다. L/M/budget과 GRT gate 설정은 카탈로그/typed override로, memory/MLP는 기존 named 인자로 연결한다. read off를 명시하며 GRT register override를 넣는 이번 선택 셀은 GRT 단독용이다. 일반 API에서 num_registers는 RMT/GRT에, router_hidden은 GRT에만 적용한다. 어텐션 차원/head는 size를 따른다. Remember 템플릿은 별도 CLI override를 사용한다.
 
 길이를 바꿔도 배치·LR·updates·BPTT segment 수는 그대로다. WikiText target 토큰 예산 상한은 global batch×segment_len×updates, 이전 문맥의 BPTT 범위 상한은 bptt_segments×segment_len이다. ETA는 최종 Config의 segment 길이를 사용한다. 기본 run 이름의 hash에는 overrides와 memory/MLP·steps·환경이 포함되어 다른 조건의 결과를 구분한다. 직접 run_id를 지정했다면 조건 변경 시 새 이름을 사용한다.
 

@@ -171,11 +171,13 @@ def stream_config(tmp_path, name='grt'):
     return cfg
 
 
-@pytest.mark.parametrize('name,refine',[('grt',False),('rmt',False),('grt',True)])
-def test_word_stream_boundary_loss_and_exact_resume(tmp_path,monkeypatch,name,refine):
+@pytest.mark.parametrize('name,refine,uniform',[
+    ('grt',False,False),('rmt',False,False),('grt',True,False),('grt',False,True)])
+def test_word_stream_boundary_loss_and_exact_resume(tmp_path,monkeypatch,name,refine,uniform):
     cfg=stream_config(tmp_path,name);validate_config(cfg)
     if name == 'grt':
         cfg.model.register.refine_gate=refine
+        cfg.model.register.uniform_gate_init=uniform
     cfg.model.alu.dropout=0.1
     from grt import stream_training
     save=stream_training.atomic_save

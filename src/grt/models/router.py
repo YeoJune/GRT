@@ -12,7 +12,7 @@ class ZeroInitLinear(nn.Linear):
 class GlobalRouterUnit(nn.Module):
     def __init__(
         self, cfg, num_registers, d_model, write_gate_bias_init=-2.0, dropout_prob=0.0,
-        refine_gate=False,
+        refine_gate=False, uniform_gate_init=False,
     ):
         super().__init__()
         self.dropout_prob = dropout_prob
@@ -37,6 +37,16 @@ class GlobalRouterUnit(nn.Module):
         nn.init.zeros_(self.mlp_r[-1].bias)
         nn.init.constant_(self.mlp_w[-1].bias, write_gate_bias_init)
         self.refine_head = ZeroInitLinear(cfg.mlp_hidden, num_registers) if refine_gate else None
+        if uniform_gate_init:
+            if num_registers < 3:
+                raise ValueError("uniform_gate_init requires at least 3 registers (epsilon=1/M)")
+            # Gu et al. (ICML 2020), Listing 2: uniform activations, not logits.
+            # Only biases change; preserve common weights and subsequent training RNG.
+            with torch.random.fork_rng(devices=[]), torch.no_grad():
+                epsilon = 1.0 / num_registers
+                probabilities = torch.empty(num_registers, device='cpu').uniform_(
+                    epsilon, 1 - epsilon)
+                self.mlp_w[-1].bias.copy_(probabilities.logit())
 
     def context(self, x, s):
         rich, alpha = self.pool_attn(

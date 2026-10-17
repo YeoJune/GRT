@@ -31,6 +31,7 @@ class RegisterConfig:
     dropout_prob: float = 0.0
     write_gate_bias_init: float = -2.0
     refine_gate: bool = False
+    uniform_gate_init: bool = False
     s0_learnable: bool = True
 
 
@@ -232,6 +233,8 @@ def validate_model(m):
             or not m.register.s0_learnable or not 0 <= m.register.dropout_prob <= 1
             or not math.isfinite(m.register.write_gate_bias_init)):
             raise ValueError("Invalid GRT register/router settings")
+        if m.register.uniform_gate_init and m.num_registers < 3:
+            raise ValueError("uniform_gate_init requires at least 3 registers (epsilon=1/M)")
     elif m.router or m.register:
         raise ValueError("Baselines have no router/register gates")
     return m

@@ -146,6 +146,7 @@ models:
         dropout_prob: 0.0
         write_gate_bias_init: -2.0
         refine_gate: false
+        uniform_gate_init: false
         s0_learnable: true
 tokenizers:
   word:
