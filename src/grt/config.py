@@ -31,6 +31,8 @@ class RegisterConfig:
     dropout_prob: float = 0.0
     write_gate_bias_init: float = -2.0
     s0_learnable: bool = True
+    write_logit_threshold: float = 10.0
+    write_logit_coef: float = 0.0
 
 
 @dataclass
@@ -229,7 +231,9 @@ def validate_model(m):
         m.register = m.register or RegisterConfig()
         if (m.router.pool_nhead <= 0 or m.d_model % m.router.pool_nhead or m.router.mlp_hidden <= 0
             or not m.register.s0_learnable or not 0 <= m.register.dropout_prob <= 1
-            or not math.isfinite(m.register.write_gate_bias_init)):
+            or not math.isfinite(m.register.write_gate_bias_init)
+            or not math.isfinite(m.register.write_logit_threshold) or m.register.write_logit_threshold <= 0
+            or not math.isfinite(m.register.write_logit_coef) or m.register.write_logit_coef < 0):
             raise ValueError("Invalid GRT register/router settings")
     elif m.router or m.register:
         raise ValueError("Baselines have no router/register gates")

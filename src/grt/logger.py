@@ -13,6 +13,27 @@ from grt.checkpoint import preserve_rng
 from grt.config import EXPERIMENT_VERSION
 
 
+class TrainingMetrics:
+    """Sample-weighted means and true maxima across microbatches and ranks."""
+    def __init__(self):
+        self.values = {}
+
+    def update(self, output, weight):
+        metrics = getattr(output, 'training_metrics', None) or {'train/loss': output.loss.detach()}
+        keys = list(metrics)
+        values = torch.stack([metrics[k].detach().float() if k.endswith('_max')
+                              else metrics[k].detach().float() * weight for k in keys]).cpu().tolist()
+        for key, value in zip(keys, values):
+            self.values[key] = (max(self.values.get(key, 0), value) if key.endswith('_max')
+                                else self.values.get(key, 0) + value)
+
+    def reduce(self, ctx):
+        means = [k for k in self.values if not k.endswith('_max')]
+        result = dict(zip(means, [v / ctx.world_size for v in ctx.sum([self.values[k] for k in means])]))
+        result.update({k: ctx.max(v) for k, v in self.values.items() if k.endswith('_max')})
+        return result
+
+
 def write_json(path, value):
     Path(path).write_text(
         json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n",

@@ -146,6 +146,8 @@ models:
         dropout_prob: 0.0
         write_gate_bias_init: -2.0
         s0_learnable: true
+        write_logit_threshold: 10.0
+        write_logit_coef: 0.0
 tokenizers:
   word:
     model:

@@ -17,6 +17,8 @@
 
 2026-10-17 추가 확인: 세 GRT run의 bias는 모두−2였다. 같은−2를 사용한 L75/M20과의 [교차 비교](20261018_l75_gate_stabilization.md)는 L75 문서4.10에 모았다. 같은M/L에서도 gate 분할이 달라 bias나 비율 하나로 분화를 보장하지 않는다.
 
+2026-10-18 추가: L150·L75의 GRT13개 전체 gate 통계를 [GPU 실측 종합 비교](20261018_l75_gate_stabilization.md#all-gate-gpu-measurements)에 모았다. 사용자 GPU report만 사용하며 CPU 모델 출력·bias 교체 계산은 제외했다. 학습중230회·사후39window·slot/window1,488행과 원본 연결을 포함한다.
+
 이 문서는 이 실험 주제의 계획·결과·해석·판단을 계속 갱신하는 단일 기록이다. MLP·segment·모델 크기 탐색을 시작하면 각각 새 실험 문서에 조건과 결과를 모은다.
 
 ## 2. 질문과 실험 조건

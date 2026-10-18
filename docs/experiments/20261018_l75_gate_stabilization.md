@@ -1,6 +1,6 @@
 # L75 small: gate 안정화 실험
 
-작성: 2026-10-15 · 통합·갱신: 2026-10-18 · 상태: dropout·M20 bias·Refine·Uniform 결과 취합, Refine·Uniform 시도 종료
+작성: 2026-10-15 · 통합·갱신: 2026-10-18 · 상태: dropout·M20 bias·Refine·Uniform 결과 취합, logit tail A/B/C 실행 준비
 
 [공통 실행 안내](../20261011_experiment_workflow.md) · [L150 용량 비교](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Regularization 설계 검토](../20261016_write_regularization.md)
 
@@ -16,6 +16,7 @@
 | 고정 write bias | M20, dropout0에서 −2/0/+2 각1seed | Best PPL 32.6100/33.7436/33.0599. −2의 문맥별 갱신이 양호했으나 seed 재현성 미확인. M8/M75의 ±2는 미실행 |
 | 중립 Refine | M20/bias0/dropout0, seed54 | Best PPL 33.8667, 기본·refine 동반 포화. 안정화 실패, 전용 구현 제거 |
 | Uniform 초기화 | M20/dropout0, Refine 없이 seed54 | Best PPL 33.9524, 닫힘17/열림3/중간형0, 극단 logit100%. 안정화 실패, 전용 구현 제거 |
+| Logit tail 패널티 | L75/M20/bias0/dropout0, seed54의 A/B/C 준비 | threshold/coef `(10, 1e-4)`·`(5, 1e-4)`·`(10, 1e-3)`; [계획·실행·결과란](#logit-tail), GPU 결과 미수신 |
 
 ## 2. Refine·Uniform 비교 조건과 원본
 
@@ -105,13 +106,13 @@ Uniform open3개의 swap ΔNLL은+.6271로 같은 수 random3개 mask 평균+.01
 
 Refine의 최종17/2/1 분할과 작은 gate std, 기본 logit 극단화94.69%·refine logit 극단화79.38%, 낮은 실제 update rank1.532는 보정 경로가 다수 슬롯을 재활성화하지 못했음을 보여준다. 유효 write와 기본 p의 평균 차이는+.001423, 최대 관측 차이는+.049017이며 거의 슬롯13에 집중됐다. 그 슬롯도 p 평균.9603/.9474에서 w .9862/.9784로 더 여는 방향이었다. q가 커도 p≈0이면 쓰기는 거의0이고, q가 작아도 p=1이면 쓰기는1이다.
 
-중립 초기화 q=.5에서 ∂w/∂a=p(1−p), ∂w/∂b=.5p(1−p)다. 공유 hidden을 쓰므로 초기 task gradient는 refine 출력층과 기본 출력층에서 같은 방향이며, 추가 head가 음의 피드백·포화 억제 장치는 아니었다. 이 관계는 당시 작은 CPU CE 검사로 확인했으며 실제 GPU 고착 원인의 증명은 아니다. 두 기본 경로가 포화되면 보정 여지도 p(1−p)로 줄어든다.
+중립 초기화 q=.5에서 ∂w/∂a=p(1−p), ∂w/∂b=.5p(1−p)다. 공유 hidden을 쓰므로 초기 task gradient는 refine 출력층과 기본 출력층에서 같은 방향이며, 추가 head가 음의 피드백·포화 억제 장치는 아니었다. 이 관계는 수식의 성질이며 GPU 학습 경로의 실측 근거는 아니다. CPU 모델 검사에서 만든 수치는 아래 전체 실측 비교에서 제외한다. 두 기본 경로가 포화되면 보정 여지도 p(1−p)로 줄어든다.
 
 이번 결과는 GRT용 공유 hidden·중립 Refine 단독 조건의 실패다. 원논문의 다른 초기화·전체 UR 결합·다른 모델까지 부정하지 않는다. 그러나 현재 실험 목적과 자원 기준에서는 유지할 근거가 없어 제거한다.
 
 ## 5. 구현 정리와 검증
 
-현재 코드에는 일반 sigmoid write만 남긴다. Refine head·유효 gate 보정식·Uniform 초기화, 관련 Config/카탈로그/노트북 변수, Refine 전용 RTLA scalar·사후 observer 분기·전용 테스트를 제거했다. 고정 write bias·write dropout·read gate, 공통 RTLA·슬롯/표현/그룹 개입·retention·학습 후 ZIP 출력은 유지한다. 노트북은 L75/M20·20k·seed54·bias0·dropout0의 일반 경로를 기본으로 하며, 결과가 더 좋았던−2로 자동 전환하지 않는다.
+Write의 forward는 일반 sigmoid를 유지한다. Refine head·유효 gate 보정식·Uniform 초기화, 관련 Config/카탈로그/노트북 변수, Refine 전용 RTLA scalar·사후 observer 분기·전용 테스트를 제거했다. 고정 write bias·write dropout·read gate, 공통 RTLA·슬롯/표현/그룹 개입·retention·학습 후 ZIP 출력은 유지한다. 이후 추가한 logit tail 패널티는 학습 loss에만 적용하며 아래8절에 기록한다. 노트북은 L75/M20·20k·seed54·bias0·dropout0·A 설정을 기본으로 하고, 모델/카탈로그의 패널티 coef 기본값0은 off다.
 
 실패 실험의 재실행·checkpoint 분석은 위 기록된 commit에서 수행한다. 특히 Refine checkpoint는 추가 head가 있고 Uniform report의 Config에는 제거한 키가 있어 최신 코드로 그대로 복원하지 않는다. 키를 무시하거나 가중치를 변환하는 호환 경로는 추가하지 않는다. JSON 원본의 과거 설정·진단값은 수정하지 않는다.
 
@@ -543,3 +544,262 @@ L75 사후 원본8개(기존6개+M20 bias2개)의 bytes를 그대로 보관했�
 2026-10-17 M20 bias 수신분: 학습2개·사후2개를 추가하고, 기존bias0과 Config·환경·예산·selected19k 연결 및 분석 source hash를 대조했다. raw gate 재분류와 원시배열의 token 가중 개입ΔNLL 재계산, 원본 bytes·문서 링크 검증을 수행했다. GPU 실행과 모델 코드는 변경하지 않았다.
 
 </details>
+
+<a id="all-gate-gpu-measurements"></a>
+
+## 7. L150·L75 전체 gate 실측 비교 — 2026-10-18
+
+### 7.1 자료의 출처와 제외 범위
+
+**이 절은 사용자 제공 GPU 학습·사후 report만 사용한다. 새로운 모델 forward·학습·초기화 재구성·bias 교체를 수행하지 않았다.** 앞선 대화에서 CPU 모델로 확인했던 초기 write 값과 마지막 bias를 바꿔 계산한 출력표는 모두 제외한다. 실측 배열을 평균·표준편차·범위로 요약하는 산술 집계는 새로운 모델 실행과 구분한다.
+
+- 대상은 **GRT 13개(L150 3개, L75 10개)**다. NeoX/RMT baseline2개에는 GRT gate가 없으므로 미측정값을0으로 넣지 않는다.
+- 학습·사후 report13쌍 모두 Config·manifest·selected step이 일치한다. 학습 report의 `summary.selected_rtla` 전 scalar와 사후 report의 첫 window `metrics`가 **정확히 일치**한다.
+- 사후 report의 환경13개 모두 `Tesla T4`, `cuda:0`, `fp32`다. 즉 `diagnostics.write_gates`, `gate_logits.raw`, router/hidden norm은 **사용자가 GPU에서 checkpoint로 validation probe를 실행해 저장한 관측**이다.
+- `gate_logits.output_bias`와 `output_weight_row_norm`은 그 학습 checkpoint에서 읽은 파라미터 통계다. 제가 CPU에서 새로 만든 모델의 파라미터가 아니다.
+- 사후 probe는 checkpoint를 고정하고 각 window에서 S0→warmup3→측정8segments를 실제 실행한 것이다. 학습 중 stream state를 그대로 저장한 값도, 과거 학습 step의 gate를 복원한 값도 아니다.
+- 최초 학습 중 gate 기록은1k다. **step0 실측, 1k 이전 gate/logit/gradient, 중간 checkpoint의 슬롯별 gate는 없다.** Bias 초기값은 Config의 설정으로만 표시하며 step0 측정값으로 취급하지 않는다.
+- 모든 gate값은 최종 유효 write w다. Refine의 `base_logit`·sigmoid slope만 내부 기본 p이고, q·두 국소미분은 당시 report에 저장된 별도 실측 통계다. 학습 parameter gradient가 아니다. Read는 모든 조건에서 off이므로 read gate 사용률은 보고하지 않는다.
+
+**[전체 실측 통계 파일 다운로드](../tables/20261018_gate_gpu_statistics.xlsx)** — 고정된 이번 분석의 snapshot이며 누적 CSV가 아니다. 실험출처13행, 학습중230행(Refine 추가 모니터링 포함), 사후window39행, slot/window1,488행, gate histogram780행, 유형/조합 개입2,184행, token pooling attention104행을 시트별로 정리했다. 필드명은 원본 JSON key와 집계 범위를 구분해 표시했다. 각 행의 report ID로 원본을 대조할 수 있으며 미측정은 빈칸이다. Pooling attention은 token 요약의 attention이며 register 읽기 attention이 아니다. 그 entropy는 저장된 GPU attention의 산술 요약이다.
+
+### 7.2 전체 출처와 측정 checkpoint
+
+B는 고정 bias 초기 설정, d는 write dropout이다. Uniform의 Config에 남은 B0은 실제 균등 bias를 나타내지 않으며 개별 초기 bias 실측도 없다. 모든 학습은 model/data seed54·small·FP32·global256이다.
+
+| 조건 | 완료/선택 step | 학습 Python / Torch | 사후 Python / Torch | 학습 / 사후 원본 |
+|---|---|---|---|---|
+| L150/M10 b-2/d0 | 10,000/10,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 22ab31a5](../../results/22ab31a56cb546f993197e5ce937e5de.json) / [사후 bb780916](../../results/posthoc/bb780916fdef402189e4c73ea0c45b2d.json) |
+| L150/M40 b-2/d0 | 10,000/10,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 22cfd16b](../../results/22cfd16b44964befbe42912c4aba28c5.json) / [사후 602b5d30](../../results/posthoc/602b5d3014244be6a6ae7f7bd3f55fcc.json) |
+| L150/M160 b-2/d0 | 10,000/10,000 | 3.12.13 / 2.10.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 0e0ead47](../../results/0e0ead4744594b59a7d9a771049c79a1.json) / [사후 85aa236c](../../results/posthoc/85aa236c51ae451a8df185b90cdd4f92.json) |
+| L75/M8 b0/d0 | 20,000/20,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 ccf04159](../../results/ccf041592f3e4ebe8f287e69195205a5.json) / [사후 10b47cdf](../../results/posthoc/10b47cdf69034d8d91a842f60f226ede.json) |
+| L75/M8 b0/d0.1 | 20,000/20,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 746ab4ab](../../results/746ab4ab41e84ec0bdd0f3f0ed6bffdb.json) / [사후 17f1bc03](../../results/posthoc/17f1bc032be54c249e645fa01275bac2.json) |
+| L75/M20 b-2/d0 | 20,000/19,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 3001e732](../../results/3001e7328e87456395275745ada7b946.json) / [사후 3cb39cb5](../../results/posthoc/3cb39cb5ceaf40e4b2ac4790af009b6d.json) |
+| L75/M20 b0/d0 | 20,000/19,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 86fb2481](../../results/86fb2481ac1e45f29da0164863b28d66.json) / [사후 54359277](../../results/posthoc/5435927747a34aa895d5804c2b5772a6.json) |
+| L75/M20 b0/d0.1 | 20,000/20,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 51bafa3f](../../results/51bafa3f611d48c2808a7a55d732c91d.json) / [사후 1ae377fe](../../results/posthoc/1ae377fe64e243749040cf61991c37f0.json) |
+| L75/M20 b2/d0 | 20,000/19,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 0bb9e511](../../results/0bb9e51192d54a398d771bab611e9fb1.json) / [사후 b9d1e1ea](../../results/posthoc/b9d1e1ea89bd4499989c6968dfc63957.json) |
+| L75/M20 Refine | 20,000/20,000 | 3.12.13 / 2.10.0+cu128 | 3.12.13 / 2.10.0+cu128 | [학습 89571cd1](../../results/89571cd181a4465b8e818a2407be8924.json) / [사후 450dd855](../../results/posthoc/450dd855d0634475af09aefef2239125.json) |
+| L75/M20 Uniform | 20,000/20,000 | 3.12.13 / 2.10.0+cu128 | 3.12.13 / 2.10.0+cu128 | [학습 51a6bf7d](../../results/51a6bf7d37db4e5b82ce96709c15885f.json) / [사후 dafd4366](../../results/posthoc/dafd436622a6482092a621db3bbd0b3c.json) |
+| L75/M75 b0/d0 | 20,000/20,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 b4b44145](../../results/b4b4414578524de0a6e9de50851b91b2.json) / [사후 f5a1825c](../../results/posthoc/f5a1825cc5d84f6da400eb249ec409ac.json) |
+| L75/M75 b0/d0.1 | 20,000/20,000 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 | [학습 06fe396a](../../results/06fe396a3e6b4e258b779481409de1ba.json) / [사후 df797486](../../results/posthoc/df797486d1cd4606acc91fc478535e33.json) |
+
+
+### 7.3 학습 중 write 평균: 모든 조건의 관측
+
+아래는 각 step checkpoint의 고정 RTLA probe를 평가 mode에서 측정한 평균이다. d=.1 조건도 이 측정에서는 dropout off다. 마지막 열의 write는 최종 학습 step이며, 다음 사후 표는 각 best checkpoint/window16·32라서 값이 다를 수 있다. 특히 L75 bias−2/0/+2의 best는19k다. 전체1k 간격 로그와 state/update·RTLA 통계는 위 XLSX에 모두 있다.
+
+| 조건 | 1k | 2k | 3k | 4k | 최종 write | Best PPL |
+|---|---|---|---|---|---|---|
+| L150/M10 b-2/d0 | 0.699417 | 0.699822 | 0.699910 | 1.000000 | 1.000000 (10k) | 34.9897 |
+| L150/M40 b-2/d0 | 0.318700 | 0.319310 | 0.321115 | 0.825000 | 0.825000 (10k) | 34.7458 |
+| L150/M160 b-2/d0 | 0.069124 | 0.067967 | 0.067129 | 0.380890 | 0.325191 (10k) | 34.1511 |
+| L75/M8 b0/d0 | 0.624687 | 0.624913 | 0.624945 | 0.624971 | 1.000000 (20k) | 34.1048 |
+| L75/M8 b0/d0.1 | 0.255863 | 0.253294 | 0.254582 | 0.249711 | 0.250000 (20k) | 34.2791 |
+| L75/M20 b-2/d0 | 0.384613 | 0.395726 | 0.396492 | 0.396040 | 0.362732 (20k) | 32.6100 |
+| L75/M20 b0/d0 | 0.254258 | 0.253510 | 0.252313 | 0.251844 | 0.225676 (20k) | 33.7436 |
+| L75/M20 b0/d0.1 | 0.102033 | 0.101139 | 0.101532 | 0.101643 | 0.100000 (20k) | 34.2129 |
+| L75/M20 b2/d0 | 0.400239 | 0.400085 | 0.400000 | 0.400000 | 0.350000 (20k) | 33.0599 |
+| L75/M20 Refine | 0.149999 | 0.149999 | 0.149998 | 0.149999 | 0.148850 (20k) | 33.8667 |
+| L75/M20 Uniform | 0.155736 | 0.153024 | 0.152882 | 0.151751 | 0.150000 (20k) | 33.9524 |
+| L75/M75 b0/d0 | 0.006271 | 0.001695 | 0.040296 | 0.040087 | 0.040000 (20k) | 33.7629 |
+| L75/M75 b0/d0.1 | 0.009942 | 0.001810 | 0.002033 | 0.000971 | 0.087290 (20k) | 32.8984 |
+
+
+L150의1k는 약38.4M target, L75의1k는약19.2M target으로 학습량이 다르다. L150은10k, L75는20k로 완료 target 예산은 거의 같지만 write/optimizer 빈도와 BPTT token 범위는 다르다. 아래는 **같은 M/L=.2667·bias−2·d0**인 두 조건을 target 예산이 거의 같은2배 step으로 정렬한 관측이다. 같은 epoch1회 분량은 L150 약3,085updates, L75 약6,169updates다.
+
+| L150 step / L75 step | targets 약M | L150/M40 write | L75/M20 write |
+|---|---|---|---|
+| 1,000/2,000 | 38.4 | 0.318700 | 0.395726 |
+| 2,000/4,000 | 76.8 | 0.319310 | 0.396040 |
+| 3,000/6,000 | 115.2 | 0.321115 | 0.299770 |
+| 4,000/8,000 | 153.6 | 0.825000 | 0.204120 |
+| 5,000/10,000 | 192.0 | 0.825000 | 0.211992 |
+| 6,000/12,000 | 230.4 | 0.825000 | 0.227504 |
+| 7,000/14,000 | 268.7 | 0.825000 | 0.336974 |
+| 8,000/16,000 | 307.1 | 0.825000 | 0.310879 |
+| 9,000/18,000 | 345.5 | 0.825000 | 0.344909 |
+| 10,000/20,000 | 383.9 | 0.825000 | 0.362732 |
+
+
+### 7.4 사후 유효 gate 분포와 포화
+
+그룹 수는window0에서 모든 관측에 대해 closed≤.01/open≥.99/other로 정한 분할이다. 나머지는 window16/32의 동일 크기 관측을 평균했다. gate std는 **각 슬롯 안에서 segment/example에 따른 변화**를 구한 뒤 슬롯 평균한 값이다. 전체 슬롯을 섞은 std와 다르다. 범위·분위수·near-closed/open 비율·정확한0/1 비율·threshold .001/.01/.05 결과는 XLSX의39개 window와1,488개 slot 행에 보존했다.
+
+| 조건 | write 평균 | 닫힘/열림/other | 슬롯 내 std | 동일 segment의 example std | abs base logit>20 | base sigmoid slope |
+|---|---|---|---|---|---|---|
+| L150/M10 b-2/d0 | 1.000000 | 0/10/0 | 0.000000 | 0.000000 | 100.00% | 0.000000 |
+| L150/M40 b-2/d0 | 0.825000 | 7/33/0 | 1.475e-28 | 8.344e-29 | 100.00% | 4.103e-29 |
+| L150/M160 b-2/d0 | 0.322063 | 77/26/57 | 0.066238 | 0.049753 | 3.79% | 0.016617 |
+| L75/M8 b0/d0 | 1.000000 | 0/8/0 | 0.000000 | 0.000000 | 100.00% | 0.000000 |
+| L75/M8 b0/d0.1 | 0.250000 | 6/2/0 | 3.305e-36 | 1.177e-36 | 100.00% | 4.450e-37 |
+| L75/M20 b-2/d0 | 0.394144 | 0/0/20 | 0.248303 | 0.216822 | 0.39% | 0.068645 |
+| L75/M20 b0/d0 | 0.229279 | 14/4/2 | 0.001158 | 0.001146 | 35.16% | 0.012296 |
+| L75/M20 b0/d0.1 | 0.100000 | 18/2/0 | 0.000000 | 0.000000 | 100.00% | 0.000000 |
+| L75/M20 b2/d0 | 0.350000 | 13/7/0 | 5.945e-08 | 5.827e-08 | 95.00% | 4.866e-08 |
+| L75/M20 Refine | 0.149114 | 17/2/1 | 5.269e-04 | 5.257e-04 | 94.69% | 0.002181 |
+| L75/M20 Uniform | 0.150000 | 17/3/0 | 2.940e-27 | 2.800e-27 | 100.00% | 1.694e-27 |
+| L75/M75 b0/d0 | 0.040000 | 72/3/0 | 7.379e-20 | 7.253e-20 | 100.00% | 2.747e-20 |
+| L75/M75 b0/d0.1 | 0.087262 | 68/2/5 | 5.900e-04 | 5.613e-04 | 4.34% | 0.004212 |
+
+
+### 7.5 사후 실제 파라미터·logit·router scale
+
+모든 값은 GPU 사후 report에 저장된 관측 또는 그 산술 집계다. Bias 범위는 실제 학습된 출력층 bias이며 초기 설정값으로 재계산한 출력이 아니다. Bias와 weight는 같은 checkpoint라 세 window에서 같다. Norm·logit은 window16/32 평균이다. Logit 범위는 각 평가 window의 최소값 중 최소~최대값 중 최대다. token/memory context는 router 입력의 두 요약 벡터이며 저장 state 자체의 norm이 아니다.
+
+| 조건 | 학습된 bias min~max | 출력 weight 행 norm 평균 | logit min~max | abs logit 중앙값 | token / memory context norm | MLP hidden norm |
+|---|---|---|---|---|---|---|
+| L150/M10 b-2/d0 | -1.9904~-1.9705 | 0.6793 | 39.84~100.79 | 52.78 | 1.70 / 121.53 | 365.38 |
+| L150/M40 b-2/d0 | -1.9959~-1.9681 | 0.7025 | -116.67~199.53 | 123.63 | 4.49 / 156.21 | 551.06 |
+| L150/M160 b-2/d0 | -2.0193~-1.9502 | 0.7000 | -43.87~59.43 | 8.76 | 2.74 / 16.07 | 50.97 |
+| L75/M8 b0/d0 | -0.0142~0.0271 | 0.7715 | 30.64~117.29 | 59.24 | 0.65 / 87.09 | 272.11 |
+| L75/M8 b0/d0.1 | -0.0148~0.0044 | 0.7322 | -229.97~126.88 | 153.25 | 0.37 / 91.24 | 396.98 |
+| L75/M20 b-2/d0 | -2.0333~-1.8428 | 1.1960 | -18.07~26.65 | 3.49 | 1.90 / 13.84 | 24.48 |
+| L75/M20 b0/d0 | -0.0101~0.0134 | 0.6260 | -31.62~25.76 | 18.08 | 0.56 / 44.36 | 108.06 |
+| L75/M20 b0/d0.1 | -0.0082~0.0138 | 0.7341 | -356.04~292.71 | 276.33 | 0.38 / 160.74 | 778.41 |
+| L75/M20 b2/d0 | 1.9639~2.0039 | 0.7541 | -189.35~97.57 | 94.25 | 0.59 / 64.43 | 286.95 |
+| L75/M20 Refine | -0.0237~-0.0016 | 0.6613 | -135.84~47.48 | 55.44 | 0.60 / 87.51 | 298.76 |
+| L75/M20 Uniform | -2.2184~2.1593 | 0.6891 | -99.12~78.69 | 73.26 | 0.58 / 81.77 | 217.12 |
+| L75/M75 b0/d0 | -0.0313~0.0091 | 0.6771 | -166.44~136.40 | 88.29 | 1.74 / 134.56 | 484.43 |
+| L75/M75 b0/d0.1 | -0.0416~0.0004 | 0.7431 | -26.70~11.00 | 10.63 | 2.44 / 5.78 | 37.54 |
+
+
+### 7.6 State·candidate·실제 update와 기능
+
+첫 표는 **선택 checkpoint의 window0** RTLA 실측이다. 두 번째 표만 window16/32 평균이다. 실제 update는 gate로 적용된 `S_next−S`이며 candidate와의 거리를 대신하지 않는다. Relative update는 source 정의의 norm 비율이다. Cosine·rank·CKA만으로 건강함을 정하지 않으며 서로 다른 M의 rank 절댓값을 효율 순위로 사용하지 않는다.
+
+| 조건 | write | state norm | candidate 거리 | 실제 update norm | relative update | slot cosine |
+|---|---|---|---|---|---|---|
+| L150/M10 b-2/d0 | 1.000000 | 27.786091 | 4.376418 | 4.376418 | 0.078745 | 0.999348 |
+| L150/M40 b-2/d0 | 0.825000 | 23.553135 | 9.491474 | 4.769883 | 0.083919 | 0.759750 |
+| L150/M160 b-2/d0 | 0.325191 | 12.366458 | 22.577900 | 4.450117 | 0.080673 | 0.529918 |
+| L75/M8 b0/d0 | 1.000000 | 28.685438 | 8.174963 | 8.174963 | 0.142461 | 0.991730 |
+| L75/M8 b0/d0.1 | 0.250000 | 20.759655 | 15.348320 | 1.898850 | 0.037800 | 0.800519 |
+| L75/M20 b-2/d0 | 0.366597 | 16.188747 | 15.578115 | 4.321506 | 0.097176 | 0.706442 |
+| L75/M20 b0/d0 | 0.229072 | 17.556919 | 17.514761 | 1.773798 | 0.037654 | 0.693341 |
+| L75/M20 b0/d0.1 | 0.100000 | 21.320408 | 20.849026 | 0.789691 | 0.017578 | 0.825199 |
+| L75/M20 b2/d0 | 0.350000 | 17.168848 | 14.990735 | 2.728165 | 0.053860 | 0.725973 |
+| L75/M20 Refine | 0.148850 | 15.817474 | 20.842234 | 1.314876 | 0.025030 | 0.796779 |
+| L75/M20 Uniform | 0.150000 | 17.694275 | 22.624336 | 1.256535 | 0.026575 | 0.793947 |
+| L75/M75 b0/d0 | 0.040000 | 15.798837 | 21.595671 | 0.361842 | 0.006818 | 0.911851 |
+| L75/M75 b0/d0.1 | 0.087290 | 2.034899 | 23.036346 | 0.772844 | 0.019172 | 0.633101 |
+
+| 조건 | 중심화 state rank | 실제 update rank | 평균 slot CKA | 전체 reset / swap ΔNLL,lag0 | 전체 swap ΔNLL,lag3 |
+|---|---|---|---|---|---|
+| L150/M10 b-2/d0 | 1.054 | 1.195 | 0.999 | +0.285657 / +0.384280 | +0.006073 |
+| L150/M40 b-2/d0 | 1.833 | 2.403 | 0.801 | +0.342306 / +0.463843 | +0.009612 |
+| L150/M160 b-2/d0 | 9.571 | 11.278 | 0.500 | +0.322763 / +0.289818 | +0.011476 |
+| L75/M8 b0/d0 | 1.216 | 1.582 | 0.993 | +0.454872 / +0.655296 | +0.028658 |
+| L75/M8 b0/d0.1 | 1.790 | 1.049 | 0.931 | +0.362176 / +0.619064 | +0.023372 |
+| L75/M20 b-2/d0 | 3.995 | 3.817 | 0.617 | +0.447834 / +0.693603 | +0.059706 |
+| L75/M20 b0/d0 | 3.033 | 2.410 | 0.902 | +0.354744 / +0.748015 | +0.059669 |
+| L75/M20 b0/d0.1 | 1.897 | 1.051 | 0.965 | +0.305347 / +0.593159 | +0.022567 |
+| L75/M20 b2/d0 | 3.079 | 2.236 | 0.815 | +0.391926 / +0.707364 | +0.065762 |
+| L75/M20 Refine | 2.379 | 1.532 | 0.945 | +0.401240 / +0.683010 | +0.035829 |
+| L75/M20 Uniform | 2.066 | 1.206 | 0.959 | +0.387380 / +0.642072 | +0.033352 |
+| L75/M75 b0/d0 | 2.065 | 1.804 | 0.976 | +0.438900 / +0.680441 | +0.049721 |
+| L75/M75 b0/d0.1 | 2.214 | 2.435 | 0.915 | +0.300231 / +0.637313 | +0.039209 |
+
+
+![전체13개 GPU 실측 gate 비교](../figures/20261018_all_gate_gpu_measurements.png)
+
+### 7.7 전체 자료에서 지지되는 경향과 반례
+
+**동일 bias도 동일 write 경로를 만들지 않는다.** L150 세 조건은 전부bias−2인데1k write가 M10 .6994, M40 .3187, M160 .0691이다. 최종적으로 M10/M40은 극단 포화100%, M160은3.79%와 문맥별 gate 변화가 공존한다. 같은−2의 L75/M20은1k .3846, 최종 사후 포화.39%다. 낮은 초기 bias가 낮은1k write를 보장하지도, 높은1k write가 건강한 분화를 보장하지도 않는다.
+
+**초반 write 평균의 단일 적정값은 찾을 수 없다.** L75/M20−2와+2는1k .3846/.4002로 비슷하지만 최종 slot 내 gate std는.2483 대약5.95e−8이다. L150/M160의 낮은.0691과 L75/M75/d.1의 낮은.0099도 이후 가변 gate 또는 기능적으로 유용한 중간형과 연결된다. 반대로 L75/M8/d0의 높은.6247은 최종 전부 열림·포화다. M이 다르면 `M×write_mean`도 함께 봐야 하며, 그 합도 실제 정보량이나 실제 update norm은 아니다.
+
+**현재 자료에서 가장 일관된 동반 지표는 큰 router memory/hidden scale과 과도한 logit 포화다.** L150 M10/M40/M160의 출력 weight 행 norm은.679/.702/.700으로 유사하고 학습된 bias도−2 근처다. 반면 hidden norm은365/551/51이며 포화율은100/100/3.79%다. L75/M20−2는 출력 weight norm1.196으로+2의.754보다 커도 hidden24.5·logit abs 중앙값3.49로, +2의hidden287·logit94.25보다 덜 포화된다. 따라서 마지막 bias 이동이나 출력 weight norm 하나로 차이를 설명하지 않는다. 입력 크기·가중치 방향·hidden이 함께 만드는 logit 분포의 문제이며, 최종 동반 관측만으로 원인의 선후를 확정하지 않는다.
+
+**평균의 급변이나 초기 plateau 자체가 실패 판정은 아니다.** L150 M10/M40은3k→4k의 큰 변화 뒤 고정 포화로 가지만, M160도.0671→.3809의 큰 변화를 거쳐 가변성이 남는다. L75/M75/d.1은5k→6k .0016→.0800, M20−2는12k→13k .2275→.3387로 변화하고 품질·기능의 개선이 관측된다. M20−2의2k~5k도평균≈.396으로 비교적 평탄하다. 기록 간격1k라 실제 변화의 매끄러움은 알 수 없고, 전환 뒤의 gate 분포·문맥별 변화·기여를 함께 봐야 한다. L150/L75의 큰 품질 전환이 각각 첫 epoch 완료 뒤 평가와 겹치는 점도 gate만의 효과로 분리하지 않는다.
+
+**Other 수와 낮은 포화율만으로 기능 분화를 확정하지 않는다.** L150/M160 other57의 swap ΔNLL≈.1150은 동일 크기 random≈.0534보다 크며, L75/M75/d.1 other5는+.3678 대 random+.0026이다. 반면 M20−2의other20은 전체 그룹과 같아 그 그룹 효과만으로 하위 역할을 확증할 수 없다. M75/d.1의 slot 내 gate std도약.00059라 M20−2처럼 강한 문맥별 gate 전환이라고 해석하지 않는다. 닫힌 그룹도 과거 정보나 공통 상태에 기여할 수 있어 작은 swap·작은 write를 미사용으로 취급하지 않는다. 그룹 기여는 비가산적이며 빈 그룹의0은 기능적 관측이 아니다.
+
+**이 자료만으로 write_mean .5 또는 .3을 건강한 목표값으로 채택하지 않는다.** 앞서 언급한.5는 초기 수준 유지의 통제 아이디어였고 실측 최적값이 아니다. 기존 자료의 더 직접적인 관측 축은 logit 분포·scale, 슬롯 내 문맥별 gate 변화, actual update의 다양성 및 그룹 개입·validation이다. 어떤 제어가 이를 바꾸는지는 후속 통제 실험의 질문으로 남긴다.
+
+### 7.8 비교 한계와 산출물 확인
+
+L150/L75는 동일 데이터·global256·seed54·backbone을 사용하지만 L, M, optimizer/write 빈도, BPTT의 token 범위, 일부 micro/accum, 학습/분석 라이브러리가 다르다. L150/M40와 L75/M20의 M/L과bias가 같아도 순수 L 효과 비교는 아니다. Refine·Uniform은 기존 대조군과 Python/PyTorch가 달라 단일 변경의 인과 효과로 확정하지 않는다. 모든 결과는 한 seed의 탐색 관측이다.
+
+집계는 모델을 import하지 않는 JSON/배열 처리로 수행했다. 13쌍의 연결·GPU 환경·선택 RTLA 일치, gate/logit 평균·std·histogram 관측 수, threshold별 그룹 재분류, 실제 ΔNLL 배열의 start/example 평균을 확인했다. 전체 raw JSON bytes를 유지한다. XLSX는 XML/ZIP 구조·행 수와 대표 셀의 원본 대조를 검증한다. 코드·config·노트북 실행 경로는 변경하지 않는다.
+
+
+<a id="logit-tail"></a>
+
+## 8. Logit tail regularization: A/B/C
+
+### 목적과 연구상 위치
+
+Sigmoid write를 유지하면서 과도한 raw logit만 억제해 고착이 완화되는지 확인한다. Refine·Uniform은 종료 상태로 유지한다. Softmax 전환·normalization·별도 gate warmup·계수 감쇠는 이번 비교에 넣지 않는다. 새 GPU 결과는 아직 없으며 아래 수치는 기존 GPU JSON의 사후 산술 집계다.
+
+[ST-MoE §3.3, 식5·6](https://arxiv.org/abs/2202.08906)은 softmax router에 `mean(logsumexp(logits)^2)`와 계수1e-3을 사용했다. 주된 목적은 수치 안정성이다. 우리의 독립 sigmoid·FP32·고착 문제와 다르므로 원문의 직접 재현이나 동일 계수의 동등한 강도로 표현하지 않는다. 원문에서 가져오는 원칙은 활성함수 이전의 logit에 미분 가능한 비용을 부과한다는 것이다. [Skip RNN §3.2](https://arxiv.org/abs/1708.06834)의 업데이트 횟수 비용과도 목적이 다르며, 이번 항은 쓰기 빈도나 유형 비율을 지정하지 않는다.
+
+### 수식과 L/M 기준
+
+`phi(z) = relu(abs(z) - threshold)^2`, `total_loss = LM_loss + coef * R`다. z는 **write dropout의 -inf 마스킹 이전** 출력이며, forward의 gate/state 계산은 바꾸지 않는다.
+
+`R = sum_{b,s} n[b,s] * mean_i(phi(z[b,s,i])) / sum_{b,s} n[b,s]`
+
+n은 해당 sample/segment의 유효 predictor token 수다. M에 대해서는 평균하고 segment는 유효 token 수로 가중한다. WikiText의 과거 BPTT replay는 target=-100이므로 직접 패널티의 가중치0, 새 segment만 이번 optimizer update의 규제 사건으로 센다. 과거 state를 통한 BPTT gradient는 끊지 않는다. 짧은 tail도 실제 n으로 가중한다. 같은 stream update의 sample들은 n이 같으므로 microbatch sample 가중·rank 평균이 global256의 평균과 같다. Remember에서는 기존 predictor-mask/parallel-slot 정렬을 따른다.
+
+M/L을 추가로 곱하거나, 각 run의 logit을 자체 표준편차로 나누지 않는다. 이번 일관성은 슬롯당 logit 포화 기준이며 입력 token당 전체 gate 사건 비용을 고정하는 설계가 아니다. 고정 threshold는 개별 sigmoid의 국소 미분값 기준에서 M과 독립적이지만 최적 threshold·task 대비 gradient 강도까지 독립적이지 않다. L이 다르면 같은 gate도 token 단위 보존 시간척도가 달라진다. 이후 M/L 확장 시 실제 예산·BPTT token 범위·초과율·규제량을 함께 보고한다.
+
+### 고정 조건과 세 run
+
+GRT small D256/6layers/head8/FF1024, router hidden512, L75/M20, seed54, bias0, write dropout0, read off, 새 초기화20k. 데이터 artifact·global256·FP32·Adam5e-4·cosine·warmup0·decay0·clip.25·BPTT 이전3segments·평가 매1k는 기존 A20-0과 같다. 기본 사후 protocol은 batch8/warmup3/segments8/horizon4/windows0,16,32/random3다. 환경 차이는 report에 남긴다.
+
+| ID | threshold | coef | 목적 | 상태 |
+|---|---:|---:|---|---|
+| LT-A | 10 | 1e-4 | 극단 증폭을 약하게 억제 | 준비 / GPU 미실행 |
+| LT-B | 5 | 1e-4 | 더 이른 구간부터 억제 | 준비 / GPU 미실행 |
+| LT-C | 10 | 1e-3 | 같은 허용 범위에서10배 강한 압력 | 준비 / GPU 미실행 |
+
+기존 off 대조군은 A20-0(best19k PPL33.7436, 최종20k33.7718)을 재사용한다. 조건을 바꿔 기존 checkpoint에서 이어 학습하지 않는다. 세 run은 threshold와 coef의 상호작용을 추정하는 완전 요인 설계는 아니다.
+
+threshold10/5의 sigmoid 미분값은 약4.54e-5/6.65e-3이고, 각각 gate 약0.000045~0.999955 / 0.0067~0.9933의 범위를 허용한다. 5는 개입 구간의 차이를 명확하게 보기 위한 후보이며 최적값을 뜻하지 않는다. 계수는 첫 비교에서 일정하게 유지한다.
+
+기존 사후 평가 window16/32 raw logits에 threshold10을 대입한 `R`은 L75/M20/bias-2의1.9864, bias0의94.3023, bias+2의7466.9835다. coef1e-4일 때 추가 loss는 각각0.000199/0.009430/0.746698이다. bias-2의 threshold 초과율은10에서7.03%,5에서33.87%로 바뀐다. 이는 초기 후보의 근거이며 정규화 학습 결과 예측이나 CPU 모델 검사값이 아니다. 원문1e-3도 이 수식에서 검증할 후보로만 취급한다.
+
+### 노트북 실행과 로그
+
+기존 `notebooks/colab.ipynb` 또는 `notebooks/kaggle.ipynb`의 선택 셀에서 다음 두 값만 바꾼다. 세 run용 notebook/config 파일을 따로 만들지 않는다.
+
+```python
+write_logit_threshold = 10.0
+write_logit_coef = 1e-4
+# LT-B: 5.0, 1e-4
+# LT-C: 10.0, 1e-3
+# off: coef = 0.0
+```
+
+Config 경로는 `model.register.write_logit_threshold`, `model.register.write_logit_coef`다. 모델/카탈로그 coef 기본값은0이며 노트북만 LT-A를 기본 선택한다. threshold/coef 변경은 설정 hash·run 경로에 반영된다. preflight도 규제 포함 backward를 측정하고 모델 파라미터 수는 늘어나지 않는다.
+
+초기 step1 및 기본10step 간격부터 아래 지표를 로컬 metrics.jsonl/TXT와 W&B에 기록한다. 모두 이번 **새 segment의 학습 관측**이며 dropout off의 고정 validation RTLA와 구분한다.
+
+| 지표 | 의미 |
+|---|---|
+| train/loss | 순수 LM/task loss, 기존 곡선과 비교 |
+| train/total_loss | 실제 backward에 사용한 task + coef*R |
+| train/gate_logit_penalty | 가중 전 R |
+| train/gate_regularization_loss | coef*R |
+| train/gate_abs_logit_mean / max | raw logit 절댓값 평균 / 전체 microbatch·rank 최대 |
+| train/gate_fraction_above_threshold | 이번 threshold 초과 비율 |
+| train/gate_fraction_abs_over20 | 모든 run의 공통 극단값 지표 |
+| train/gate_raw_write_mean / sigmoid_slope_mean | dropout 이전 sigmoid 평균 / 국소 미분값 평균 |
+| train/gate_hidden_norm | write MLP 마지막 Linear 입력의 L2 norm 평균 |
+
+평가·RTLA·best checkpoint 선택의 loss/PPL은 **규제를 포함하지 않는다**. 학습 통계 평균은 global batch 기준으로 취합하고 max는 평균내지 않는다. training p90/p99나 task/regularizer gradient 비율의 별도 backward는 이번 최소 구현에 넣지 않는다. 상세 raw logit·슬롯별 변화는 기존 validation/사후 분석으로 확인한다.
+
+학습 후 기존 마지막 셀 `job.report(posthoc=True, download=True, ...)`로 확장 사후 분석까지 수행한다. **`experiment_results.zip` 하나**를 보내면 학습 곡선·best/최종 품질·gate/state/기능적 기억을 아래 결과표에 정리한다. 분석만 실패하면 학습 결과와 checkpoint는 보존되며 같은 report 셀을 다시 실행한다.
+
+### 결과 기입란과 다음 단계
+
+| ID | best step / PPL | 최종20k PPL | gate 초과율·문맥별 변화 | slot 유형·메모리 개입 | wall h / peak GiB | 결과 파일 / 판단 |
+|---|---|---|---|---|---|---|
+| Off: A20-0 | 19k / 33.7436 | 33.7718 | 사후 abs>20 35.16%, slot std .001158 | 14/4/2, 기존 분석 참조 | 6.695 / 11.721 | 기존 학습·사후 JSON 재사용 |
+| LT-A | | | | | | |
+| LT-B | | | | | | |
+| LT-C | | | | | | |
+
+포화율만 줄어드는 것으로 성공을 선언하지 않는다. best 및 최종 PPL, 문맥별 gate 변화, 실제 update와 reset/swap 기여를 함께 본다. B 우세면 이른 개입, C 우세면 압력 부족, A 우세면 과도한 규제의 가능성을 후속 가설로 삼는다. 새 한 seed 결과는 탐색 관측이다. 유망 조건을 동일 수치로 M8/M75에 전달해보고, 최종 효과 주장에는 추가 seed의 paired off/on 비교를 고려한다.
+
+구현 검증: 전체 CPU 소프트웨어 검사151개 통과, optional W&B 미설치로2개 생략. raw-logit gradient·dropout 이전 값·replay 제외·짧은 tail·M 평균·microbatch 취합·2-worker/serial 가중치 및 지표 일치·정확한 재개·노트북 세 조건의 독립 run 경로·기존 사후 분석/ZIP 경로를 확인했다. 첫 분산 시도는 sandbox의 localhost 차단으로 중단됐고, 로컬 통신을 허용한 전체 검사에서 통과했다. 변경한 노트북 문법·문서 링크·기존 tracked 결과29개 파일 bytes 보존도 확인했다. 이 검사는 실험 성능 근거가 아니며 A/B/C GPU 학습은 사용자가 실행한다.

@@ -10,6 +10,7 @@ from grt.vendor.armt.modeling_gpt_neox import (
 )
 from .router import GlobalRouterUnit
 from grt.metrics import causal_loss
+from grt.regularization import supervised_positions, write_logit_regularization
 
 
 def write_back(state, candidate, write):
@@ -21,6 +22,7 @@ class RecurrentOutput(ModelOutput):
     loss: torch.Tensor | None = None
     logits: torch.Tensor | None = None
     memory_state: torch.Tensor | None = None
+    training_metrics: dict[str, torch.Tensor] | None = None
 
 
 class MemoryAttention(GPTNeoXAttention):
@@ -145,7 +147,7 @@ class RecurrentNeoX(nn.Module):
                 mask[m:m+n, m+n:] = False
         return mask[None, None]
 
-    def cell(self, ids, state, trace=None):
+    def cell(self, ids, state, trace=None, gate_observations=None):
         if not 0 < ids.shape[1] <= self.cfg.segment_len:
             raise ValueError("Cell length must be within segment_len")
         x = self.backbone.embedding(ids)
@@ -159,7 +161,11 @@ class RecurrentNeoX(nn.Module):
             y, candidate = h[:, m:m+n], h[:, -m:]
             next_state = candidate
         else:
-            read, write, alpha = self.router(x, state)
+            if gate_observations is None:
+                read, write, alpha = self.router(x, state)
+            else:
+                read, write, alpha, raw_logits, hidden_norm = self.router(x, state, return_gate_inputs=True)
+                gate_observations.append((raw_logits, hidden_norm))
             source = read * state if self.cfg.register.conditional_read else state
             # Reserve memory positions after a full segment even for a shorter prefix.
             # Otherwise future sequence length would change token-to-memory RoPE.
@@ -187,9 +193,12 @@ class RecurrentNeoX(nn.Module):
         state = self.initial_state(input_ids.shape[0]) if memory_state is None else memory_state
         if state.shape != (input_ids.shape[0], self.cfg.num_registers, self.cfg.d_model):
             raise ValueError("Invalid segment memory state shape")
+        regularizing = (self.cfg.name == 'grt' and self.training and torch.is_grad_enabled()
+            and self.cfg.register.write_logit_coef > 0 and (labels is not None or target_ids is not None))
+        observations = [] if regularizing else None
         hidden = []
         for segment in input_ids.split(self.cfg.segment_len, 1):
-            y, state = self.cell(segment, state, _trace)
+            y, state = self.cell(segment, state, _trace, observations)
             hidden.append(y)
         combined = torch.cat(hidden, 1)
         if target_ids is not None:
@@ -200,7 +209,7 @@ class RecurrentNeoX(nn.Module):
                 raise ValueError("At least one aligned target is required")
             logits = self.backbone.lm_head(combined[valid])
             loss = F.cross_entropy(logits, target_ids[valid])
-            return RecurrentOutput(loss=loss, memory_state=state)
+            return self.training_output(loss, state, observations, labels, labels_mask, target_ids)
         logits = self.backbone.lm_head(combined)
         loss = None
         if labels is not None:
@@ -210,7 +219,16 @@ class RecurrentNeoX(nn.Module):
                 loss = F.cross_entropy(logits[labels_mask], labels[labels_mask])
             else:
                 loss = causal_loss(logits, labels, labels_mask)
-        return RecurrentOutput(loss=loss, logits=logits, memory_state=state)
+        return self.training_output(loss, state, observations, labels, labels_mask, target_ids, logits)
+
+    def training_output(self, loss, state, observations, labels, labels_mask, target_ids, logits=None):
+        metrics = None
+        if observations is not None:
+            valid = supervised_positions(labels, labels_mask, target_ids, self.objective)
+            r = self.cfg.register
+            loss, metrics = write_logit_regularization(loss, observations, valid,
+                self.cfg.segment_len, r.write_logit_threshold, r.write_logit_coef)
+        return RecurrentOutput(loss=loss, logits=logits, memory_state=state, training_metrics=metrics)
 
     def forward_with_trace(self, **kwargs):
         if self.cfg.name != "grt":

@@ -25,14 +25,15 @@ Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타�
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
 반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
-현재 노트북 기본은 **GRT small·L75/M20·20k·seed54·bias0·write dropout0·read off**의 일반 sigmoid write다. [Gate 안정화 실험 보고서](docs/experiments/20261018_l75_gate_stabilization.md)에 dropout·bias와 종료된 안정화 시도의 조건·결과·판단을 모았다. [L150 baseline·용량 결과](docs/experiments/20261012_small_register_sweep.md)는 별도로 유지한다.
+현재 노트북 기본은 **GRT small·L75/M20·20k·seed54·bias0·write dropout0·read off**, logit tail 패널티 **threshold10/coef1e-4(A)**다. [Gate 안정화 실험 보고서](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail)에서 A/B/C 실행 조건과 결과 기입란을 확인한다. 기존 dropout·bias·종료된 Refine/Uniform도 같은 문서에 유지한다. [L150 baseline·용량 결과](docs/experiments/20261012_small_register_sweep.md)는 별도로 유지한다.
 
 ```python
 job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
     num_registers=20, router_hidden=512, seed=54,
     overrides={'model': {'segment_len': 75,
                         'register': {'conditional_read': False,
-                                     'write_gate_bias_init': 0.0, 'dropout_prob': 0.0}},
+                                     'write_gate_bias_init': 0.0, 'dropout_prob': 0.0,
+                                     'write_logit_threshold': 10.0, 'write_logit_coef': 1e-4}},
                'training': {'memory_fraction': 0.95}, 'rtla': {'enabled': True}})
 ```
 
@@ -47,6 +48,7 @@ job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
 | router_hidden | GRT read/write MLP hidden, 기본512; attention 차원/head는 backbone 고정 |
 | bptt_segments | RMT/GRT 이전 segment3; NeoX0, 현재 sweep에서 고정 |
 | write_gate_bias / write_dropout | 노트북 수동 변수; 기존 model.register override로 전달, read gate off |
+| write_logit_threshold / write_logit_coef | A `(10, 1e-4)` / B `(5, 1e-4)` / C `(10, 1e-3)`; coef0은 off |
 
 WikiText는 문장별 길이 제한 없이 연속 스트림으로 처리한다. 전체 segment 수는 스트림 길이와 segment_len에 따라 정해지며 마지막 짧은 segment도 사용한다. bptt_segments는 과거 토큰의 재계산·gradient 범위만 제한하며, 그 이전 문맥의 정보는 저장 state로 이어진다. 스트림 분할 시 batch_size로 나누어떨어지지 않는 끝의 소수 토큰은 제외하고 metadata에 기록한다.
 

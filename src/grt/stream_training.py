@@ -13,7 +13,7 @@ from transformers import get_cosine_schedule_with_warmup
 from grt.checkpoint import (CHECKPOINT_FORMAT, seed_all, capture_rng, restore_rng,
                             atomic_save, load_checkpoint, preserve_rng, evaluation_context)
 from grt.config import save_config
-from grt.logger import metadata, write_json, write_result_files
+from grt.logger import metadata, write_json, write_result_files, TrainingMetrics
 from grt.models.factory import create_model
 from grt.utils.batching import calibrate_batch, peak_fraction
 
@@ -103,7 +103,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
         aligned[:, -n:] = targets
         initial = boundaries[0]
         optimizer.zero_grad(set_to_none=True)
-        batch_loss = 0.0
+        training_metrics = TrainingMetrics()
         final_states = []
         local_batch = train.shape[0]
         for start in range(0, local_batch, t.batch_size):
@@ -116,7 +116,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
                     raise RuntimeError('Non-finite stream loss')
                 loss = out.loss * ((end-start)/local_batch)
                 loss.backward()
-            batch_loss += loss.item()
+            training_metrics.update(out, (end-start)/local_batch)
             final_states.append(out.memory_state.detach())
         torch.nn.utils.clip_grad_norm_(model.parameters(), t.grad_clip, error_if_nonfinite=True)
         optimizer.step()
@@ -129,12 +129,13 @@ def train_stream(adapter, cfg, device, monitor, ctx):
         if device.type == 'cuda':
             torch.cuda.synchronize(device)
             peak = int(ctx.max(torch.cuda.max_memory_allocated(device)))
-        loss_value = ctx.sum([batch_loss])[0]/ctx.world_size
+        payload = training_metrics.reduce(ctx)
+        loss_value = payload['train/loss']
         validation_due = step % cfg.evaluation.every_steps == 0 or step == t.max_steps
-        payload = {'train/loss':loss_value, 'train/lr':optimizer.param_groups[0]['lr'],
+        payload.update({'train/lr':optimizer.param_groups[0]['lr'],
             'train/target_tokens':tokens_seen,
             'train/elapsed_seconds':elapsed+time.perf_counter()-started,
-            'train/peak_gpu_memory_bytes':peak}
+            'train/peak_gpu_memory_bytes':peak})
         if validation_due:
             last_validation = adapter.evaluate(model, cfg, validation, device)
             validation_step = step

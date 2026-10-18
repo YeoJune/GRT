@@ -37,14 +37,21 @@ class GlobalRouterUnit(nn.Module):
         g = torch.cat([rich, context], dim=-1).squeeze(1)
         return g, alpha.squeeze(1)
 
-    def forward(self, x, s):
+    def forward(self, x, s, *, return_gate_inputs=False):
         read_context, _ = self.context(s, s)
         write_context, alpha = self.context(x, s)
         read = self.mlp_r(read_context).sigmoid().unsqueeze(-1)
-        write_logits = self.mlp_w(write_context)
+        if return_gate_inputs:
+            hidden = self.mlp_w[1](self.mlp_w[0](write_context))
+            raw_logits = self.mlp_w[-1](hidden)
+        else:
+            raw_logits = self.mlp_w(write_context)
+        write_logits = raw_logits
         if self.training and self.dropout_prob:
             write_logits = write_logits.masked_fill(
                 torch.rand_like(write_logits) < self.dropout_prob, -torch.inf
             )
         write = write_logits.sigmoid()
+        if return_gate_inputs:
+            return read, write.unsqueeze(-1), alpha, raw_logits, hidden.float().norm(dim=-1)
         return read, write.unsqueeze(-1), alpha

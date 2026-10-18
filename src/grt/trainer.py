@@ -17,7 +17,7 @@ from grt.checkpoint import (
     CHECKPOINT_FORMAT,
 )
 from grt.config import Config, build_config, save_config, validate_config
-from grt.logger import metadata, write_json, write_result_files, append_metrics, Monitor
+from grt.logger import metadata, write_json, write_result_files, append_metrics, Monitor, TrainingMetrics
 from grt.models.factory import create_model
 from grt.vendor.armt import REFERENCE_COMMIT as COMMIT
 from grt.data import get_adapter, make_dataset, make_loader, forward_batch
@@ -223,7 +223,7 @@ def _run(cfg, device, monitor, ctx):
                 torch.cuda.synchronize(device)
             update_started = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
-            loss_total = 0.0
+            training_metrics = TrainingMetrics()
             try:
                 effective_batch = next(iterator)
             except StopIteration:
@@ -248,8 +248,9 @@ def _run(cfg, device, monitor, ctx):
                     output = forward_batch(training_model, batch, device)
                     loss = output.loss * (len(batch["input_ids"]) / local_samples)
                     loss.backward()
-                loss_total += loss.item()
-            loss_total = ctx.sum([loss_total])[0] / ctx.world_size
+                training_metrics.update(output, len(batch['input_ids']) / local_samples)
+            train_values = training_metrics.reduce(ctx)
+            loss_total = train_values['train/loss']
             torch.nn.utils.clip_grad_value_(
                 model.parameters(), current.training.grad_clip
             )
@@ -294,7 +295,7 @@ def _run(cfg, device, monitor, ctx):
                 )
                 row = {
                     "step": step,
-                    "train/loss": loss_total,
+                    **train_values,
                     "train/lr": optimizer.param_groups[0]["lr"],
                     "train/seconds": training_seconds,
                     "train/peak_gpu_memory_bytes": peak_memory,
@@ -336,7 +337,7 @@ def _run(cfg, device, monitor, ctx):
                     {
                         "stage_step": step,
                         "num_pairs": stage.num_pairs,
-                        "train/loss": loss_total,
+                        **train_values,
                         "train/lr": optimizer.param_groups[0]["lr"],
                         "train/samples": samples_seen,
                         "train/seconds": training_seconds,
