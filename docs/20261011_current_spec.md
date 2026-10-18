@@ -5,7 +5,7 @@
 이전 문서는 archive에 보존하며 현재 설정을 선택하는 근거로 사용하지 않는다.
 현재 실행 구조는 공통 NeoX 하나다. 과거 모델/설정/checkpoint 호환 경로는 제공하지 않는다.
 
-2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. 이전 small 용량 비교는 [L150 결과](experiments/20261012_small_register_sweep.md), 현재 dropout/bias 비교는 [별도 L75 계획](experiments/20261015_l75_write_gates.md)을 따른다.
+2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. 이전 small 용량 비교는 [L150 결과](experiments/20261012_small_register_sweep.md), L75 gate 비교 결과는 [통합 실험 보고서](experiments/20261018_l75_gate_stabilization.md)을 따른다.
 
 ## 1. 범위와 순서
 
@@ -62,10 +62,6 @@ S_read = R*S if conditional_read else S
 logits = tied_lm_head(Y)
 S_next = (1-W)*S + W*C
 ```
-
-2026-10-17 추가: `model.register.refine_gate`(기본false)를 켜면 write MLP hidden h를 공유하는 중립 초기화 보정 head를 추가한다. p는 기존 write sigmoid, q는 새 head의 sigmoid이며 유효 W=p+(2q−1)p(1−p)로 바뀐다. 새 head weight·bias는0이고 초기화 RNG를 소모하지 않아 시작 시 q=.5, W=p다. Refine 옵션 자체는 Uniform Gate Initialization이나 추가 loss를 켜지 않는다. Read gate와 독립적이며 candidate·고정 state 읽기·종료 후 write-back은 동일하다. Write dropout은 on에서 유효 W를0으로 mask한다. [실험 조건과 전달 방법](experiments/20261017_l75_refine_gate.md)을 따른다.
-
-2026-10-18 추가: `model.register.uniform_gate_init`(기본false)는 write 출력층 bias만 `logit(U[1/M,1−1/M])`로 초기화한다(M≥3). On이면 `write_gate_bias_init` 대신 사용하며 공통 가중치·이후 CPU RNG 상태를 보존한다. Refine과 독립적이며 현재 [Uniform 단독 비교](experiments/20261018_l75_uniform_gate.md)는 Refine off다. 추가 loss·파라미터·forward 변경 없이 초기 bias만 바꾼다.
 
 R/W는 register별 scalar [B,M,1], S/C는 [B,M,D].
 read gate는 on/off 가능하고 기본 conditional_read=false. write gate는 항상 적용한다.

@@ -2,7 +2,7 @@
 
 작성·갱신: 2026-10-16 · 상태: 설계 검토, regularizer 미구현·미실험
 
-[실험 기록: L75 dropout·bias](experiments/20261015_l75_write_gates.md) · [현재 구현 명세](20261011_current_spec.md) · [문서 목록](README.md)
+[실험 기록: L75 dropout·bias](experiments/20261018_l75_gate_stabilization.md) · [현재 구현 명세](20261011_current_spec.md) · [문서 목록](README.md)
 
 **이 문서의 정규화는 loss에 추가하는 regularization이다.** LayerNorm/RMSNorm 등의 normalization은 필요한 scale 보정을 위한 보조 도구로만 다룬다. 실험 보고서에서 설계 논의를 분리했으며, 측정 결과·실행 조건은 실험 문서에 남긴다.
 
@@ -90,7 +90,7 @@ $$
 
 현재 closed/open/other는 gate의 관측 분류다. Other는 부드럽고 고정된 gate일 수도 있어 자동으로 문맥 선택형이라는 뜻이 아니다. Closed도 warmup 정보를 보존할 수 있다. 그러므로 세 유형을1:1:1로 만들거나 모든 슬롯의 write를 같게 만드는 것을 기본 목표로 정하지 않는다. 사용자가 원하는 역할 비율을 탐색하는 실험은 가능하지만, 특정 비율이 건강하다는 결론은 기능 비교로 검증해야 한다.
 
-기존 증거는 [L75 실험 보고서](experiments/20261015_l75_write_gates.md#46-그룹-개입-m75의-중간형은-기능적으로도-구별된다)에 있다. M8/p.1은 cosine이 줄어도 actual update rank≈1이고, M20/p.1은 중간형이 사라지며 성능이 악화한다. M75/p.1은 중간형5개 swap ΔNLL.3678 대 동일 크기 random.0026으로 기능 차이가 있다. 이는 **분화의 외형과 실제 기여를 함께 통제해야 한다**는 근거이며 특정 regularizer가 효과적이라는 증거는 아니다.
+기존 증거는 [L75 실험 보고서](experiments/20261018_l75_gate_stabilization.md#46-그룹-개입-m75의-중간형은-기능적으로도-구별된다)에 있다. M8/p.1은 cosine이 줄어도 actual update rank≈1이고, M20/p.1은 중간형이 사라지며 성능이 악화한다. M75/p.1은 중간형5개 swap ΔNLL.3678 대 동일 크기 random.0026으로 기능 차이가 있다. 이는 **분화의 외형과 실제 기여를 함께 통제해야 한다**는 근거이며 특정 regularizer가 효과적이라는 증거는 아니다.
 
 ## 3. 1차 후보: 문맥에 따른 내용 중복을 줄이는 항
 

@@ -1,10 +1,130 @@
-# L75 small: write dropout과 bias 비교
+# L75 small: gate 안정화 실험
 
-작성: 2026-10-15 · 갱신: 2026-10-17 · 상태: dropout A단계6개 및 M20 bias−2/+2 학습·확장 사후 완료; B단계 M8/M75 미실행
+작성: 2026-10-15 · 통합·갱신: 2026-10-18 · 상태: dropout·M20 bias·Refine·Uniform 결과 취합, Refine·Uniform 시도 종료
 
-[공통 실행 안내](../20261011_experiment_workflow.md) · [이전 L150 용량 실험](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Write 구조·regularization 설계 검토](../20261016_write_regularization.md)
+[공통 실행 안내](../20261011_experiment_workflow.md) · [L150 용량 비교](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Regularization 설계 검토](../20261016_write_regularization.md)
 
-## 1. 목적과 고정 조건
+## 1. 결론과 범위
+
+**Refine과 Uniform Gate Initialization은 이번 L75/M20·seed54에서 gate 고착 완화와 품질 개선에 실패했다. 두 실험 전용 구현을 제거하고 결과만 이 보고서와 원본 JSON에 보존한다.** 단일 seed이고 기존 대조군의 소프트웨어 환경이 달라, 두 방법 일반에 효과가 없다는 주장으로 확대하지 않는다. 추가 Refine·Uniform seed와 결합 조건은 실행하지 않았다.
+
+기존 L75 dropout·bias와 이후 Refine·Uniform을 같은 안정화 질문의 연속 실험으로 통합했다. Dropout은 M별 효과가 달랐고, M20 bias−2에서는 동적 gate와 품질 개선이 관측됐다. 이들까지 모두 실패로 분류하지 않는다. 고정 bias·write dropout은 표준 write 구조의 조절값으로 유지하고 실패한 두 전용 경로만 정리한다.
+
+| 시도 | 실제 실행 | 관측과 판단 |
+|---|---|---|
+| Write dropout | M8/20/75, bias0에서 p0/p.1 각1seed | Best PPL: M8 34.1048/34.2791, M20 33.7436/34.2129, M75 33.7629/32.8984. M별 효과 상이, 일반적인 고착 해소로 채택하지 않음 |
+| 고정 write bias | M20, dropout0에서 −2/0/+2 각1seed | Best PPL 32.6100/33.7436/33.0599. −2의 문맥별 갱신이 양호했으나 seed 재현성 미확인. M8/M75의 ±2는 미실행 |
+| 중립 Refine | M20/bias0/dropout0, seed54 | Best PPL 33.8667, 기본·refine 동반 포화. 안정화 실패, 전용 구현 제거 |
+| Uniform 초기화 | M20/dropout0, Refine 없이 seed54 | Best PPL 33.9524, 닫힘17/열림3/중간형0, 극단 logit100%. 안정화 실패, 전용 구현 제거 |
+
+## 2. Refine·Uniform 비교 조건과 원본
+
+GRT small D256·6layers·head8·FF1024, L75/M20, router attention D256/head8·MLP512, read off·write dropout0·학습 가능한 S0의0 초기화다. 기존 WikiText-103 GPT-2 BPE artifact, FP32, model/data seed54, global256·micro128×accum1×T4 2개, BPTT 이전3segments, 새 초기화20k를 사용했다. Adam LR5e−4·betas(.9,.999)·decay0·clip.25·cosine20k·warmup0, backbone residual dropout.1이다. 실제 학습 targets383,975,424개, 전체 validation248,420개, 매1k 평가·RTLA이며 test는 미평가다.
+
+- **Plain:** 기존 A20-0, 고정 write bias0의 일반 sigmoid.
+- **Refine:** 같은 hidden에서 `p=σ(a)`, `q=σ(b)`, `w=p+(2q−1)p(1−p)`. 추가 head weight·bias0으로 q=.5, w=p에서 시작했고10,260 parameters를 추가했다. UGI는 사용하지 않았다.
+- **Uniform:** Refine 없이 슬롯별 `u~U[1/M,1−1/M]`, `bias=logit(u)`만 적용했다. M20의 sigmoid(bias) 범위는.05~.95, bias는약±2.944다. 출력층 weight는 유지했고 추가 loss·파라미터는 없었다. 실제 입력의 gate까지 균등하게 강제한 것은 아니다. 공통 초기 가중치·이후 RNG를 보존하도록 표본을 별도 범위에서 추출했다.
+
+두 방식은 [Gu et al., ICML 2020](https://arxiv.org/abs/1910.09890)의 각각을 GRT에 적용한 단독 비교다. 원논문의 전체 UR-LSTM이나 두 방법 결합의 재현은 아니다. 위 수식과 실행 설정은 종료된 실험의 설명이며 현재 config 옵션이 아니다.
+
+| 조건 | best step / NLL / PPL | 최종20k PPL | 15k~20k PPL 평균 | wall h / peak GiB | 학습 / 사후 JSON |
+|---|---|---|---|---|---|
+| Plain | 19,000 / 3.518790 / 33.7436 | 33.7718 | 34.0582 | 6.695 / 11.721 | [학습](../../results/86fb2481ac1e45f29da0164863b28d66.json) / [사후](../../results/posthoc/5435927747a34aa895d5804c2b5772a6.json) |
+| Refine | 20,000 / 3.522433 / 33.8667 | 33.8667 | 34.1717 | 6.954 / 11.721 | [학습](../../results/89571cd181a4465b8e818a2407be8924.json) / [사후](../../results/posthoc/450dd855d0634475af09aefef2239125.json) |
+| Uniform | 20,000 / 3.524960 / 33.9524 | 33.9524 | 34.3801 | 6.605 / 11.721 | [학습](../../results/51a6bf7d37db4e5b82ce96709c15885f.json) / [사후](../../results/posthoc/dafd436622a6482092a621db3bbd0b3c.json) |
+
+Uniform−Plain best ΔNLL=+0.006169, ΔPPL=+0.2088(+0.619%)다. 동일20k 최종끼리도 ΔPPL=+0.1806(+0.535%)이며 후반 평균도 개선되지 않았다. Refine 역시 best/최종 PPL 모두 개선이 없다. 차이가 작아 통계적 성능 악화를 확정하지 않지만, 아래 동작까지 합치면 이번 탐색 목표는 충족하지 못했다.
+
+**비교 한계:** Plain 학습은 Python3.13.15/PyTorch2.11.0+cu128, Refine·Uniform은3.12.13/2.10.0+cu128이다. Transformers4.45.2·CUDA12.8·T4는 같다. Plain 사후는 PyTorch2.11.0+cu130/CUDA13.0, 나머지는2.10.0+cu128/CUDA12.8이다. Config·같은 seed만으로 동일 수치 경로를 보장하지 않는다. Plain best는19k, 나머지는20k여서 사후 분석도 정확한 동일 step 비교가 아니다. 같은20k 품질은 위 최종 열에서 비교한다. 시간 차이를 방식의 순수 연산 비용으로 해석하지 않는다.
+
+| 조건 | 학습 commit | checkpoint SHA256 |
+|---|---|---|
+| Plain | `90d407c` | `919e91014cda899df36e4346a952627beb258c00624a8340e8065dd3eda1281a` |
+| Refine | `454cd58` | `86bbb718a2f313ce3d1a01c05988da39ce303c3e03cc1fb0bd37750a51894dff` |
+| Uniform | `1a493c1` | `12a6ff8bc60a01f8b9a3581a6cc499dd5a3975a9dbd6d654c5c3ef1ef159f5ad` |
+
+Uniform 학습·사후 Config와 manifest, selected step·RTLA scalar가 일치한다. Clean commit `1a493c1`의 분석 source hash30개와 대조했고 경고·metrics parse 오류·W&B 실패는 없다. 학습 로그2,001개와 validation·RTLA20개를 확인했다. Uniform 사후 분석은 FP32/TF32 off·단일 T4에서93.24초였고 [W&B run](https://wandb.ai/joyyoj1-korea-university/grt-research/runs/2db84d45)도 완료됐다. 수신 ZIP의 학습·사후 JSON bytes를 변경하지 않고 저장했다.
+
+![Gate 안정화 비교: 품질·평균 write·포화·update rank·CKA·슬롯 유형](../figures/20261018_l75_gate_stabilization.png)
+
+## 3. Uniform 결과: 초기화만으로 고착을 막지 못했다
+
+### 학습 중 변화
+
+| step | Plain PPL / write | Refine PPL / write | Uniform PPL / write |
+|---:|---|---|---|
+| 1,000 | 146.7764 / 0.254258 | 146.2787 / 0.149999 | 194.8107 / 0.155736 |
+| 6,000 | 141.2861 / 0.251004 | 186.0947 / 0.150000 | 174.6522 / 0.150939 |
+| 7,000 | 45.1793 / 0.250000 | 45.7414 / 0.150000 | 45.6902 / 0.150000 |
+| 13,000 | 35.8741 / 0.250000 | 36.0087 / 0.150000 | 36.3658 / 0.150000 |
+| 18,000 | 34.0446 / 0.250000 | 33.9245 / 0.149993 | 34.0879 / 0.150000 |
+| 19,000 | 33.7436 / 0.229072 | 33.8959 / 0.148260 | 33.9856 / 0.150000 |
+| 20,000 | 33.7718 / 0.225676 | 33.8667 / 0.148850 | 33.9524 / 0.150000 |
+
+Uniform의 평균 write는1k .155736에서6k .150939로 줄고, **7k부터20k까지 기록된 평가점 모두 .150000**이다. Refine도 일찍 .15 근처에 붙었으며, Plain의 후반 평균 변화와 달리 Uniform에는19k~20k의 회복이 없다. 1k 이전의 슬롯별 trajectory와 초기 가중치 hash는 전달 자료에 없으므로, 정확한 고착 시점과 초기 역할 배정의 원인은 확정하지 않는다.
+
+Uniform의 RTLA reset ΔNLL은1k에서−.4275,6k에서−.5817이었다가7k에서+.3065로 바뀐다. 초기에는 probe에서 기억을 초기화하는 편이 유리했다. 이후에는 평균 write가 고정된 채 PPL과 메모리 기여가 개선된다. 즉 **gate 가변성 회복과 모델 전체의 학습 진행은 다른 현상**이다. 큰 품질 전환은 이전 실험처럼 epoch 경계6,169/12,338/18,507 이후 평가와도 겹쳐 gate가 유일한 원인이라고 해석하지 않는다.
+
+### 최종 슬롯·표현 진단
+
+사후 protocol은 batch8·warmup3·측정8·horizon4·windows0/16/32·slots/registers true·random3/seed54로 같다. 유형은 window0에서 정하고 아래 연속값은 window16/32 평균이다. 각 window·lag의 target 수는4,800으로 동일하다. Refine의 logit·sigmoid slope는 내부 기본 p 기준이고, write 평균·유형·update는 최종 유효 w 기준이다.
+
+| 지표 | Plain | Refine | Uniform |
+|---|---:|---:|---:|
+| closed / open / other (window0) | 14 / 4 / 2 | 17 / 2 / 1 | 17 / 3 / 0 |
+| 유효 write 평균 | 0.229279 | 0.149114 | 0.150000 |
+| 슬롯별 gate std 평균 | 1.158e-03 | 5.269e-04 | 2.940e-27 |
+| 기본 sigmoid logit abs>20 | 35.16% | 94.69% | 100.00% |
+| 기본 abs logit 중앙값 | 18.08 | 55.44 | 73.26 |
+| 기본 sigmoid slope 평균 | 1.230e-02 | 2.181e-03 | 1.694e-27 |
+| Router context / MLP hidden norm | 44.36 / 108.06 | 87.51 / 298.76 | 81.77 / 217.12 |
+| 문맥 평균 제거 state rank | 3.0334 | 2.3794 | 2.0662 |
+| 실제 update rank | 2.4098 | 1.5316 | 1.2059 |
+| 실제 update 첫 방향 에너지 | 67.61% | 85.62% | 95.50% |
+| 평균 off-diagonal slot CKA | 0.9016 | 0.9451 | 0.9592 |
+
+Uniform은 세 window와 threshold .001/.01/.05 모두 닫힘17·열림3·other0이고 **열린 슬롯은5·12·13(0-based)**이다. 기본 sigmoid logit abs>20이100%, 평균 slope≈1.69e−27, 슬롯 내 문맥별 gate std≈2.94e−27로 사실상 고정 경로다. 닫힌 gate가 수학적으로 모두 정확한0이라는 뜻은 아니다. 매우 작은 양수도 포함하며 유효 write의 정확한1은15%다. 측정 중 닫힌 슬롯의 실제 state update는 FP32에서0이었다.
+
+표현도 실제 update rank1.206, 첫 방향 에너지95.50%, CKA.959로 Plain보다 더 적은 방향에 집중된다. 슬롯들이 기능적으로 모두 같다는 증명은 아니지만, 목표했던 문맥별 갱신 다양화의 근거는 없다. 초기 bias 분산이 학습 중 커지는 router context·hidden/logit scale을 지속적으로 제어하지 않는다는 해석과 부합한다. 초기화 실패의 인과적 원인을 이 관측만으로 확정하지 않는다.
+
+### 기능적 기억은 남아 있다
+
+아래는 평가 window16/32의 lag0 ΔNLL이며 양수는 개입으로 예측이 나빠졌다는 뜻이다. 그룹 효과는 비가산적이므로 합쳐 기여율로 쓰지 않는다. Uniform의 빈 other 그룹은 분석할 대상이 없으며 그 효과0을 별도 기능의 증거로 세지 않는다.
+
+| 개입 | Plain reset / swap | Refine reset / swap | Uniform reset / swap |
+|---|---|---|---|
+| all | +0.354744 / +0.748015 | +0.401240 / +0.683010 | +0.387380 / +0.642072 |
+| closed | +0.015488 / -0.002815 | +0.050791 / -0.002679 | +0.072280 / +0.000083 |
+| open | +0.104487 / +0.457523 | +0.057256 / +0.254581 | +0.311737 / +0.627070 |
+
+Uniform open3개의 swap ΔNLL은+.6271로 같은 수 random3개 mask 평균+.0197보다 크다. 전체 swap+.6421과 함께 유용한 문맥 정보가 남아 있음을 보여준다. 그러나 이는 고착 완화 성공이나 Plain보다 좋은 기억 능력의 증거가 아니다. 닫힌17개도 reset+.0723·문맥별 state 변동 norm≈9.27이므로 미사용·제거 가능으로 취급하지 않는다. Slot 단독 reset 합은 window0에서.1195, 전체 reset은.4181로 비가산적이다.
+
+전체 swap의 lag0→lag3는 Plain .7480→.0597, Refine .6830→.0358, Uniform .6421→.0334다. 손상 후 회복은 유용한 기억 길이와 같지 않다. 평가 window16/32의 합성 PPL도 Plain33.3691, Refine33.3695, Uniform33.4391로 Uniform의 국소 이득을 뒷받침하지 않는다.
+
+## 4. Refine 실패에서 남길 관측
+
+Refine의 최종17/2/1 분할과 작은 gate std, 기본 logit 극단화94.69%·refine logit 극단화79.38%, 낮은 실제 update rank1.532는 보정 경로가 다수 슬롯을 재활성화하지 못했음을 보여준다. 유효 write와 기본 p의 평균 차이는+.001423, 최대 관측 차이는+.049017이며 거의 슬롯13에 집중됐다. 그 슬롯도 p 평균.9603/.9474에서 w .9862/.9784로 더 여는 방향이었다. q가 커도 p≈0이면 쓰기는 거의0이고, q가 작아도 p=1이면 쓰기는1이다.
+
+중립 초기화 q=.5에서 ∂w/∂a=p(1−p), ∂w/∂b=.5p(1−p)다. 공유 hidden을 쓰므로 초기 task gradient는 refine 출력층과 기본 출력층에서 같은 방향이며, 추가 head가 음의 피드백·포화 억제 장치는 아니었다. 이 관계는 당시 작은 CPU CE 검사로 확인했으며 실제 GPU 고착 원인의 증명은 아니다. 두 기본 경로가 포화되면 보정 여지도 p(1−p)로 줄어든다.
+
+이번 결과는 GRT용 공유 hidden·중립 Refine 단독 조건의 실패다. 원논문의 다른 초기화·전체 UR 결합·다른 모델까지 부정하지 않는다. 그러나 현재 실험 목적과 자원 기준에서는 유지할 근거가 없어 제거한다.
+
+## 5. 구현 정리와 검증
+
+현재 코드에는 일반 sigmoid write만 남긴다. Refine head·유효 gate 보정식·Uniform 초기화, 관련 Config/카탈로그/노트북 변수, Refine 전용 RTLA scalar·사후 observer 분기·전용 테스트를 제거했다. 고정 write bias·write dropout·read gate, 공통 RTLA·슬롯/표현/그룹 개입·retention·학습 후 ZIP 출력은 유지한다. 노트북은 L75/M20·20k·seed54·bias0·dropout0의 일반 경로를 기본으로 하며, 결과가 더 좋았던−2로 자동 전환하지 않는다.
+
+실패 실험의 재실행·checkpoint 분석은 위 기록된 commit에서 수행한다. 특히 Refine checkpoint는 추가 head가 있고 Uniform report의 Config에는 제거한 키가 있어 최신 코드로 그대로 복원하지 않는다. 키를 무시하거나 가중치를 변환하는 호환 경로는 추가하지 않는다. JSON 원본의 과거 설정·진단값은 수정하지 않는다.
+
+검증 결과: 관련 CPU 검사106개 통과, optional W&B 미설치로2개 생략. 단일 프로세스103개와2-worker 학습·preflight3개를 확인했다. 분산 검사는 처음에 sandbox의 localhost 소켓 차단으로 실패해 로컬 소켓을 허용한 동일 검사로 통과를 확인했다. 별도로 bias−2/0/+2·dropout0/.2·train/eval의12조건에서 정리 전후 일반 router의 parameter·RNG·forward·gradient가 정확히 같았다. 학습 재개·causality·전체 report ZIP·확장 사후 JSON·캐시도 검증했다. 노트북 코드 문법·문서 링크·제거한 실행 옵션 부재·수신 및 기존 결과 bytes 보존을 확인했다. GPU 학습은 새로 실행하지 않았다.
+
+## 6. 기존 dropout·bias 상세 기록
+
+아래는2026-10-17까지의 실행 조건·수치·분석을 보존한 세부 기록이다. 당시의 계획·추가 seed 제안과 미기입 판단란은 이력이며 새 실행 지시가 아니다. 현재 채택·중단 상태는 위 결론을 따른다.
+
+<details>
+<summary>Dropout·bias의 전체 표와 사후 분석 펼치기</summary>
+
+### 1. 목적과 고정 조건
 
 L과 M을 함께 줄인 별도 실험으로, write dropout이 품질·분화에 미치는 영향과 초기 write bias에 따른 차이를 확인한다. 현재 단계에서 NeoX/RMT를 새로 학습하지 않는다. 이전 L150 결과는 참고 자료이며 L75 baseline이나 동일 조건 대조군으로 사용하지 않는다.
 
@@ -25,7 +145,7 @@ L과 M을 함께 줄인 별도 실험으로, write dropout이 품질·분화에 
 
 20k는 update 수다. L150/10k와 nominal target 예산은 같지만 optimizer update 횟수, 과거 token 기준 BPTT, write 빈도·메모리 용량이 달라 동일 학습 조건은 아니다. 이번 두 단계 안에서는 L/M별 고정 조건과20k schedule을 유지한다.
 
-## 2. 실험 순서: 총12개 고유 run
+### 2. 실험 순서: 총12개 고유 run
 
 **A. 각 M에서 bias0으로 dropout0과0.1을 비교한다(6회).** best validation NLL/PPL을 우선 보고 학습 곡선·시간·분화 지표를 함께 확인한다. 품질 차이를 확신하기 어려우면 dropout0을 우선하는 잠정 선택을 기록한다. 한 seed에서 작은 차이를 확정하지 않는다.
 
@@ -41,7 +161,7 @@ Bias는 모든 슬롯의 write MLP 마지막 bias 초깃값이며 학습 가능�
 
 A의 선택은 seed54 한 번의 품질 기준이며 유의성을 주장하지 않는다. B에서는 dropout0의 bias0 결과를 재사용하고 새 bias−2/+2만 학습한다.
 
-## 3. 학습 결과 기록
+### 3. 학습 결과 기록
 
 각 행은 별도 run이다. B의 bias0 결과는 A의 dropout0 행을 참조해 중복 학습하지 않는다. 실제 micro/accum/GPU·환경·target 예산·코드 hash는 원본 report에 보관하고 차이가 있으면 판단에 적는다.
 
@@ -60,7 +180,7 @@ A의 선택은 seed54 한 번의 품질 기준이며 유의성을 주장하지 �
 | B75− | 75 | -2 | 0 | 미실행 | | | |
 | B75+ | 75 | +2 | 0 | 미실행 | | | |
 
-### 3.1 조건 검증과 품질·비용
+#### 3.1 조건 검증과 품질·비용
 
 6개 모두 Kaggle Tesla T4×2·FP32·global256·동일 model/data seed54·코드 `90d407c`에서20k를 완료했다. Python3.13.15/PyTorch2.11.0+cu128/Transformers4.45.2/CUDA12.8과 prepared manifest가 일치한다. 실제 학습 target은 각383,975,424개, validation은248,420개이며 test는 평가하지 않았다. 같은 M의 두 Config는 write dropout·출력/run 이름 이외에 동일하다. M8/20은 micro128×accum1×GPU2, M75는 micro64×accum2×GPU2다. M 사이의 RNG·수치 차이는 남지만 dropout 쌍 안의 배치는 같다.
 
@@ -74,7 +194,7 @@ M8은 작은 차이로 p0을 유지하고, M20은 p0, M75는 p.1을 우선한다
 
 학습 wall time은6개 합계44.836h(T4×2, 단순 GPU-hours89.672)다. 평가·기본 RTLA·저장을 포함하며 preflight·준비는 제외한다. GPU-hours는 Kaggle quota 차감량을 뜻하지 않는다. p.1의 시간 차이는 M별 방향이 달라 dropout의 고유 속도 효과로 단정하지 않는다. 경고·metrics parse 오류·W&B 실패는 없고 모든 run이20k까지 기록됐다.
 
-### 3.2 학습 전환과 후반 경향
+#### 3.2 학습 전환과 후반 경향
 
 | step | M8 p0 | M8 p.1 | M20 p0 | M20 p.1 | M75 p0 | M75 p.1 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -93,7 +213,7 @@ M8은 작은 차이로 p0을 유지하고, M20은 p0, M75는 p.1을 우선한다
 
 ![L75 dropout 비교: 품질·학습 전환·기본 RTLA](../figures/20261016_l75_dropout.png)
 
-## 4. 분화 분석과 판단란
+### 4. 분화 분석과 판단란
 
 새 학습은 마지막 report 셀에서 각 best checkpoint를 자동 분석한다. 이미 완료된 run은 기존 Colab 사후 분석 노트북에 best checkpoint를 넣어 같은 helper로 분석할 수 있다. batch8·warmup3·측정8·horizon4·window0/16/32·random 반복3/seed54·slots/registers=true를 공통 사용한다. L/M은 checkpoint에서 읽는다. L75에서 warmup225/측정600 tokens이며, 이전 L150 probe와 절대 token 범위는 다르다. 이번 run끼리는 같은 조건으로 비교한다.
 
@@ -106,7 +226,7 @@ M8은 작은 차이로 p0을 유지하고, M20은 p0, M75는 p.1을 우선한다
 | M20 bias−2/0/+2 | best PPL32.6100 / 33.7436 / 33.0599 | −2는 문맥별 gate·갱신 다양성 증가, +2는 극단 이진 포화 | −2 잠정 우선; 전체 val 개선과 짧은 probe 악화를 구분(4.9) |
 | M75 bias−2/0/+2 | 미실행 | | |
 
-### 4.1 받은 report에 실제 포함된 기본 RTLA
+#### 4.1 받은 report에 실제 포함된 기본 RTLA
 
 best checkpoint의 고정 window0·batch8/warmup3/측정8·L75, 정상 target4,800개의 결과다. eval mode이므로 p.1 학습 run에서도 write dropout은 꺼져 있다. write 평균 차이를 평가 때10%를 무작위로 끈 결과나0.9 rescaling으로 해석하지 않는다.
 
@@ -125,7 +245,7 @@ M8/p0는 write 평균1·cosine≈.992로 강한 포화/유사화가 의심되고
 
 write 평균만으로 학습 전환을 설명할 수 없다. M8/p.1은12k→13k에 write.25를 유지하면서 PPL55.1371→36.9852로, M75/p.1도 write≈.0933인 채64.3067→35.9088로 바뀐다. 후자는 cosine.868→.635·reset ΔNLL−.212→+.282 변화도 동반한다. candidate state·backbone·읽기 등의 변화를 구분하려면 확장 분석이 필요하다.
 
-### 4.2 Colab 자동 실행 범위 확인
+#### 4.2 Colab 자동 실행 범위 확인
 
 | 경로 | 자동 실행 내용 | 이번 수신 확인 |
 |---|---|---|
@@ -139,7 +259,7 @@ write 평균만으로 학습 전환을 설명할 수 없다. M8/p.1은12k→13k�
 
 세 유형의 균등 분배나 높은 rank 자체를 성공 기준으로 삼지 않는다. threshold 민감도·동일 개수 무작위 그룹·단일 효과의 비가산성·reset과swap 차이를 함께 본다. 학습 중 RTLA로 전환 시점을 보고, 최종 checkpoint 사후 관측으로 학습 원인을 확정하지 않는다. 추가 seed·긴 학습·다음 구조 실험은 아래 사후 해석과 사용자 판단을 바탕으로 결정한다.
 
-### 4.3 사후 분석의 연결·집계 기준
+#### 4.3 사후 분석의 연결·집계 기준
 
 6개 모두 원래 학습 Config·prepared manifest·selected step·학습 중 best RTLA의 모든 scalar 지표가 정확히 일치한다. M20/p0는19k, 나머지는20k이며, 파일명 대신 checkpoint의 실제 Config로 M/dropout을 연결했다. checkpoint hash는 각 사후 원본에 보관한다. 학습 JSON 자체에는 hash가 없으므로 전달받지 않은 가중치를 별도로 재해시한 것은 아니다.
 
@@ -158,7 +278,7 @@ write 평균만으로 학습 전환을 설명할 수 없다. M8/p.1은12k→13k�
 
 사후 분석은6개 합계715.44초(11.92분, 단일 T4 약0.199 GPU-hours)다. 보고된 분석 본체 시간이며 코드 설치·Drive 복사 등은 제외한다. 이번 고정 probe의 비용으로, 모델 크기·측정 길이·슬롯 수를 늘린 분석 시간으로 일반화하지 않는다.
 
-### 4.4 Gate 분화와 포화: dropout의 방향이 M마다 다르다
+#### 4.4 Gate 분화와 포화: dropout의 방향이 M마다 다르다
 
 closed는 calibration의 모든 관측에서 gate<=.01, open은 모두>=.99, other는 그 밖이다. **other는 관측 분류이며 자동으로 유용한 선택형 메모리를 의미하지 않는다.** 아래 포화율·logit·router 값은 두 평가 window 평균이다. |logit|>20은 극단 포화의 기술 지표이며 닫힘/열림 양쪽을 포함한다.
 
@@ -177,7 +297,7 @@ M75/p.1은 반대로 |logit|>20 비율100%→4.34%, context norm134.57→6.29, h
 
 마지막 write bias의 학습 후 절댓값 최대는6run 모두.042 미만이다. 따라서 현재 극단 logit을 마지막 bias 값 자체만으로 설명할 수 없으며 context·hidden·출력 weight 경로의 기여가 크다. 이 관찰이 초기 bias의 최적화 경로 영향을 배제하지는 않으므로 예정된 bias 실험은 여전히 의미가 있다.
 
-### 4.5 표현 다양성: cosine 감소와 실제 갱신의 분화를 구분한다
+#### 4.5 표현 다양성: cosine 감소와 실제 갱신의 분화를 구분한다
 
 rank는 각 state의 slot×feature 행렬에서 squared singular value 에너지로 구한 entropy effective rank를 평균한 값이다. 문맥 평균 제거는 슬롯별 관측 평균을 빼고, actual update는 실제 S_next−S다. CKA는 같은64개 segment/example 관측의 off-diagonal 슬롯쌍 평균이며, 문맥에 따른 표현 변화 유사도의 기술 통계다.
 
@@ -194,7 +314,7 @@ M8의 dropout은 state rank1.05→1.80·전체 CKA.993→.931로 표현 차이�
 
 M20은 문맥 평균 제거 rank3.03→1.90·update rank2.41→1.05·CKA.902→.965로, dropout 후 표현·갱신이 더 유사해지는 방향이다. open 내부 CKA도.844→.998로 높아진다. M75는 update rank1.80→2.43·CKA.976→.915로 개선되며 정상 validation 개선과 일치한다. 다만75개 슬롯에 비해 rank는 여전히 낮고, M20/p0가 문맥 평균 제거 rank는 더 높아도 최저 PPL은 M75/p.1이다. rank 최대화를 성능 목표로 삼지 않는다. M75/p.1에서도 전체 CKA는.915로 여전히 높고, open2개 내부는.9904, other5개 내부는.8509다. 낮아진 cosine만으로75개 슬롯이 독립적으로 분화됐다고 할 수는 없다. CKA는 관측64개/feature256의 제한과 작은 변동 진폭에도 높아질 수 있는 특성이 있어 gate·그룹 개입과 함께 본다.
 
-### 4.6 그룹 개입: M75의 중간형은 기능적으로도 구별된다
+#### 4.6 그룹 개입: M75의 중간형은 기능적으로도 구별된다
 
 아래는 각 calibration 그룹을 따로 reset/swap한 평가 window의 lag0 ΔNLL이다. 양수면 손상, 음수면 해당 probe에서 개선이다. **원래 group mask를 평가 window에서도 그대로 사용하며, 각 행의 효과를 합산하지 않는다.**
 
@@ -225,7 +345,7 @@ M75/p.1의 open2개보다 other5개를 교환했을 때 손상이 크고, other�
 
 단일 슬롯 초기화 효과의 합계도 활용성 지표로 충분하지 않다. window0에서 M20/p.1의 단일 reset ΔNLL 합은−.1076이지만 전체 reset은+.3309, M75/p.1은−.0124이지만 전체 reset은+.3276이다. M8/p0도 합+.1655 대 전체+.4788이다. 그룹 단위에서도 M75/p.1은 전체 swap.6373과 세 그룹 단독 합.4068 사이 차이가.2305다. 음의 개별 효과나 작은 단독 효과를 근거로 불필요 슬롯을 확정하지 않는다.
 
-### 4.7 Retention과 무작위 손상: 장기 보존 개선은 확인되지 않았다
+#### 4.7 Retention과 무작위 손상: 장기 보존 개선은 확인되지 않았다
 
 한 번 전체 state를 swap한 뒤 정상 입력을 계속 주었을 때의 ΔNLL이다. lag0는 현재 segment, lag3은225 tokens 뒤 segment이며 분기 전체가 원래 trajectory와 다를 수 있다. 손상이 오래 남는 것은 유용한 정보의 장기 보존과 동의어가 아니다.
 
@@ -244,7 +364,7 @@ M75/p.1의 open2개보다 other5개를 교환했을 때 손상이 크고, other�
 
 ![L75 dropout 사후 비교: gate·표현·그룹 개입·retention·단일 슬롯 비가산성](../figures/20261016_l75_dropout_posthoc.png)
 
-### 4.8 이번 사후 분석을 반영한 판단
+#### 4.8 이번 사후 분석을 반영한 판단
 
 **성능 기준 잠정 선택은 M8=0, M20=0, M75=.1로 유지한다.** M8의 dropout은 외형적 표현 차이를 늘려도 갱신 effective rank≈1·open2개에 집중되고 품질은 좋아지지 않는다. M20은 dropout 후 극단 포화·중간형 소실·갱신 rank 감소·PPL 악화가 함께 관측돼 이번 조건에서 부정적 근거가 가장 일관된다. M75는 극단 포화 완화·중간형의 무작위 대조군 대비 기여·갱신 rank 상승·PPL 개선이 함께 관측돼 가장 유망하다.
 
@@ -252,7 +372,7 @@ M75/p.1의 open2개보다 other5개를 교환했을 때 손상이 크고, other�
 
 당시 다음 단계로 정한 bias−2/0/+2 중 M20 결과를2026-10-17에 수신해4.9에 추가했다. M8/M75는 미실행이다. 각 M에서 새 초기화로 비교하고 위 지표와 gate/context scale을 같이 본다. 추가 확인의 우선순위는 warmup 길이 변화에 따른 그룹 안정성, epoch 경계 전후 checkpoint의 gate·표현 변화, 효과가 큰 M75의 추가 seed다. 현재 분석은 단일 seed·세 짧은 window·horizon4의 최종 관측이며 긴 문맥/완전 수렴·분화의 학습 원인·다른 seed 재현성을 검증한 것은 아니다. 새로운 학습이나 분석 코드는 이번 결과 정리에 추가하지 않았다.
 
-### 4.9 M20 bias 실험: −2는 갱신 다양성과 전체 validation이 함께 개선됐다
+#### 4.9 M20 bias 실험: −2는 갱신 다양성과 전체 validation이 함께 개선됐다
 
 2026-10-17 수신 학습2개·사후2개는 **L75/M20/bias−2 및+2**다. 기존 A20-0(bias0)을 대조군으로 연결했다. 세 조건 모두 dropout0·read off·seed54·T4×2·FP32·micro128×accum1×GPU2·20k이며, Config는 bias·출력/run 이름 외에 동일하다. 실제 학습383,975,424 targets·전체 validation248,420 targets·prepared manifest도 일치한다. **세 best가 모두19k/364,775,424 학습 targets**이므로 아래 best 사후 비교는 학습 step이 같다. 테스트는 평가하지 않았다.
 
@@ -334,7 +454,7 @@ window0 정상probe PPL은−2/0/+2에서36.7766/35.8678/36.2851로 전체valida
 | M8/M75 bias 실험과 M20 추가seed 중 우선순위 | |
 | warmup·측정 길이를 바꾼 추가 분석의 우선순위 | |
 
-### 4.10 L150의 bias−2 결과와 교차 확인
+#### 4.10 L150의 bias−2 결과와 교차 확인
 
 2026-10-17 학습 원본의 resolved Config와 사후 checkpoint Config를 대조했다. **L150 GRT M10/M40/M160은 모두 write bias init−2·write dropout0·read off·model/data seed54**다. NeoX/RMT baseline에는 GRT write gate가 없어 같은 bias 실험으로 세지 않는다. 아래는 [L150 실험](20261012_small_register_sweep.md)의 원본과 이번 M20 결과를 같은 집계 정의로 재계산한 비교다. 그룹은 window0, 포화·gate·표현은 window16/32 평균이다.
 
@@ -368,7 +488,7 @@ CKA는 모든 off-diagonal 슬롯쌍의 평균으로 통일했다. L150 문서4.
 
 현재 판단은 **고정 L75/M20에서 bias의 효과가 seed를 바꿔도 같은 방향인지 확인하는 것**이다. L150 자료는−2의 조건 의존성을 보여주는 추가 사례이며, L75 bias−2의 독립 seed 재현으로 세지 않는다.
 
-## 5. 기존 노트북에서 실행
+### 5. 기존 노트북에서 실행
 
 새 노트북이나 run별 YAML을 만들지 않는다. 기존 [Kaggle](../../notebooks/kaggle.ipynb) / [Colab 학습](../../notebooks/colab.ipynb)의 선택 셀을 사용한다.
 
@@ -388,11 +508,11 @@ Read gate off는 model override에 명시한다. 값을 바꾸면 기존 공통 
 
 학습 노트북 마지막 `job.report(posthoc=True, download=True, posthoc_options=...)`의 **experiment_results.zip** 하나를 보내면 안의 학습·사후 JSON을 이 문서의 해당 ID에 반영한다. 마지막 셀에서 batch8·warmup3·측정8·horizon4·slots/registers true·window0/16/32·group_repeats3을 직접 바꿀 수 있다. 기존 학습 JSON과 별도 사후 JSON도 계속 받을 수 있다. 여러 환경 결과를 CSV로 누적하지 않는다. 미실행·미측정은 빈칸/상태로 남긴다.
 
-## 6. 준비 검증
+### 6. 준비 검증
 
 관련 CPU 검사55개가 통과했다. 기존 카탈로그에20k 예산을 추가하고, 실제 Kaggle/Colab 선택 셀에서 M3개×bias3개×dropout2개의 설정 전달·고유 run hash·read off·실질 배치256·384M nominal targets를 확인했다. 기존 gate/write 구현과 공통 utils를 사용하며 모델 구조·checkpoint 형식·기존 결과는 바꾸지 않았다. 2026-10-16 사용자 제공6개 report로20k GPU 학습·시간·기본 RTLA 완료를 확인했다. 같은 날 사후 JSON6개를 추가 수신해 gate 원값·threshold·3window·그룹별 token 가중 ΔNLL을 검증하고 위 표·그림에 반영했다. 기존 원본은 보존했다.
 
-## 7. 원본과 재현성
+### 7. 원본과 재현성
 
 | ID | report ID / 원본 | W&B |
 |---|---|---|
@@ -421,3 +541,5 @@ Read gate off는 model override에 명시한다. 값을 바꾸면 기존 공통 
 L75 사후 원본8개(기존6개+M20 bias2개)의 bytes를 그대로 보관했다. 원본 학습·사후 JSON과 기존 L150 결과는 수정하지 않았다. 이번 추가 분석은 받은 자료를 재집계한 것으로 GPU 추론·학습을 새로 실행하지 않았다.
 
 2026-10-17 M20 bias 수신분: 학습2개·사후2개를 추가하고, 기존bias0과 Config·환경·예산·selected19k 연결 및 분석 source hash를 대조했다. raw gate 재분류와 원시배열의 token 가중 개입ΔNLL 재계산, 원본 bytes·문서 링크 검증을 수행했다. GPU 실행과 모델 코드는 변경하지 않았다.
+
+</details>

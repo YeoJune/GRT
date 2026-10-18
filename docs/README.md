@@ -10,9 +10,7 @@
 
 | 실험 | 현재 상태 | 문서 |
 |---|---|---|
-| L75/M20 Uniform 초기화 | Refine off·Uniform on·seed54·20k 비교 준비, GPU 미실행 | [계획·결과란](experiments/20261018_l75_uniform_gate.md) |
-| L75/M20 Refine gate | seed54에서 품질·고착 완화 효과 없음: best PPL off33.7436/on33.8667. Runtime 차이 있음; 추가 seed 중단 | [계획·결과란](experiments/20261017_l75_refine_gate.md) |
-| L75 small write gate 비교 | A단계 학습·확장 사후 각6개 완료: dropout0/0/.1 잠정 선택(M8/20/75), M75 중간형의 문맥 기여 확인. M20 bias−2/0/+2 완료: best PPL32.6100/33.7436/33.0599, −2 잠정 우선; M8/M75 bias 미실행 | [계획·결과·판단](experiments/20261015_l75_write_gates.md) |
+| L75 small gate 안정화 | Dropout·M20 bias와 후속 안정화 시도 취합, 종료된 전용 구현 정리 | [조건·결과·판단](experiments/20261018_l75_gate_stabilization.md) |
 | small 레지스터 용량 비교 | NeoX/RMT baseline, GRT M10/M40/M160의10k 학습·다중 window/그룹 사후 분석 완료; 선택 M 미정 | [계획·결과·해석·사용자 판단](experiments/20261012_small_register_sweep.md) |
 
 실험 주제마다 위 문서 하나에 조건·run/seed·사후 분석·결론을 갱신한다. MLP·segment·size 비교를 시작하면 새 행과 문서를 추가한다. 실행 시작점은 [저장소 README](../README.md), [Kaggle](../notebooks/kaggle.ipynb), [Colab 학습](../notebooks/colab.ipynb), [Colab 사후 분석](../notebooks/colab_analysis.ipynb)이다.
