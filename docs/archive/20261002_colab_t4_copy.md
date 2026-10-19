@@ -173,7 +173,7 @@ checkpoint의 내부 상태 진단이나 모든 예산에서의 학습 불가능
 
 2022년 공식 구현은 `booydar/LM-RMT`이며, 현재 RMT와 위치 attention·정규화·
 attention mask·Copy 생성 방식이 다르다. 비교 근거와 공개 실험 조건은
-[RMT_BASELINE_REVIEW.md](RMT_BASELINE_REVIEW.md)에 정리했다.
+당시 문서 `RMT_BASELINE_REVIEW.md`에 정리했다(현 저장소에는 미보관).
 위 진단은 현재 RMT 변형에 관한 결과이며 원본 논문 baseline 자체의 실패를 뜻하지 않는다.
 원본도 초기 memory 슬롯을 동일하게 만들지만 상대 위치 attention으로 슬롯을 구분한다.
 따라서 초기 대칭만으로 실패 원인을 설명할 수 없다. 후속 작업에서는 예산 증가보다

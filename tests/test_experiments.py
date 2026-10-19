@@ -1,5 +1,6 @@
 """Current catalog selection and one short production-utils CPU workflow."""
 from dataclasses import asdict
+import copy
 import json
 import os
 from pathlib import Path
@@ -97,42 +98,41 @@ def test_colab_shared_budget_and_secret_setup(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('runtime', ['kaggle', 'colab'])
-def test_l75_gate_grid_through_actual_notebook_selection(runtime, monkeypatch):
-    """The real manual entrypoint must preserve budgets and isolate every condition."""
+def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, monkeypatch):
+    """Current notebook exposes the chosen method while preserving all run budgets."""
     import ast
     notebook = json.loads((REPO/'notebooks'/f'{runtime}.ipynb').read_text())
-    selection = ast.parse(''.join(notebook['cells'][3]['source']))
+    source = ast.parse(''.join(notebook['cells'][3]['source']))
     monkeypatch.setattr(WikiTextRun, 'setup', lambda self: None)
     names = set()
     for memory in (8, 20, 75):
-        for bias in (-2., 0., 2.):
-            for dropout in (0., .1):
-                values = dict(num_registers=memory, write_gate_bias=bias, write_dropout=dropout)
-                for node in selection.body:
-                    if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
-                        key = node.targets[0].id
-                        if key in values:
-                            node.value = ast.Constant(values[key])
-                namespace = dict(Path=Path, WikiTextRun=WikiTextRun, repo=REPO)
-                exec(compile(ast.fix_missing_locations(selection), '<selection>', 'exec'), namespace)
-                job = namespace['job']
-                assert job.models == ('grt',) and job.test_at_end is False
-                cfg = job.config('grt', calibrated=False)
-                assert cfg.model.segment_len == 75 and cfg.model.num_registers == memory
-                assert cfg.model.register.write_gate_bias_init == bias
-                assert cfg.model.register.dropout_prob == dropout
-                assert cfg.model.register.conditional_read is False
-                assert cfg.model.d_model == 256 and cfg.model.alu.num_layers == 6
-                assert cfg.model.router.pool_nhead == 8 and cfg.model.router.mlp_hidden == 512
-                assert cfg.training.max_steps == 20000 and cfg.training.bptt_segments == 3
-                assert cfg.training.global_batch_size*75*20000 == 384000000
-                assert cfg.training.batch_size*cfg.training.grad_accum_steps*job.world_size == 256
-                assert cfg.training.lr == .0005 and cfg.training.mixed_precision == 'fp32'
-                assert cfg.training.memory_fraction == .95 and cfg.rtla.enabled
-                assert cfg.evaluation.batch_size == 10 and cfg.evaluation.every_steps == 1000
-                assert job.run_dir not in names
-                names.add(job.run_dir)
-    assert len(names) == 18
+        for dropout in (0., .1):
+            selection = copy.deepcopy(source)
+            values = dict(num_registers=memory, write_dropout=dropout)
+            for node in selection.body:
+                if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                    key = node.targets[0].id
+                    if key in values:
+                        node.value = ast.Constant(values[key])
+            namespace = dict(Path=Path, WikiTextRun=WikiTextRun, repo=REPO)
+            exec(compile(ast.fix_missing_locations(selection), '<selection>', 'exec'), namespace)
+            job = namespace['job']; cfg = job.config('grt', calibrated=False)
+            assert job.models == ('grt',) and job.test_at_end is False
+            assert cfg.model.segment_len == 75 and cfg.model.num_registers == memory
+            assert cfg.model.register.write_gate_bias_init == 0
+            assert cfg.model.register.dropout_prob == dropout
+            assert cfg.model.register.conditional_read is False
+            assert cfg.model.register.write_logit_threshold == 10
+            assert cfg.model.register.write_logit_coef == 1e-4
+            assert cfg.model.d_model == 256 and cfg.model.alu.num_layers == 6
+            assert cfg.model.router.pool_nhead == 8 and cfg.model.router.mlp_hidden == 512
+            assert cfg.training.max_steps == 20000 and cfg.training.bptt_segments == 3
+            assert cfg.training.batch_size*cfg.training.grad_accum_steps*job.world_size == 256
+            assert cfg.training.lr == .0005 and cfg.training.mixed_precision == 'fp32'
+            assert cfg.training.memory_fraction == .95 and cfg.rtla.enabled
+            assert cfg.evaluation.batch_size == 10 and cfg.evaluation.every_steps == 1000
+            names.add(job.run_dir)
+    assert len(names) == 6
 
 
 def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):
