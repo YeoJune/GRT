@@ -10,7 +10,7 @@
 
 | 실험 | 현재 상태 | 문서 |
 |---|---|---|
-| L75 small gate 안정화 | Dropout·M20 bias·종료된 Refine/Uniform 및13개 GPU 실측 통계; logit tail A/B/C 실행 준비 | [조건·결과·판단](experiments/20261018_l75_gate_stabilization.md) |
+| L75 small gate 안정화 | Dropout·M20 bias·종료된 Refine/Uniform, 기존13개 GPU 통계; logit tail M20 A/B/C·M8 A 완료; M75 A 후 dropout.1 세 조건 대기 | [조건·결과·판단](experiments/20261018_l75_gate_stabilization.md) |
 | small 레지스터 용량 비교 | NeoX/RMT baseline, GRT M10/M40/M160의10k 학습·다중 window/그룹 사후 분석 완료; 선택 M 미정 | [계획·결과·해석·사용자 판단](experiments/20261012_small_register_sweep.md) |
 
 실험 주제마다 위 문서 하나에 조건·run/seed·사후 분석·결론을 갱신한다. MLP·segment·size 비교를 시작하면 새 행과 문서를 추가한다. 실행 시작점은 [저장소 README](../README.md), [Kaggle](../notebooks/kaggle.ipynb), [Colab 학습](../notebooks/colab.ipynb), [Colab 사후 분석](../notebooks/colab_analysis.ipynb)이다.

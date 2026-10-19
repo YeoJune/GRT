@@ -1,12 +1,16 @@
 # L75 small: gate 안정화 실험
 
-작성: 2026-10-15 · 통합·갱신: 2026-10-18 · 상태: dropout·M20 bias·Refine·Uniform 결과 취합, logit tail A/B/C 실행 준비
+작성: 2026-10-15 · 통합·갱신: 2026-10-19 · 상태: M20 A/B/C·M8 A 결과 반영, M75 A 및 write dropout 비교 대기
 
 [공통 실행 안내](../20261011_experiment_workflow.md) · [L150 용량 비교](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Regularization 설계 검토](../20261016_write_regularization.md)
 
 ## 1. 결론과 범위
 
+**2026-10-19 추가: logit tail 패널티 A/B/C는 이번 L75/M20·seed54에서 기존 bias0 Off보다 품질과 gate 가변성이 개선됐다.** Best PPL은 Off33.7436 → A32.3376 / B33.0368 / C32.9088이다. 세 조건 모두 사후 abs(logit)>20 비율0%, 슬롯 내 gate std 약.18~.21로, Refine·Uniform과 달리 동적 갱신 회복의 근거가 있다. 잠정 후보는 A지만 A는 PyTorch2.10, B/C·Off는2.11이고 초기 optimizer 경로의 비교 요인도 있어 threshold·coef만의 인과 효과로 확정하지 않는다. B/C의 일부 표현 rank는 Off보다 낮아 건강한 표현 분화까지 모두 달성했다는 결론도 보류한다. [조건·원본·상세 분석](#logit-tail)을 따른다.
+
 **Refine과 Uniform Gate Initialization은 이번 L75/M20·seed54에서 gate 고착 완화와 품질 개선에 실패했다. 두 실험 전용 구현을 제거하고 결과만 이 보고서와 원본 JSON에 보존한다.** 단일 seed이고 기존 대조군의 소프트웨어 환경이 달라, 두 방법 일반에 효과가 없다는 주장으로 확대하지 않는다. 추가 Refine·Uniform seed와 결합 조건은 실행하지 않았다.
+
+**M8 추가 결과:** A의 best PPL33.5383(Off34.1048 대비−1.66%), 최종20k33.6620이며 사후 gate std0→.1700·abs>20 비율100%→0%다. 작은 M에서도 동적 갱신 회복이 관측됐다. [상세 결과](#lt-a8-result)를 반영했고 남은 새 학습은 M75 A 및 dropout.1 세 조건의4run이다.
 
 기존 L75 dropout·bias와 이후 Refine·Uniform을 같은 안정화 질문의 연속 실험으로 통합했다. Dropout은 M별 효과가 달랐고, M20 bias−2에서는 동적 gate와 품질 개선이 관측됐다. 이들까지 모두 실패로 분류하지 않는다. 고정 bias·write dropout은 표준 write 구조의 조절값으로 유지하고 실패한 두 전용 경로만 정리한다.
 
@@ -16,7 +20,7 @@
 | 고정 write bias | M20, dropout0에서 −2/0/+2 각1seed | Best PPL 32.6100/33.7436/33.0599. −2의 문맥별 갱신이 양호했으나 seed 재현성 미확인. M8/M75의 ±2는 미실행 |
 | 중립 Refine | M20/bias0/dropout0, seed54 | Best PPL 33.8667, 기본·refine 동반 포화. 안정화 실패, 전용 구현 제거 |
 | Uniform 초기화 | M20/dropout0, Refine 없이 seed54 | Best PPL 33.9524, 닫힘17/열림3/중간형0, 극단 logit100%. 안정화 실패, 전용 구현 제거 |
-| Logit tail 패널티 | L75/M20/bias0/dropout0, seed54의 A/B/C 준비 | threshold/coef `(10, 1e-4)`·`(5, 1e-4)`·`(10, 1e-3)`; [계획·실행·결과란](#logit-tail), GPU 결과 미수신 |
+| Logit tail 패널티 | L75/M20/bias0/dropout0, seed54의 A/B/C 완료 | Best PPL32.3376/33.0368/32.9088, gate 가변성 회복. [상세 결과](#logit-tail); 환경 차이·단일 seed 한계, A 잠정 후보 |
 
 ## 2. Refine·Uniform 비교 조건과 원본
 
@@ -729,7 +733,7 @@ L150/L75는 동일 데이터·global256·seed54·backbone을 사용하지만 L, 
 
 ### 목적과 연구상 위치
 
-Sigmoid write를 유지하면서 과도한 raw logit만 억제해 고착이 완화되는지 확인한다. Refine·Uniform은 종료 상태로 유지한다. Softmax 전환·normalization·별도 gate warmup·계수 감쇠는 이번 비교에 넣지 않는다. 새 GPU 결과는 아직 없으며 아래 수치는 기존 GPU JSON의 사후 산술 집계다.
+Sigmoid write를 유지하면서 과도한 raw logit만 억제해 고착이 완화되는지 확인한다. Refine·Uniform은 종료 상태로 유지한다. Softmax 전환·normalization·별도 gate warmup·계수 감쇠는 이번 비교에 넣지 않는다. A/B/C GPU 학습·확장 사후 결과를2026-10-19 반영했다. 설계 수치의 근거와 이번 실측 결과를 아래에서 구분한다.
 
 [ST-MoE §3.3, 식5·6](https://arxiv.org/abs/2202.08906)은 softmax router에 `mean(logsumexp(logits)^2)`와 계수1e-3을 사용했다. 주된 목적은 수치 안정성이다. 우리의 독립 sigmoid·FP32·고착 문제와 다르므로 원문의 직접 재현이나 동일 계수의 동등한 강도로 표현하지 않는다. 원문에서 가져오는 원칙은 활성함수 이전의 logit에 미분 가능한 비용을 부과한다는 것이다. [Skip RNN §3.2](https://arxiv.org/abs/1708.06834)의 업데이트 횟수 비용과도 목적이 다르며, 이번 항은 쓰기 빈도나 유형 비율을 지정하지 않는다.
 
@@ -749,9 +753,9 @@ GRT small D256/6layers/head8/FF1024, router hidden512, L75/M20, seed54, bias0, w
 
 | ID | threshold | coef | 목적 | 상태 |
 |---|---:|---:|---|---|
-| LT-A | 10 | 1e-4 | 극단 증폭을 약하게 억제 | 준비 / GPU 미실행 |
-| LT-B | 5 | 1e-4 | 더 이른 구간부터 억제 | 준비 / GPU 미실행 |
-| LT-C | 10 | 1e-3 | 같은 허용 범위에서10배 강한 압력 | 준비 / GPU 미실행 |
+| LT-A | 10 | 1e-4 | 극단 증폭을 약하게 억제 | 완료 / 20k·확장 사후 분석 |
+| LT-B | 5 | 1e-4 | 더 이른 구간부터 억제 | 완료 / 20k·확장 사후 분석 |
+| LT-C | 10 | 1e-3 | 같은 허용 범위에서10배 강한 압력 | 완료 / 20k·확장 사후 분석 |
 
 기존 off 대조군은 A20-0(best19k PPL33.7436, 최종20k33.7718)을 재사용한다. 조건을 바꿔 기존 checkpoint에서 이어 학습하지 않는다. 세 run은 threshold와 coef의 상호작용을 추정하는 완전 요인 설계는 아니다.
 
@@ -791,15 +795,238 @@ Config 경로는 `model.register.write_logit_threshold`, `model.register.write_l
 
 학습 후 기존 마지막 셀 `job.report(posthoc=True, download=True, ...)`로 확장 사후 분석까지 수행한다. **`experiment_results.zip` 하나**를 보내면 학습 곡선·best/최종 품질·gate/state/기능적 기억을 아래 결과표에 정리한다. 분석만 실패하면 학습 결과와 checkpoint는 보존되며 같은 report 셀을 다시 실행한다.
 
-### 결과 기입란과 다음 단계
+### 수신 원본·품질·비교 범위
 
-| ID | best step / PPL | 최종20k PPL | gate 초과율·문맥별 변화 | slot 유형·메모리 개입 | wall h / peak GiB | 결과 파일 / 판단 |
+세 ZIP은 모두20k 완료이고 각 ZIP의 학습 JSON과 사후 JSON이 Config·dataset manifest·best step·선택 RTLA 수치에서 일치한다. 실제 targets383,975,424개, validation248,420개, T4×2·FP32·micro128×accum1·global256·18,682,408 parameters다. 새 세 조건의 학습·사후 commit은 모두 `2876bcf`이고 사후 환경의 git_dirty=false다. 모든 아래 수치는 사용자 GPU report의 실측 또는 그 배열의 산술 요약이며 CPU 모델 실행·초기화 재구성·가상 bias 대입값은 포함하지 않는다.
+
+| 조건 | threshold / coef | best step / PPL | 최종20k PPL | 15k~20k PPL 평균 | wall h / peak GiB | 학습 / 확장 사후 JSON |
 |---|---|---|---|---|---|---|
-| Off: A20-0 | 19k / 33.7436 | 33.7718 | 사후 abs>20 35.16%, slot std .001158 | 14/4/2, 기존 분석 참조 | 6.695 / 11.721 | 기존 학습·사후 JSON 재사용 |
-| LT-A | | | | | | |
-| LT-B | | | | | | |
-| LT-C | | | | | | |
+| Off | Off / bias0 | 19,000 / 33.7436 | 33.7718 | 34.0582 | 6.695 / 11.721 | [학습](../../results/86fb2481ac1e45f29da0164863b28d66.json) / [사후](../../results/posthoc/5435927747a34aa895d5804c2b5772a6.json) |
+| Bias-2 | Off / bias−2 참고 | 19,000 / 32.6100 | 32.6552 | 33.2183 | 6.423 / 11.721 | [학습](../../results/3001e7328e87456395275745ada7b946.json) / [사후](../../results/posthoc/3cb39cb5ceaf40e4b2ac4790af009b6d.json) |
+| LT-A | 10 / 0.0001 | 20,000 / 32.3376 | 32.3376 | 32.8798 | 7.028 / 11.757 | [학습](../../results/b0420e8b63f64d0094ed84a8d273f14b.json) / [사후](../../results/posthoc/0661b28486074874ba3688183326aa8c.json) |
+| LT-B | 5 / 0.0001 | 20,000 / 33.0368 | 33.0368 | 33.5858 | 6.146 / 11.757 | [학습](../../results/31a7d55d4d64400e81578e055d88b2e1.json) / [사후](../../results/posthoc/dd6827efb9ad4505a3b973cc77b152b3.json) |
+| LT-C | 10 / 0.001 | 20,000 / 32.9088 | 32.9088 | 33.6985 | 6.961 / 11.757 | [학습](../../results/93d019b472434814b3e057ea5732f616.json) / [사후](../../results/posthoc/3a96051e1cd946b2944a95f8468eeb4d.json) |
 
-포화율만 줄어드는 것으로 성공을 선언하지 않는다. best 및 최종 PPL, 문맥별 gate 변화, 실제 update와 reset/swap 기여를 함께 본다. B 우세면 이른 개입, C 우세면 압력 부족, A 우세면 과도한 규제의 가능성을 후속 가설로 삼는다. 새 한 seed 결과는 탐색 관측이다. 유망 조건을 동일 수치로 M8/M75에 전달해보고, 최종 효과 주장에는 추가 seed의 paired off/on 비교를 고려한다.
+Off 대비 best ΔPPL은 A−1.4060(−4.17%), B−.7068(−2.09%), C−.8348(−2.47%)다. 같은20k 최종끼리도 각각−1.4342/−.7350/−.8630이다. A는 이전 bias−2 참고값32.6100보다도.2724 낮지만 다른 bias와 소프트웨어 환경이므로 같은 개입의 대조군은 아니다. 새 세 조건의 best는 모두 마지막20k여서 수렴 후 최종 우열이 아니라 주어진 예산에서의 관측이다. 세 학습 wall 합은 약20.13시간이며 비용 차이를 순수 규제 연산 비용으로 해석하지 않는다.
 
-구현 검증: 전체 CPU 소프트웨어 검사151개 통과, optional W&B 미설치로2개 생략. raw-logit gradient·dropout 이전 값·replay 제외·짧은 tail·M 평균·microbatch 취합·2-worker/serial 가중치 및 지표 일치·정확한 재개·노트북 세 조건의 독립 run 경로·기존 사후 분석/ZIP 경로를 확인했다. 첫 분산 시도는 sandbox의 localhost 차단으로 중단됐고, 로컬 통신을 허용한 전체 검사에서 통과했다. 변경한 노트북 문법·문서 링크·기존 tracked 결과29개 파일 bytes 보존도 확인했다. 이 검사는 실험 성능 근거가 아니며 A/B/C GPU 학습은 사용자가 실행한다.
+| 조건 | 입력 ZIP | 학습 Python / PyTorch | 사후 Python / PyTorch |
+|---|---|---|---|
+| Off | 기존 A20-0 | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 |
+| Bias−2 참고 | 기존 B20− | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu130 |
+| LT-A | experiment_results (2).zip | 3.12.13 / 2.10.0+cu128 | 3.12.13 / 2.10.0+cu128 |
+| LT-B | experiment_results.zip | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu128 |
+| LT-C | experiment_results (1).zip | 3.13.15 / 2.11.0+cu128 | 3.13.15 / 2.11.0+cu128 |
+
+모든 조건의 Transformers는4.45.2, GPU는T4다. **A 대 B/C의 비교에는 Python/PyTorch 버전 차이가 섞인다.** B/C와 Off의 학습 라이브러리는 같지만 commit과 정규화 유무가 다르고, Off 사후의 CUDA/PyTorch build도 다르다. 따라서 A/B/C 순위를 계수·threshold의 순수 효과나 통계적 유의성으로 표현하지 않는다. 동일 데이터·seed·배치만으로 완전히 동일한 수치 경로를 보장하지 않는다.
+
+**초기 optimizer 경로도 확인이 필요하다.** [현재 구현](../../src/grt/regularization.py)은 R=0이어도 `task_loss + coef*R`를 graph에 연결한다. [학습 경로](../../src/grt/stream_training.py)는 `zero_grad(set_to_none=True)`와 Adam을 사용하므로 gate에 task 경로가 없는 첫 update 등에서는 순수 Off의 grad=None과 새 분기의 grad=0이 optimizer state 생성·step 수에 차이를 만들 수 있다. GPU 기록에서도 세 조건의 step10 penalty는0인데 task loss는 모두9.2738533020으로, 기존 Off9.2738418579와 약1.14e-5 다르다. 이것만으로 차이의 원인을 확정하거나 최종 개선을 초기 Adam 차이로 설명하지는 않는다. JSON에는 optimizer 본체가 없어 실제 상태 차이는 직접 검증하지 못했다. **0이 아닌 tail 압력의 순수 효과를 분리하려면 동일 스택의 비교뿐 아니라, 패널티가0인 분기에서도 초기 optimizer 경로를 맞춘 대조가 필요하다.** 이는 코드 구조에서 찾은 비교 한계이며 CPU 모델 검사로 만든 실험값이 아니다.
+
+| 조건 | 선택 checkpoint SHA256 |
+|---|---|
+| LT-A | `f7f45bf28d90f1e6e61ae6310d3e2d2ee460795699bc1343229ba7d638f8bf71` |
+| LT-B | `dbdddf174ebe41f8baa4ddd270a3ac0503b01fd6f068aaf91b6a5dbb8087ed45` |
+| LT-C | `322a7ce5dbe2c1ea5671aecfeacab3371e72705cde00155b4bddb37b1f034b13` |
+
+### 초반 학습: 평균값 정체 이후 회복
+
+아래는 **새 segment의 training raw write 평균 / 평균 abs(logit)**이다. 고정 validation probe의 write 평균과 섞지 않는다. 기록 간격은10step이므로 최초 양의 penalty가 관측된 A60/B50/C150step을 정확한 최초 발생 step으로 해석하지 않는다.
+
+| step | LT-A | LT-B | LT-C |
+|---:|---|---|---|
+| 1 | 0.500003 / 0.005 | 0.500003 / 0.005 | 0.500003 / 0.005 |
+| 50 | 0.003633 / 5.955 | 0.007162 / 5.028 | 0.003633 / 5.955 |
+| 100 | 0.000342 / 8.776 | 0.007364 / 4.930 | 0.002752 / 6.037 |
+| 500 | 0.450011 / 9.540 | 0.646280 / 4.550 | 0.350030 / 9.504 |
+| 1,000 | 0.450005 / 9.643 | 0.492791 / 4.178 | 0.350018 / 9.606 |
+| 2,000 | 0.291039 / 7.572 | 0.435736 / 4.043 | 0.217186 / 7.567 |
+| 6,000 | 0.448313 / 4.479 | 0.472520 / 3.545 | 0.446096 / 4.461 |
+| 20,000 | 0.458766 / 2.966 | 0.452569 / 2.824 | 0.454641 / 3.171 |
+
+A/C도 초반에 write가 거의 닫혔다. 500~1,000step의 평균은 A .450001~.450014, C .350015~.350034로 사실상 고정되어 있고 평균 abs(logit)도약9.5~9.7이다. 하지만 이후 평균값이 다시 움직이고 최종 사후 gate std가 커진다. **초반부터 write mean이 연속적으로 움직이는 것만이 성공 조건은 아니며, 일시적인 고착 양상에서 다시 조절할 수 있는지가 더 적절한 가설이다.** training 슬롯별 trajectory는 저장되지 않아 정확히 어느 슬롯이 언제 역할을 바꿨는지는 확정하지 않는다.
+
+LM의 모든 불안정성이 해결된 것도 아니다. B는 validation PPL4k165.38·5k214.56으로 Off의115.86·114.31보다 나쁜 구간이 있고, C도4k182.23이다. 세 조건 모두6k→7k의 큰 PPL 하락이 첫 epoch 경계6,169 이후와 겹친다. gate 제어만으로 학습 전환 전체를 설명하지 않는다.
+
+### 실제 정규화 비용과 soft threshold
+
+| 조건 | 최종 training R | 최종 coef*R | 기록 중 최대 coef*R / step | 최종 training threshold 초과율 | 사후 threshold 초과율 |
+|---|---:|---:|---|---:|---:|
+| LT-A | 0.00594445 | 5.944e-07 | 0.0001072 / 1,570 | 0.938% | 0.039% |
+| LT-B | 0.0914564 | 9.146e-06 | 0.0003313 / 6,190 | 10.938% | 3.594% |
+| LT-C | 0.000939574 | 9.396e-07 | 0.0009499 / 6,180 | 0.313% | 0.117% |
+
+계수를 유지해도 대부분의 logit이 허용 범위로 들어오면서 실제 비용은 작아졌다. 반면 B는 threshold5라서 후반에도 더 넓은 범위에 압력을 준다. 작은 loss 값이 작은 parameter gradient를 뜻하지는 않으며 task/regularizer gradient 비율은 이번 자료에 없다. 큰 coef가 항상 더 작은 최종 logit이나 더 좋은 품질로 이어지지도 않았다.
+
+이 항은 hard clipping이 아니다. 기록된 training 최대 abs(logit)은 A27.85/B20.88/C22.95로 threshold를 넘은 시점이 있었고, 최종 사후에서도 드문 초과가 남는다. 다음 표의 abs>20=0%는 선택 checkpoint의 제한된 사후 관측 범위에 대한 결과다.
+
+### Gate 가변성과 표현 분화는 분리해서 판단
+
+연속값은 **선택 checkpoint의 평가 window16/32 평균**, 유형은 window0에서 .01/.99 기준으로 보정한 closed/open/other다. Off·bias−2는19k, 새 세 조건은20k checkpoint다.
+
+| 조건 | 유형 C/O/T | 사후 write 평균 | 슬롯 내 gate std 평균 | abs logit 중앙값 | abs>10 / >20 | sigmoid slope 평균 | hidden norm |
+|---|---|---:|---:|---:|---|---:|---:|
+| Off | 14/4/2 | 0.229279 | 0.001158 | 18.078 | 90.000% / 35.156% | 0.012296 | 108.064 |
+| Bias-2 | 0/0/20 | 0.394144 | 0.248303 | 3.495 | 7.031% / 0.391% | 0.068645 | 24.485 |
+| LT-A | 0/1/19 | 0.471292 | 0.183397 | 1.595 | 0.039% / 0.000% | 0.127678 | 28.508 |
+| LT-B | 0/0/20 | 0.407538 | 0.194820 | 2.190 | 0.000% / 0.000% | 0.112377 | 33.932 |
+| LT-C | 0/1/19 | 0.486842 | 0.208015 | 2.345 | 0.117% / 0.000% | 0.103166 | 33.427 |
+
+세 조건의 슬롯 내 gate std는 Off .00116에서 .1834/.1948/.2080으로 커졌다. 전체 샘플의 std만 커진 것이 아니라 같은 슬롯이 문맥에 따라 달라지는 관측이다. A/C의 open은0번 슬롯 하나이며 .001/.999 기준에서는 세 조건 모두0/0/20이다. 따라서 정확한 유형 비율은 threshold에 민감하다. B가 other20이라고 더 우수하다고 판단하지 않는다.
+
+또한 이번 loss가 극단 logit을 직접 규제하므로 closed/open 감소는 개입 방향과 맞는 결과이지만, 그 자체가 독립적인 분화 성공 지표는 아니다. 모든 other 슬롯이 서로 다른 기능을 가진다는 뜻도 아니다.
+
+| 조건 | Raw state rank | 문맥 중심화 state rank | 실제 update rank | 평균 off-diagonal slot CKA |
+|---|---:|---:|---:|---:|
+| Off | 2.812 | 3.033 | 2.410 | 0.902 |
+| Bias-2 | 2.740 | 3.995 | 3.817 | 0.617 |
+| LT-A | 1.779 | 3.245 | 2.813 | 0.667 |
+| LT-B | 1.411 | 2.567 | 2.008 | 0.786 |
+| LT-C | 1.728 | 2.626 | 2.164 | 0.846 |
+
+A는 Off 대비 중심화 state rank3.033→3.245·update rank2.410→2.813·CKA.902→.667로 개선 방향이지만, raw rank는2.812→1.779로 낮다. B/C는 gate 가변성이 커졌어도 update rank2.008/2.164·중심화 rank2.567/2.626으로 Off보다 낮다. **동적 gate 회복과 높은 차원의 표현 분화는 동일한 현상이 아니다.** 이전 bias−2의 update rank3.817도 A보다 높아, PPL 순위와 rank 순위가 같지 않다. Rank·CKA 하나를 최적화 목표나 건전한 비율의 증명으로 쓰지 않는다.
+
+다음 표만 checkpoint의 **window0 RTLA 실측**이며 위 평가 window 평균과 구분한다.
+
+| 조건 | state norm | candidate 거리 | 실제 update norm | relative update |
+|---|---:|---:|---:|---:|
+| Off | 17.557 | 17.515 | 1.774 | 0.037654 |
+| Bias-2 | 16.189 | 15.578 | 4.322 | 0.097176 |
+| LT-A | 21.699 | 9.307 | 3.748 | 0.078185 |
+| LT-B | 20.944 | 9.087 | 3.334 | 0.073150 |
+| LT-C | 20.288 | 9.773 | 3.887 | 0.087097 |
+
+새 세 조건은 hidden/logit scale이 낮아졌지만 state norm은 Off보다 크고 실제 update도 약1.77→3.33~3.89로 커졌다. 모든 내부 표현을 일괄 축소한 결과와는 다르다. 다만 서로 다른 checkpoint trajectory의 관측이므로 이 수치만으로 개선의 인과 기전을 확정하지 않는다.
+
+### 기능적 기억과 잔여 영향
+
+아래는 평가 window16/32의 전체 state 개입 ΔNLL 평균이다. 양수는 개입으로 NLL이 증가했다는 뜻이며, 절대 기여율이나 모델 간 기억 품질 순위가 아니다. lag3는 개입 후 정상 write를 재개한 trajectory의 잔여 영향으로, 기억 수명과 동일하지 않다.
+
+| 조건 | 전체 reset lag0 | 전체 swap lag0 | 전체 swap lag1 / lag2 / lag3 |
+|---|---:|---:|---|
+| Off | +0.354744 | +0.748015 | +0.253272 / +0.111618 / +0.059669 |
+| Bias-2 | +0.447834 | +0.693603 | +0.183564 / +0.090352 / +0.059706 |
+| LT-A | +0.502921 | +0.722187 | +0.255171 / +0.133228 / +0.082597 |
+| LT-B | +0.525509 | +0.649062 | +0.238916 / +0.142717 / +0.102224 |
+| LT-C | +0.423115 | +0.683123 | +0.238222 / +0.137134 / +0.098842 |
+
+A/B/C 모두 reset·swap의 양의 영향이 남아 유용한 문맥 메모리를 사용한다. 세 조건의 swap lag3는 Off .0597보다 크지만, 이는 더 긴 유효 기억일 수도 더 느린 복구일 수도 있어 구분하지 않는다. 또한 제한된 사후 probe의 정상 NLL은 Off3.50763, A3.50923, B3.53538, C3.54313으로 전체 validation PPL의 순위와 다르다. 제한된 문맥에서 모든 지표가 일관되게 좋아졌다고 표현하지 않는다.
+
+A의 open1개는 swap lag0 +.04465(같은 수 random1 평균+.00138), other19는+.60067이다. C는 각각+.02857(random1+.00520), other19+.52193이다. 다만 random19의 평균 swap 영향은 A+.63609/C+.56769로, 큰 other 묶음의 기여가 크다는 사실만으로 선택적인 역할 분화를 증명하지는 못한다. B는 other20이 전체 state이므로 별도 그룹 기능의 증거로 중복 계산하지 않는다. 빈 closed 그룹의0도 미사용 슬롯 분석 결과로 취급하지 않는다. 모든 그룹 효과는 비가산적이다.
+
+![L75/M20 logit tail 학습·사후 비교](../figures/20261019_l75_logit_tail.png)
+
+### 현재 판단과 후속 확인
+
+- **방법 자체:** 이번 seed54·유한 예산에서는 극단 포화 완화와 문맥별 gate 변화 회복, Off 대비 전체 validation 품질 개선이 함께 관측됐다. Refine·Uniform처럼 실패로 정리하거나 구현을 제거할 근거는 없다.
+- **조건 선택:** A(10,1e-4)를 잠정 후보로 유지한다. B의 이른 개입이나 C의 강한 압력이 더 낫다는 근거는 없지만, 특히 A 대 B/C에는 라이브러리 차이가 있어 원인의 우열을 확정하지 않는다. 단일 seed·세 조건의 탐색으로 최적값이나 일반성을 주장하지 않는다.
+- **가설 수정:** 초반 평균값 정체는 최종 실패의 충분조건이 아니었다. 이번 결과는 과도한 logit 증폭을 제한하면서 이후 탈출이 가능해졌다는 설명과 부합하나, 규제가 직접 탈출을 일으켰는지의 인과 기전은 미확정이다. 규제 압력과 표현의 실제 분화는 별도 지표로 확인한다.
+- **다음 확인:** 사용자 선택에 따라 A의 M8/M75·dropout0을 먼저 확인하고, 이후 A에 write dropout을 결합한다. [후속 순서와 결과란](#logit-tail-expansion)을 따른다. 순수 tail 압력의 인과 효과와 다른 seed의 일반성은 앞서 적은 비교 한계로 남긴다.
+
+구현 검증 이력(2026-10-18): CPU 소프트웨어 검사151개 통과, optional W&B 미설치로2개 생략. raw-logit gradient·dropout 이전 값·replay 제외·짧은 tail·M 평균·microbatch·2-worker/serial 일치·정확한 재개·노트북 run 분리와 기존 사후/ZIP 경로를 확인했다. 이는 구현 기능 검증이며 초기 Adam 경로의 Off 동등성이나 GPU 개선의 원인을 확인한 검사는 아니다.
+
+결과 정리 검증: 세 ZIP CRC, 새 학습/사후6개 JSON 원본 bytes·report ID, Config/manifest·best step·선택 RTLA 일치, GPU/FP32 환경, training task+weighted penalty 및 coef*R 등식을 확인했다. 평가 window의 gate 배열·유형·표현/개입 배열을 사용해 표와 그림을 집계했다. 기존 원본·구현·config·노트북은 변경하지 않으며 새 모델 실행이나 CPU 실험값을 추가하지 않았다.
+
+
+<a id="logit-tail-expansion"></a>
+
+## 9. A 조건의 M 확장 → write dropout → 종합 판단
+
+### A가 가장 약한 규제라는 해석
+
+동일한 logit z에서 `f_A=1e-4*relu(|z|-10)^2`, `f_B=1e-4*relu(|z|-5)^2`, `f_C=1e-3*relu(|z|-10)^2`다. 모든 z에서 `f_A <= f_B`와 `f_A <= f_C`가 성립한다. 같은 M과 token 가중을 적용해도 이 관계는 유지된다. 따라서 A가 세 후보 중 가장 약한 규제라는 해석은 수식상 맞다. 다만 B와 C 사이에는 모든 logit에 적용되는 단일 강도 순서가 없다.
+
+약한 규제가 유용한 유지/쓰기 동작을 덜 제한해 품질에 유리했을 가능성은 있다. 하지만 학습된 logit 분포는 조건마다 달라지고 A의 라이브러리도 달랐다. 현재 결과는 이 가설과 부합하는 관측이지, 약할수록 항상 좋거나 A가 최적이라는 증명은 아니다. 후속에서는 threshold/coef를 추가 탐색하지 않고 A를 그대로 전달한다.
+
+### PyTorch 구현 확인
+
+- **LM loss:** [모델](../../src/grt/models/neox.py)의 `torch.nn.functional.cross_entropy`를 사용한다. WikiText의 aligned target에 loss shift를 다시 넣지 않고, 유효 token을 고른 뒤 평균한다.
+- **Tail penalty:** [regularization.py](../../src/grt/regularization.py)의 `abs → clamp_min → square → mean/sum`은 모두 PyTorch tensor/autograd 연산이다. 전용 `MSELoss` 클래스를 호출하는 구현은 아니다. `excess=F.relu(abs(z)-c)`에 대해 `F.mse_loss(excess, zeros_like(excess), reduction='none')`를 적용한 뒤 같은 slot 평균·token 가중을 주는 것과 같은 수식이다.
+- **Reduction:** BPTT replay의 가중치0, M 평균, 유효 token 가중을 명시적으로 적용한다. naive한 전체 tensor mean으로 바꾸면 replay가 분모에 들어가므로 일관성이 깨진다. 현재 WikiText stream은 같은 update의 sample별 유효 token 수가 같아 sample 가중 accumulation·동일 크기 rank 평균도 global batch 평균과 일치한다. 임의의 서로 다른 mask 길이를 가진 다른 과제까지 자동으로 일반화한 주장은 아니다.
+- **Dropout 경계:** penalty는 write dropout의 `-inf` 마스킹 이전 raw logits를 사용한다. 따라서 p=.1에서도 dropped 슬롯을 포함한 같은 정의로 규제한다. dropout 때문에 penalty를.9배 하거나 coef를 재보정하지 않는다. 실제 write는 학습 중 Bernoulli mask로0이 되며 rescale하지 않는다. `train/gate_raw_write_mean`은 이 mask 이전 값이다.
+- **학습/평가:** 실제 backward에는 task+coef*R를 사용하고, 분리된 LM/규제 지표를 기록한다. validation·PPL·best 선택·사후 분석은 dropout off의 순수 task loss다. 사후 gate 가변성에 학습 중 dropout의 무작위 변화를 섞지 않는다.
+
+2026-10-19 CPU 소프트웨어 산술 검증에서 M8/20/75 × A/B/C의9조건을 native `F.mse_loss(reduction='none')` 기준식과 대조했다. masked history·짧은 tail을 포함한 loss 값은 정확히 같았고 gradient도 허용오차내 일치했다. 이는 GPU 연구 결과를 생성한 검사가 아니다. 동일한 PyTorch/autograd 정의임을 확인했으므로 기존 A의 연속성을 위해 생산 코드의 계산 경로를 유지한다. 전용 loss 클래스로 바꾸는 것 자체가 초기 Adam의 None/0 gradient 차이를 해결하지는 않는다.
+
+### 1단계: M8·M75에 A 전달
+
+계획한 추가2run 중 **M8 완료, M75 실행 대기**다. 기존 M20 A와 합쳐 M8/20/75에서 같은 패널티가 유효한지 확인한다. NeoX/RMT나 다른 threshold/coef를 추가하지 않는다.
+
+고정: GRT small, L75, router hidden512·attention backbone 고정, threshold10, coef1e-4 일정, bias0, read off, seed54, FP32, global256, Adam5e-4·decay0·clip.25·cosine·warmup0, BPTT 이전3segments,20k. 첫 단계의 write dropout은0이다. 자동 배치로 micro/accum만 조절하고 global batch·학습률은 유지한다. 가능한 한 동일 GPU/라이브러리를 사용하며, M20 A는 PyTorch2.10 환경이었다는 차이를 기록한다. 기존 checkpoint에서 이어 학습하지 않는다.
+
+### 2단계: A에 write dropout 결합
+
+1단계 결과를 취합한 뒤 기존 dropout 실험과 같은 **p=.1**을 M8/20/75에 각각 적용하는 안으로 정리한다. 추가3run이며 p0 대조는1단계·기존 M20 A를 재사용한다. 모든 run은 A의 threshold/coef와 나머지 조건을 유지한다.
+
+기존 reg off의 dropout0/.1 결과도 재사용하면, 각 M마다 아래 네 칸을 비교할 수 있다. 기존 결과와 새 run의 환경이 섞이므로 동일 스택에서 새로 수행한 완전 요인 실험으로 표현하지 않는다.
+
+| M | Reg off / dropout0 | Reg off / dropout.1 | A / dropout0 | A / dropout.1 |
+|---:|---|---|---|---|
+| 8 | 완료, best PPL34.1048 | 완료,34.2791 | **완료,33.5383** | **2단계 새 실행** |
+| 20 | 완료,33.7436 | 완료,34.2129 | 완료,32.3376 | **2단계 새 실행** |
+| 75 | 완료,33.7629 | 완료,32.8984 | **1단계 새 실행** | **2단계 새 실행** |
+
+계획한 새 학습은 합계5run이며 **M8 A 완료 후 남은4run**(M75 A + dropout.1 세 조건)이다. 각 run의 학습·선택 checkpoint에 동일한 확장 사후 protocol(batch8/warmup3/segments8/horizon4/windows0,16,32/random3)을 적용하고 ZIP 하나씩 전달한다.
+
+### 실행과 결과 기입란
+
+기존 Colab/Kaggle 선택 셀에서 다음 두 변수만 바꾼다. threshold10/coef1e-4와 seed54·bias0·read off는 유지한다.
+
+```python
+num_registers = 8          # 1단계: 8 또는75 / 2단계: 8,20,75
+write_dropout = 0.0        # 1단계0 / 2단계0.1
+```
+
+| ID | 단계 | M | write dropout | 상태 | best / 최종20k PPL | gate·표현·기능 요약 | 학습/사후 파일·판단 |
+|---|---|---:|---:|---|---|---|---|
+| LT-A8 | 1 | 8 | 0 | 완료, best19k | 33.5383 / 33.6620 | 0/0/8, slot std.1700, update rank1.859 | [학습](../../results/1006dcd4d956442097dba6780d07ab69.json) / [사후](../../results/posthoc/88d85d847bfb4762902538ea4f303bb0.json), [판단](#lt-a8-result) |
+| LT-A20 | 기존 | 20 | 0 | 완료 | 32.3376 / 32.3376 | 상세는8절;0/1/19, slot std.1834 | 기존 LT-A 재사용 |
+| LT-A75 | 1 | 75 | 0 | 실행 대기 | | | |
+| LT-AD8 | 2 | 8 | .1 | 1단계 뒤 실행 | | | |
+| LT-AD20 | 2 | 20 | .1 | 1단계 뒤 실행 | | | |
+| LT-AD75 | 2 | 75 | .1 | 1단계 뒤 실행 | | | |
+
+두 노트북의 실제 선택 셀을 M8/20/75 × dropout0/.1의12조건(런타임2개 포함)으로 해석해 설정·global256·FP32·20k·seed·독립 run 경로를 확인했다. 새 notebook이나 조건별 config 파일은 필요 없다.
+
+<a id="lt-a8-result"></a>
+
+### LT-A8 결과: 작은 M에서의 전달성
+
+L75/M8·threshold10/coef1e-4·bias0·write dropout0·read off·seed54,20k를 완료했다. 실제 training targets383,975,424개·validation248,420개·T4×2·FP32·micro128×accum1·global256이다. 학습·사후 commit `2876bcf`, Python3.13.15/PyTorch2.11.0+cu128/Transformers4.45.2이며 사후 git_dirty=false다. M8 Off도 학습 라이브러리는 같지만 구현 commit이 다르고, Off 사후는2.11.0+cu130이다. 앞서 적은 초기 Adam 경로·단일 seed 한계는 유지한다.
+
+Best checkpoint는 **19k**이며 사후 분석도 이 checkpoint다. 완료20k 결과와 섞지 않는다. SHA256은 `deb4e0ca4a352af4aaa23ea1a16986ecee770a8958add78824c518a42eb885bb`, checkpoint까지의 targets364,775,424개다. 학습 JSON과 사후 JSON의 Config/manifest·선택 step·선택 RTLA 수치는 모두 일치한다.
+
+| 조건 | best step / PPL | 최종20k PPL / NLL | wall h / peak GiB | 학습 / 확장 사후 JSON |
+|---|---|---|---|---|
+| Off M8 | 20,000 / 34.1048 | 34.1048 / 3.529438 | 5.511 / 10.849 | [학습](../../results/ccf041592f3e4ebe8f287e69195205a5.json) / [사후](../../results/posthoc/10b47cdf69034d8d91a842f60f226ede.json) |
+| A M8 | 19,000 / 33.5383 | 33.6620 / 3.516369 | 6.328 / 10.881 | [학습](../../results/1006dcd4d956442097dba6780d07ab69.json) / [사후](../../results/posthoc/88d85d847bfb4762902538ea4f303bb0.json) |
+
+같은 M8 Off 대비 best ΔPPL−.5665(−1.66%), 같은20k 최종 ΔPPL−.4428·ΔNLL−.013069다. A의20k는19k best보다.1237 높아 품질이 끝까지 단조 개선된 것은 아니다. 개선 폭을 M20 A와 직접 비교해 M 효과의 크기나 최적 M을 확정하지 않는다.
+
+아래는 **평가 window16/32 평균**, 유형만 window0의 .01/.99 기준이다. Off는20k, A는19k checkpoint다.
+
+| 조건 | C/O/T | write 평균 | 슬롯 내 gate std | abs logit 중앙값 | abs>20 | hidden norm | 중심화 state rank / update rank | 평균 slot CKA |
+|---|---|---:|---:|---:|---:|---:|---|---:|
+| Off M8 | 0/8/0 | 1.000000 | 0.000000 | 59.242 | 100.00% | 272.113 | 1.216 / 1.582 | 0.993 |
+| A M8 | 0/0/8 | 0.529519 | 0.169983 | 2.217 | 0.00% | 32.866 | 2.225 / 1.859 | 0.781 |
+
+Off의 모든 슬롯이 열린 고정 경로에서 A의 문맥별 gate 변화로 바뀌고, 중심화 state/update rank와 CKA도 개선 방향이다. 같은 M 안의 전달성 근거지만8개 슬롯이 모두 다른 기능을 학습했다는 증거는 아니다. A는 window0에서0/0/8이지만 평가 window16/32에서는0/1/7이므로 유형은 문맥에도 의존한다. .001/.999 기준에서는 세 window 모두0/0/8이다.
+
+학습 중에는500~2k에서 raw write 평균이약.75에 머무는 구간이 있었고, validation probe도1k .7493·2k .7487에서3k .5222·6k .4495로 변했다. M20에서처럼 초반 평균값 정체가 영구 고착으로 이어지지는 않았다. 최종 training R은.0034295, coef*R은3.43e-7이다. training raw write와 dropout off validation 관측은 구분한다.
+
+| 조건 | 전체 reset lag0 ΔNLL | 전체 swap lag0 ΔNLL | 전체 swap lag3 ΔNLL |
+|---|---:|---:|---:|
+| Off M8 | +0.454872 | +0.655296 | +0.028658 |
+| A M8 | +0.432938 | +0.689234 | +0.077033 |
+
+전체 state 개입의 양의 영향이 남아 문맥 메모리를 사용한다. Reset 영향은 소폭 낮고 swap 영향은 높아 모든 기능 지표가 같은 방향으로 개선된 것은 아니다. lag3의 더 큰 잔여 영향은 더 긴 기억 또는 더 느린 복구를 구분하지 못한다. A의 other8은 전체 state이므로 별도 그룹 기능의 증거로 중복 계산하지 않는다. 최적 유형 비율이나 rank 목표를 새로 지정하지 않고 M75와 후속 dropout 결과를 기다린다.
+
+수신 ZIP CRC·두 JSON 원본 bytes·report ID·Config/manifest·best step·선택 RTLA·gate 배열·slot std·task/penalty 등식을 검증했다. 새 모델을 실행하지 않고 사용자의 GPU JSON만 집계했다.
+
+### 마지막에 판단할 질문
+
+1. **M 전달성:** 같은 M의 reg off/dropout0 대비 A가 품질과 문맥별 gate 변화·메모리 기여를 개선하는가?
+2. **Dropout의 추가 효과:** A에서 p0→p.1이 도움이 되는가? 기존 reg off에서의 dropout 효과와 방향이 같거나 달라지는가?
+3. **작동 양상:** 극단 logit·정체 후 회복·hidden scale·실제 update·slot CKA/rank·reset/swap/retention이 어떻게 함께 변하는가? 유형 비율이나 rank 하나만으로 건전함을 정하지 않는다. 서로 다른 M은 rank 상한도 다르다.
+
+품질 차이는 같은20k의 validation NLL을 우선 비교하고 best PPL은 보조로 기록한다. 각 M에서 `Δdropout(A)=NLL(A,.1)-NLL(A,0)`와 `Δdropout(off)`를 비교하면 dropout과 규제의 결합 양상을 볼 수 있다. 차이의 차이는 기술적 요약이며 기존 환경 차이·단일 seed 때문에 통계적인 상호작용의 증명으로 해석하지 않는다.
+
+이 단계까지 취합한 뒤 L75/small/seed54·M8/20/75·dropout0/.1 범위의 최종 결론을 정리한다. 초기 optimizer 경로와 라이브러리 차이는 원인 해석의 한계로 유지하고, 다른 seed·L·size에 대한 일반성은 이 실험만으로 확정하지 않는다.

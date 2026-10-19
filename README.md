@@ -25,7 +25,7 @@ Colab은 [학습 노트북](notebooks/colab.ipynb)을 사용한다. GPU 런타�
 
 [Kaggle 노트북](notebooks/kaggle.ipynb)은 실험 선택 → 환경 준비 → 데이터 준비 → 사전 측정 → 학습 → 결과 확인만 담당한다.
 반복 기능은 [Kaggle utils](src/grt/utils/kaggle.py)에 둔다. Internet과 T4 × 2를 켜고 `WANDB_API_KEY` secret을 등록한다.
-현재 노트북 기본은 **GRT small·L75/M20·20k·seed54·bias0·write dropout0·read off**, logit tail 패널티 **threshold10/coef1e-4(A)**다. [Gate 안정화 실험 보고서](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail)에서 A/B/C 실행 조건과 결과 기입란을 확인한다. 기존 dropout·bias·종료된 Refine/Uniform도 같은 문서에 유지한다. [L150 baseline·용량 결과](docs/experiments/20261012_small_register_sweep.md)는 별도로 유지한다.
+현재 노트북 기본은 **GRT small·L75/M20·20k·seed54·bias0·write dropout0·read off**, logit tail 패널티 **threshold10/coef1e-4(A)**다. [Gate 안정화 실험 보고서](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail)에서 A/B/C 조건·결과·판단과 [A의 M8/M75 확장·dropout 후속 순서](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)를 확인한다. 기존 dropout·bias·종료된 Refine/Uniform도 같은 문서에 유지한다. [L150 baseline·용량 결과](docs/experiments/20261012_small_register_sweep.md)는 별도로 유지한다.
 
 ```python
 job = WikiTextRun(repo_dir=repo, size='small', budget='20k', models=('grt',),
