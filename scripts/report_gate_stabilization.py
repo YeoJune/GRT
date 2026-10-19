@@ -27,13 +27,14 @@ RUNS = {
     'm20_uniform': ('51a6bf7d37db4e5b82ce96709c15885f', 'Uniform'),
     'm75_off': ('b4b4414578524de0a6e9de50851b91b2', 'Off'),
     'm75_dropout': ('06fe396a3e6b4e258b779481409de1ba', 'Dropout'),
+    'm75_a': ('70bea6e32c584668ad3078de871cd66c', 'A'),
     'l150_m10': ('22ab31a56cb546f993197e5ce937e5de', 'L150'),
     'l150_m40': ('22cfd16b44964befbe42912c4aba28c5', 'L150'),
     'l150_m160': ('0e0ead4744594b59a7d9a771049c79a1', 'L150'),
 }
 GROUPS = {
     'penalty': ('Penalty settings: L75/M20', ['m20_off', 'm20_a', 'm20_b', 'm20_c']),
-    'transfer': ('Penalty A transfer: L75/M8 and M20', ['m8_off', 'm8_a', 'm20_off', 'm20_a']),
+    'transfer': ('Penalty A transfer: L75/M8, M20 and M75', ['m8_off', 'm8_a', 'm20_off', 'm20_a', 'm75_off', 'm75_a']),
     'dropout': ('Write dropout: L75, penalty off', ['m8_off', 'm8_dropout', 'm20_off', 'm20_dropout', 'm75_off', 'm75_dropout']),
     'bias': ('Bias initialization: L75/M20', ['m20_off', 'm20_bias_minus', 'm20_bias_plus']),
     'initialization': ('Retired gate variants: L75/M20', ['m20_off', 'm20_refine', 'm20_uniform']),
@@ -209,7 +210,7 @@ def penalty_figure(runs, destination):
               ('train/gate_abs_logit_mean', 'Training absolute raw logit', 'Mean |z|'),
               ('train/gate_regularization_loss', 'Weighted penalty', 'coef * R'),
               ('train/gate_hidden_norm', 'Write MLP hidden norm', 'L2 norm')]
-    for key in ('m8_a', 'm20_a', 'm20_b', 'm20_c'):
+    for key in ('m8_a', 'm20_a', 'm75_a', 'm20_b', 'm20_c'):
         r = runs[key]
         for i, (field, title, ylabel) in enumerate(fields):
             hist = [v for v in r['history'] if i != 0 or v['step'] <= 2500]

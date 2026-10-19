@@ -20,7 +20,7 @@ def runs():
 
 def test_received_sources_match_training_checkpoint_and_common_tables(runs):
     # load_runs rejects mismatched manifests, selected steps, metrics and non-GPU provenance.
-    assert len(runs) == 17
+    assert len(runs) == 18
     for group, (_, keys) in report.GROUPS.items():
         table = report.table_block(group, runs)
         for _, label, _ in report.METRICS:
@@ -42,6 +42,9 @@ def test_gate_variation_is_within_slot_and_evaluation_only(runs):
     assert runs['m20_a']['stats']['update_rank'] == pytest.approx(2.812683, abs=1e-6)
     assert runs['m8_a']['stats']['slot_std'] == pytest.approx(.16998296, abs=1e-8)
     assert runs['m8_a']['counts'] == {'closed': 0, 'open': 0, 'other': 8}
+    assert runs['m75_a']['stats']['slot_std'] == pytest.approx(.23412104, abs=1e-8)
+    assert runs['m75_a']['stats']['update_rank'] == pytest.approx(8.700139, abs=1e-6)
+    assert runs['m75_a']['counts'] == {'closed': 0, 'open': 3, 'other': 72}
     post = json.loads((REPO / 'results/posthoc' / (runs['m20_a']['source']['post_id'] + '.json')).read_text())
     gates = [np.asarray(w['diagnostics']['write_gates']) for w in post['register_analysis']['windows'][1:]]
     pooled_std = np.mean([g.std() for g in gates])

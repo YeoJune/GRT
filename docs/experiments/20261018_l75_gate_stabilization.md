@@ -6,15 +6,15 @@
 
 ## 1. 현재 선택과 진행 상태
 
-**패널티 A는 M20·M8에서 극단 포화를 줄이고 문맥별 gate 변화와 전체 validation 품질을 개선했다. Write dropout은 M75에서 품질 개선이 있었지만 M8·M20에는 같은 효과가 없었다.** 두 기능을 현재 구현으로 유지하고, 결합의 효과는 후속 실험으로 확인한다. 아직 패널티와 dropout을 함께 학습한 결과는 없다.
+**패널티 A는 M8·M20·M75에서 극단 포화를 줄이고 문맥별 gate 변화와 전체 validation 품질을 개선했다. Write dropout은 M75에서 품질 개선이 있었지만 M8·M20에는 같은 효과가 없었다.** 두 기능을 현재 구현으로 유지하고, 결합의 효과는 후속 실험으로 확인한다. 아직 패널티와 dropout을 함께 학습한 결과는 없다.
 
 | 선택 | 확인된 결과 | 현재 해석 |
 |---|---|---|
-| 패널티 A: threshold10 / coef1e-4 | M20 best PPL33.7436→32.3376, M8 34.1048→33.5383 | 우선 선택. 작은 M에도 전달됐으나 최적값·일반성은 미확정 |
+| 패널티 A: threshold10 / coef1e-4 | M8 best PPL34.1048→33.5383, M20 33.7436→32.3376, M75 33.7629→32.0361 | 세 M에서 개선. 최적값·다른 seed의 일반성은 미확정 |
 | Write dropout0/.1 | penalty off에서 M75 33.7629→32.8984; M8·M20은 악화 | M에 따른 보조 조건. 모든 M의 고착을 해결하는 방법은 아님 |
-| A + write dropout.1 | 미실행 | M75 A/dropout0을 받은 뒤 M8/20/75 비교 |
+| A + write dropout.1 | 미실행 | M8/20/75에서 각각 완료된 A/dropout0과 비교 |
 
-남은 새 학습은 **M75 A/dropout0 한 개 + A/dropout.1 세 개 =4run**이다. 실행 설정·결과란은 [6절](#logit-tail-expansion)에 모은다. Bias·Refine·Uniform은 [7절](#retired-studies)의 이력이며 새 실행 선택지가 아니다.
+남은 새 학습은 **M8/20/75의 A/dropout.1 세 개 =3run**이다. A/dropout0은 세 M 모두 완료했다. 실행 설정·결과란은 [6절](#logit-tail-expansion)에 모은다. Bias·Refine·Uniform은 [7절](#retired-studies)의 이력이며 새 실행 선택지가 아니다.
 
 ## 2. 공통 비교 기준
 
@@ -98,9 +98,9 @@ L75, GRT small(D256·6layers·head8·FF1024), router attention D256/head8·MLP51
 
 **판단:** A를 현재 수치로 선택한다. 새 세 조건은 best가20k이고 Off는19k여서 최종20k NLL도 함께 비교한다. A는 Python3.12/PyTorch2.10, B/C·Off는3.13/2.11이므로 A의 우위를 threshold/coef만의 효과로 단정하지 않는다.
 
-### M8 전달성
+### M8·M75 전달성
 
-같은 A를 새 초기화로 M8에 적용했다. M75는 아직 미실행이다. 다음 비교는 같은 M의 Off 대비 변화에 초점을 둔다.
+같은 A를 새 초기화로 M8·M75에 적용해 세 M의 penalty 단독 비교를 완료했다. 다음 비교는 같은 M의 Off 대비 변화에 초점을 둔다.
 
 <!-- gate-report:transfer:start -->
 | 조건 | best step / PPL | 최종 PPL / NLL | wall h / peak GiB | 학습 / 사후 원본 |
@@ -109,28 +109,36 @@ L75, GRT small(D256·6layers·head8·FF1024), router attention D256/head8·MLP51
 | M8 A | 19,000 / 33.5383 | 33.6620 / 3.516369 | 6.328 / 10.881 | [학습](../../results/1006dcd4d956442097dba6780d07ab69.json) / [사후](../../results/posthoc/88d85d847bfb4762902538ea4f303bb0.json) |
 | M20 Off | 19,000 / 33.7436 | 33.7718 / 3.519627 | 6.695 / 11.721 | [학습](../../results/86fb2481ac1e45f29da0164863b28d66.json) / [사후](../../results/posthoc/5435927747a34aa895d5804c2b5772a6.json) |
 | M20 A | 20,000 / 32.3376 | 32.3376 / 3.476231 | 7.028 / 11.757 | [학습](../../results/b0420e8b63f64d0094ed84a8d273f14b.json) / [사후](../../results/posthoc/0661b28486074874ba3688183326aa8c.json) |
+| M75 Off | 20,000 / 33.7629 | 33.7629 / 3.519364 | 10.093 / 8.326 | [학습](../../results/b4b4414578524de0a6e9de50851b91b2.json) / [사후](../../results/posthoc/f5a1825cc5d84f6da400eb249ec409ac.json) |
+| M75 A | 20,000 / 32.0361 | 32.0361 / 3.466865 | 10.994 / 8.354 | [학습](../../results/70bea6e32c584668ad3078de871cd66c.json) / [사후](../../results/posthoc/e9d2ee22c7344315be1a64b908873405.json) |
 
-| 공통 지표 | M8 Off | M8 A | M20 Off | M20 A |
-|---|---:|---:|---:|---:|
-| C/O/T (window0) | 0/8/0 | 0/0/8 | 14/4/2 | 0/1/19 |
-| Write 평균 | 1.000000 | 0.529519 | 0.229279 | 0.471292 |
-| 슬롯 내 gate std | 0.000000 | 0.169983 | 0.001158 | 0.183397 |
-| 절대 logit 중앙값 | 59.242 | 2.217 | 18.078 | 1.595 |
-| 절대 logit >20 (%) | 100.00 | 0.00 | 35.16 | 0.00 |
-| MLP hidden L2 norm | 272.113 | 32.866 | 108.064 | 28.508 |
-| 문맥 중심화 state rank | 1.216 | 2.225 | 3.033 | 3.245 |
-| 실제 update rank | 1.582 | 1.859 | 2.410 | 2.813 |
-| 평균 slot CKA | 0.993 | 0.781 | 0.902 | 0.667 |
-| 전체 reset ΔNLL, lag0 | +0.454872 | +0.432938 | +0.354744 | +0.502921 |
-| 전체 swap ΔNLL, lag0 | +0.655296 | +0.689234 | +0.748015 | +0.722187 |
-| 전체 swap ΔNLL, lag3 | +0.028658 | +0.077033 | +0.059669 | +0.082597 |
+| 공통 지표 | M8 Off | M8 A | M20 Off | M20 A | M75 Off | M75 A |
+|---|---:|---:|---:|---:|---:|---:|
+| C/O/T (window0) | 0/8/0 | 0/0/8 | 14/4/2 | 0/1/19 | 72/3/0 | 0/3/72 |
+| Write 평균 | 1.000000 | 0.529519 | 0.229279 | 0.471292 | 0.040000 | 0.372126 |
+| 슬롯 내 gate std | 0.000000 | 0.169983 | 0.001158 | 0.183397 | 0.000000 | 0.234121 |
+| 절대 logit 중앙값 | 59.242 | 2.217 | 18.078 | 1.595 | 88.294 | 5.637 |
+| 절대 logit >20 (%) | 100.00 | 0.00 | 35.16 | 0.00 | 100.00 | 0.00 |
+| MLP hidden L2 norm | 272.113 | 32.866 | 108.064 | 28.508 | 484.428 | 58.487 |
+| 문맥 중심화 state rank | 1.216 | 2.225 | 3.033 | 3.245 | 2.065 | 10.027 |
+| 실제 update rank | 1.582 | 1.859 | 2.410 | 2.813 | 1.804 | 8.700 |
+| 평균 slot CKA | 0.993 | 0.781 | 0.902 | 0.667 | 0.976 | 0.676 |
+| 전체 reset ΔNLL, lag0 | +0.454872 | +0.432938 | +0.354744 | +0.502921 | +0.438900 | +0.504464 |
+| 전체 swap ΔNLL, lag0 | +0.655296 | +0.689234 | +0.748015 | +0.722187 | +0.680441 | +0.607893 |
+| 전체 swap ΔNLL, lag3 | +0.028658 | +0.077033 | +0.059669 | +0.082597 | +0.049721 | +0.077487 |
 
-![Penalty A transfer: L75/M8 and M20 — 공통 6패널](../figures/gate_stabilization/transfer.png)
+![Penalty A transfer: L75/M8, M20 and M75 — 공통 6패널](../figures/gate_stabilization/transfer.png)
 <!-- gate-report:transfer:end -->
 
 **관측:** M8의 best PPL은1.66% 개선됐다. 같은20k 최종 PPL도34.1048→33.6620으로 낮지만19k best33.5383보다는 높다. Off의 전부 열린 고정 경로에서 문맥별 gate 변화가 회복됐고 중심화 state/update rank·CKA도 개선 방향이다. M8 A의 사후는19k, Off는20k다.
 
 **추가 구분:** M8 A는 window0에서0/0/8이지만 평가 window16/32에서는0/1/7이다. Other8은 window0의 전체 state이므로 그 그룹의 개입을 별도의 기능 분화 증거로 중복 계산하지 않는다. M8 Off/A의 학습은 둘 다PyTorch2.11이지만 commit과 사후 build 차이는 남는다.
+
+**M75 관측:** Off와 A 모두 best=최종20k다. PPL33.7629→32.0361(−5.11%), NLL3.519364→3.466865로 개선됐다. 기존 penalty off/dropout.1의 PPL32.8984보다도 낮지만 두 장치의 결합 효과는 아직 모른다. 같은 T4×2·micro64×accum2·FP32·실제383,975,424 targets이며 학습은 둘 다Python3.13.15/PyTorch2.11.0+cu128이다. Train commit과 사후 cu130→cu128 차이는 남는다. Wall10.093→10.994h, peak8.326→8.354GiB다.
+
+M75의 슬롯 내 gate std는거의0→.234121, abs logit>20은100%→0%, 중심화 state rank2.065→10.027, 실제 update rank1.804→8.700, CKA.976→.676이다. 학습 중 최대 절대 logit은36.08로 threshold를 넘었지만 best의 평가 window에서는>20이 없었다. Hidden norm은484.43→58.49로 낮아졌으나 기존 dropout 단독37.54보다는 높다. 따라서 norm 하나를 품질 순위로 쓰지 않는다. 다른 M보다 큰 rank는 M의 상한 차이도 포함한다.
+
+M75 A의 C/O/T는 window0에서0/3/72, window16에서0/2/73, window32에서0/3/72다. Other72가 곧72개의 독립 기능을 뜻하지 않는다. 이 그룹의 평가 평균 swap ΔNLL(lag0)은+.400730으로 같은 수 random+.545911보다 작고, open3은+.035181 대 random+.001698이다. 그룹 효과는 비가산적이며 random3은 신뢰구간이 아니다. 전체 reset 영향은Off보다 크지만 swap lag0은.680441→.607893으로 작아졌다. 문맥별 write 회복과 품질 개선은 관측됐으나 모든 기억 지표가 커진 것은 아니다.
 
 ### 패널티에만 필요한 학습 지표
 
@@ -138,9 +146,9 @@ L75, GRT small(D256·6layers·head8·FF1024), router attention D256/head8·MLP51
 
 이 그림은 **새 segment의 training 관측**이다. 공통 그림의 validation write와 구분한다. M20 A/C는500~1,000step에 평균 write가약.45/.35, M8 A는500~2k에약.75로 정체됐다가 이후 변화했다. 초반 평균값 정체만으로 최종 실패를 판단하지 않는다. Training 슬롯별 trajectory가 없어 어떤 슬롯이 언제 바뀌었는지는 확정하지 못한다.
 
-계수는 끝까지 유지했지만 실제 패널티 비용은 대부분 작아졌다. M20 A/B/C의 최종 coef*R은 각각5.94e-7/9.15e-6/9.40e-7, M8 A는3.43e-7이다. 작은 loss가 작은 parameter gradient를 의미하지는 않으며 gradient 비율은 미측정이다. Soft penalty라 학습 중 threshold 초과는 허용됐고 최대 절대 logit은 M20 A/B/C에서27.85/20.88/22.95였다.
+계수는 끝까지 유지했지만 실제 패널티 비용은 대부분 작아졌다. M20 A/B/C의 최종 coef*R은 각각5.94e-7/9.15e-6/9.40e-7, M8 A는3.43e-7, M75 A는1.91e-5다. 작은 loss가 작은 parameter gradient를 의미하지는 않으며 gradient 비율은 미측정이다. Soft penalty라 학습 중 threshold 초과는 허용됐고 최대 절대 logit은 M20 A/B/C에서27.85/20.88/22.95, M75 A에서36.08이었다.
 
-B/C의 validation에는4k~6k에서 큰 악화도 있었다. 첫 epoch 경계6,169 뒤의 품질 전환까지 gate 제어 하나로 설명하지 않는다. 전체 LM 불안정성이 해결됐다는 결론은 아니다.
+B/C의 validation에는4k~6k에서 큰 악화도 있었다. M75 A도1k PPL189.53에서5k1,305.62까지 악화됐다가7k43.17로 내려왔고 이후20k32.0361까지 개선됐다. Training write는500~1k에약.20,2.5k에약.106,20k에약.376이었다. 첫 epoch 경계6,169 뒤의 품질 전환까지 gate 제어 하나로 설명하지 않는다. 최종 gate 포화 완화와 전체 LM 학습 안정성은 구분한다.
 
 ## 4. 선택한 방법 ② Write dropout
 
@@ -217,10 +225,10 @@ LM은 `F.cross_entropy`, 규제는 PyTorch의 `abs/clamp/square`와 명시적인
 |---|---|---|---|
 | 1 | M8 A / dropout0 | 완료 | 33.5383 / 33.6620 |
 | 기준 | M20 A / dropout0 | 완료 | 32.3376 / 32.3376 |
-| 1 | M75 A / dropout0 | 대기 | |
-| 2 | M8 A / dropout.1 | 1단계 뒤 실행 | |
-| 2 | M20 A / dropout.1 | 1단계 뒤 실행 | |
-| 2 | M75 A / dropout.1 | 1단계 뒤 실행 | |
+| 1 | M75 A / dropout0 | 완료 | 32.0361 / 32.0361 |
+| 2 | M8 A / dropout.1 | 대기 | |
+| 2 | M20 A / dropout.1 | 대기 | |
+| 2 | M75 A / dropout.1 | 대기 | |
 
 각 M에서 기존 off/dropout0·off/dropout.1과 새 A/dropout0·A/dropout.1의 네 칸을 비교한다. 기존 결과를 재사용하므로 같은 스택에서 새로 수행한 완전 요인 실험으로 표현하지 않는다. 같은20k validation NLL을 우선하고 best PPL을 보조로 기록한다. Dropout의 추가 효과는 `NLL(A,.1)-NLL(A,0)`와 기존 off의 같은 차이를 비교한다.
 
@@ -326,10 +334,10 @@ L150의 M10/40/160은 모두 bias−2였다. 아래 L75/M20/bias−2와는 nomin
 ![Reference: L150 vs L75, bias -2 — 공통 6패널](../figures/gate_stabilization/reference.png)
 <!-- gate-report:reference:end -->
 
-현재17개 GRT source pair의 공통 지표·조건·환경·checkpoint 연결은 [구조화된 집계](../tables/gate_stabilization_metrics.json)에 있다. 모든 수치는 raw JSON으로 되돌아갈 수 있다. 2026-10-18의13개 상세 spreadsheet는 [이력 snapshot](../tables/history/20261018_gate_gpu_statistics.xlsx)이며 최신 집계로 사용하지 않는다.
+현재18개 GRT source pair의 공통 지표·조건·환경·checkpoint 연결은 [구조화된 집계](../tables/gate_stabilization_metrics.json)에 있다. 모든 수치는 raw JSON으로 되돌아갈 수 있다. 2026-10-18의13개 상세 spreadsheet는 [이력 snapshot](../tables/history/20261018_gate_gpu_statistics.xlsx)이며 최신 집계로 사용하지 않는다.
 
 <details>
-<summary>학습·사후 환경과 checkpoint 출처17개</summary>
+<summary>학습·사후 환경과 checkpoint 출처18개</summary>
 
 <!-- gate-report:sources:start -->
 | 조건 (L/M) | best step | train / post commit | train / post PyTorch | micro×accum×GPU | checkpoint SHA256 |
@@ -348,6 +356,7 @@ L150의 M10/40/160은 모두 bias−2였다. 아래 L75/M20/bias−2와는 nomin
 | Uniform (75/20) | 20,000 | `1a493c1` / `1a493c1` | 2.10.0+cu128 / 2.10.0+cu128 | 128×1×2 | `12a6ff8bc60a01f8b9a3581a6cc499dd5a3975a9dbd6d654c5c3ef1ef159f5ad` |
 | Off (75/75) | 20,000 | `90d407c` / `fbb9a53` | 2.11.0+cu128 / 2.11.0+cu130 | 64×2×2 | `1de8e1540d5cbd216acdf2e20d25e0b93e245ea7302f0c0b80c63ee594d71ed0` |
 | Dropout (75/75) | 20,000 | `90d407c` / `fbb9a53` | 2.11.0+cu128 / 2.11.0+cu130 | 64×2×2 | `9f53f8caa51467c29beee91f098dae758dcec9635c5336d267ac26cbcbb877e3` |
+| A (75/75) | 20,000 | `2876bcf` / `2876bcf` | 2.11.0+cu128 / 2.11.0+cu128 | 64×2×2 | `e9ea651a272e5a52e6a09857f666af37d586184662dae9a65a810458ac8028ec` |
 | L150 (150/10) | 10,000 | `e238ac3` / `89dd4c2` | 2.11.0+cu128 / 2.11.0+cu130 | 64×2×2 | `cc0daecfb5904df79c9fa460092d3c5ed7abb54be720528bdbed29319519c129` |
 | L150 (150/40) | 10,000 | `c36920d` / `89dd4c2` | 2.11.0+cu128 / 2.11.0+cu130 | 32×4×2 | `520315a746d332cc6c979035e5f29b86ec22e02c9a3cd78086d19429bace4f0f` |
 | L150 (150/160) | 10,000 | `555d837` / `89dd4c2` | 2.10.0+cu128 / 2.11.0+cu130 | 32×4×2 | `cbac55d5f46f5f6480cfea76b6da47e8182e950551a4b3e7b04055691d85231c` |

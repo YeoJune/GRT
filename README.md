@@ -9,7 +9,7 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 현재 사용하는 장치는 **sigmoid write + logit tail 패널티 A + write dropout**이다. Small·L75·seed54·bias0·read off·20k·FP32·global256을 기준으로 한다.
 
 - [Gate 안정화 보고서](docs/experiments/20261018_l75_gate_stabilization.md): 패널티·dropout을 먼저 설명하고, 공통6패널·지표로 모든 조건을 비교한다. Bias·Refine·Uniform은 아래 이력에 정리한다.
-- [현재 진행 상태](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion): M8/M20 A 완료, M75 A 다음에 M8/20/75 dropout.1 비교.
+- [현재 진행 상태](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion): M8/M20/M75 A 완료, 남은 M8/20/75 dropout.1 비교.
 - [L150 baseline·용량 비교](docs/experiments/20261012_small_register_sweep.md): 별도 실험 주제의 결과다.
 
 ## GPU 노트북
@@ -20,7 +20,7 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 ```python
 num_registers = 75
-write_dropout = 0.0          # 이후0.1
+write_dropout = 0.1          # 각 M의 A/dropout0과 비교
 write_logit_threshold = 10.0
 write_logit_coef = 1e-4      # 0은 off 대조
 ```

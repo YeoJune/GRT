@@ -14,8 +14,8 @@
 [Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·20k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. 후속 M/dropout 조건은 [실험 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)에만 관리한다.
 
 ```python
-num_registers = 75         # 현재 후속: M75 A, 이후 M8/20/75 dropout.1
-write_dropout = 0.0
+num_registers = 75         # 남은 후속: M8/20/75 A/dropout.1
+write_dropout = 0.1        # 노트북 기본0에서 바꿔 실행
 write_logit_threshold = 10.0
 write_logit_coef = 1e-4     # 0이면 off
 ```
