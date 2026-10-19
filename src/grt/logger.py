@@ -79,6 +79,12 @@ def metadata(model, cfg, *, repo_dir=None):
         "device": str(device),
         "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
         "total_parameters": sum(p.numel() for p in model.parameters()),
+        "parameters_router": (sum(p.numel() for p in model.router.parameters())
+                              if cfg.model.name == 'grt' else 0),
+        "parameters_write_head": (sum(p.numel() for p in model.router.mlp_w.parameters())
+                                  if cfg.model.name == 'grt' else 0),
+        "parameters_gate_head": (sum(p.numel() for p in model.router.gate_head.parameters())
+                                 if cfg.model.name == 'grt' and hasattr(model.router, 'gate_head') else 0),
         "trainable_parameters": sum(
             p.numel() for p in model.parameters() if p.requires_grad
         ),

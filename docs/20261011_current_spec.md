@@ -31,6 +31,8 @@ S_next = (1-w) * S + w * C
 
 Gate는 슬롯별 scalar[B,M,1], state/candidate는[B,M,D]다. Router는 원래 token embedding을 요약하며 contextual backbone hidden을 입력하지 않는다. Read gate는 시작 S만 참조하고 기본 off다. 전체 stack 뒤 write-back을 한 번 수행하며 새 state는 다음 segment에서 사용한다. GRT의 S0는 학습 가능한0 초기화다.
 
+위 식은 기본 `router.write_source=independent`다. 후속 [정보 경로 실험](experiments/20261019_l75_gate_paths.md)의2번 `separate_head`는 기존 최종 출력 정규화 직전 register hidden에서 D→D gate linear로 분기하고,3번 `candidate`는 기존 최종 norm 뒤 C를 그대로 사용한다. Candidate 출력 경로·명칭은 유지하고2번에만 head를 추가한다. 세 경로 모두 `V=RegisterAttention(F,S,S)`를 유지하고 concat(F,V)의2D를 write MLP에 넣는다. State on/off 옵션은 없다. 공유 경로의 write는 stack 뒤 계산하지만 token은 시작 S만 읽는다. `write_detach_source`는 공유 backbone 입력 연결만 차단하며2번에서는 head 앞에 적용해 head·state attention·MLP는 계속 학습한다. 기본 false이며 독립 경로에서는 허용하지 않는다. Write-back·A·write dropout은 공통이다.
+
 | Query → Key | 인코더 | 디코더 |
 |---|---|---|
 | Tokens → Tokens | 전체 | causal |

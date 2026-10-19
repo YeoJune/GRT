@@ -124,9 +124,10 @@ class RegisterObserver:
                 fraction_exact_one=float((gates == 1).mean()),
                 mean_sigmoid_slope_per_slot=(gates*(1-gates)).mean((0, 1))),
             router_input=dict(
+                source=model.router.write_source,
+                state_reference='attention(source, segment_start_state, segment_start_state)',
+                detach_source=model.router.write_detach_source,
                 context_norm=distribution(context.norm(dim=-1).numpy()),
-                token_context_norm=distribution(context[..., :context.shape[-1]//2].norm(dim=-1).numpy()),
-                memory_context_norm=distribution(context[..., context.shape[-1]//2:].norm(dim=-1).numpy()),
                 mlp_hidden_norm=distribution(torch.stack([r['hidden_norm'] for r in self.samples]).numpy())),
             representations=dict(
                 observations=states.shape[0], slots=states.shape[1], features=states.shape[2],
@@ -140,6 +141,21 @@ class RegisterObserver:
                 cka_scope='same segment/example observations, centered per slot; constant=null; '
                           'finite-sample bias, especially observations<features; no independent-sample claim'),
             write_gates=gates)
+        offset = 0
+        blocks = {}
+        for name, width in model.router.input_blocks:
+            stats = distribution(context[..., offset:offset+width].norm(dim=-1).numpy())
+            blocks[name] = stats
+            if name in ('token_context', 'memory_context'):
+                result['router_input'][name + '_norm'] = stats
+            offset += width
+        result['router_input']['feature_blocks'] = blocks
+        if model.router.write_source == 'separate_head':
+            head = model.router.gate_head
+            result['router_input']['gate_head'] = dict(
+                input_dim=head.in_features, output_dim=head.out_features,
+                weight_row_norm=distribution(head.weight.detach().float().norm(dim=-1).cpu().numpy()),
+                bias=distribution(head.bias.detach().float().cpu().numpy()))
         return result
 
 

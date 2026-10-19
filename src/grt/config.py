@@ -23,6 +23,8 @@ class ALUConfig:
 class RouterConfig:
     pool_nhead: int = 4
     mlp_hidden: int = 512
+    write_source: str = "independent"
+    write_detach_source: bool = False
 
 
 @dataclass
@@ -229,6 +231,10 @@ def validate_model(m):
     if m.name == "grt":
         m.router = m.router or RouterConfig()
         m.register = m.register or RegisterConfig()
+        if m.router.write_source not in ("independent", "separate_head", "candidate"):
+            raise ValueError("Unknown router write_source")
+        if m.router.write_detach_source and m.router.write_source == "independent":
+            raise ValueError("write_detach_source requires a shared candidate source")
         if (m.router.pool_nhead <= 0 or m.d_model % m.router.pool_nhead or m.router.mlp_hidden <= 0
             or not m.register.s0_learnable or not 0 <= m.register.dropout_prob <= 1
             or not math.isfinite(m.register.write_gate_bias_init)

@@ -45,8 +45,9 @@ class TraceBuffer:
                 "update_distances": update.mean(0),
                 "relative_updates": (update / (norms+candidate.norm(dim=-1)).clamp_min(1e-8)).mean(0),
                 "slot_cosines": cosine[:, off_diagonal].mean() if slots > 1 else state.new_tensor(0.),
-                "write_pool_attention": attention.float().mean(0),
             }
+            if attention is not None:
+                values['write_pool_attention'] = attention.float().mean(0)
             if self.per_example:
                 values["w_gates_per_example"] = write.squeeze(-1)
             for key, value in values.items():
@@ -57,6 +58,8 @@ class TraceBuffer:
             raise ValueError("Empty trace")
         arrays = {}
         for key, values in self.records.items():
+            if not values:
+                continue
             if key == 'write_pool_attention':
                 width = max(value.numel() for value in values)
                 values = [torch.nn.functional.pad(value, (0, width-value.numel()), value=float('nan'))

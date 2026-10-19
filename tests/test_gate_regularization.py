@@ -196,7 +196,8 @@ def test_stream_logs_task_and_penalty_and_exactly_resumes(tmp_path, monkeypatch)
     assert result['selected_validation'] == resumed['selected_validation']
 
 
-def test_two_worker_stream_matches_serial_with_active_penalty(tmp_path):
+@pytest.mark.parametrize('source', ['independent', 'separate_head', 'candidate'])
+def test_two_worker_stream_matches_serial_with_active_penalty(tmp_path, source):
     from dataclasses import asdict
     import yaml
     from test_neox_baseline import prepared, small_cpu
@@ -206,6 +207,8 @@ def test_two_worker_stream_matches_serial_with_active_penalty(tmp_path):
     for workers in (2, 1):
         root = tmp_path / f'workers{workers}'
         cfg = small_cpu(root, model='grt')
+        cfg.model.router.write_source = source
+        cfg.model.router.write_detach_source = source == 'candidate'
         cfg.data.options['path'] = str(data)
         cfg.training.batch_size = 1
         cfg.training.grad_accum_steps = 4 // workers

@@ -16,6 +16,8 @@
 
 남은 새 학습은 **M8/20/75의 A/dropout.1 세 개 =3run**이다. A/dropout0은 세 M 모두 완료했다. 실행 설정·결과란은 [6절](#logit-tail-expansion)에 모은다. Bias·Refine·Uniform은 [7절](#retired-studies)의 이력이며 새 실행 선택지가 아니다.
 
+안정화 dropout 조건을 선택한 뒤 진행할 [gate 정보 경로 실험](20261019_l75_gate_paths.md)은 별도 주제로 관리한다. State 참조를 고정하고 M20의 독립 attention/별도 gate linear/candidate 출력 공유→지표 선정→선택적 detach→다른 M 검증을 진행한다.
+
 ## 2. 공통 비교 기준
 
 ### 고정 조건과 평가 범위

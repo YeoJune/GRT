@@ -20,6 +20,8 @@ write_logit_threshold = 10.0
 write_logit_coef = 1e-4     # 0이면 off
 ```
 
+후속 [gate 경로 실험](experiments/20261019_l75_gate_paths.md)은 먼저 M20에서 `write_source='independent'/'separate_head'/'candidate'`를 바꿔 실행한다. State 참조는 register attention으로 고정하고 첫 비교는 `write_detach_source=False`다. 2번에만 D→D gate linear를 추가하며 지표 선정→선택적 detach→다른 M 검증 순서다. A와 선행 실험에서 선택한 write dropout은 비교 안에서 고정한다. Config는 `model.router`의 같은 이름 필드로 기록된다.
+
 Colab은 GPU와 `WANDB_API_KEY` secret의 노트북 접근을 켠다. Kaggle은 Internet·T4×2·같은 이름의 secret을 사용한다. `wandb_enabled=False`로 로컬 기록만 사용할 수 있다. Tokenizer만 다운로드하며 backbone weights는 새로 초기화한다.
 
 ## 2. 데이터·preflight·학습

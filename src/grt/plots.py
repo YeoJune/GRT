@@ -20,6 +20,11 @@ def plot_trace(arrays, path, read_active=False):
         (axes[2, 1], "update_distances", "D: Actual state update norm", "Register"),
     ]
     for ax, key, title, xlabel in heatmaps:
+        if key not in arrays:
+            ax.text(.5, .5, 'No independent write pooling\nShared candidate source',
+                    ha='center', va='center', transform=ax.transAxes)
+            ax.set_axis_off()
+            continue
         if key == 'r_gates' and not read_active:
             ax.text(0.5, 0.5, 'Read gate off\nReading is controlled by token attention',
                     ha='center', va='center', transform=ax.transAxes)

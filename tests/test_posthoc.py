@@ -122,6 +122,35 @@ def test_raw_gates_expose_saturation_hidden_by_batch_mean():
     np.testing.assert_allclose(arrays['update_distances'], plain.to_numpy()['update_distances'])
 
 
+@pytest.mark.parametrize('source', ['separate_head', 'candidate'])
+def test_shared_gate_checkpoint_roundtrip_includes_diagnostics_and_plots(inputs, tmp_path, source):
+    checkpoint, data, cfg, *_ = inputs
+    cfg.model.router.write_source = source
+    cfg.model.router.write_detach_source = True
+    torch.save(torch.arange(160) % 128, data/'validation.pt')
+    manifest = json.loads((data/'manifest.json').read_text())
+    manifest['sha256']['validation'] = file_hash(data/'validation.pt')
+    (data/'manifest.json').write_text(json.dumps(manifest))
+    saved = torch.load(checkpoint, weights_only=False)
+    saved.update(config=asdict(cfg), model=create_model(cfg).state_dict(), dataset_manifest=manifest)
+    torch.save(saved, checkpoint)
+    before = file_hash(checkpoint)
+    job = job_for(inputs, tmp_path, registers=True, window_starts=(0, 4, 8), horizon=1,
+                  group_repeats=1, lesion_fractions=(.5,))
+    result = job.run()
+    assert file_hash(checkpoint) == before
+    assert result['training_config']['model']['router']['write_source'] == source
+    info = result['register_analysis']['windows'][1]['diagnostics']['router_input']
+    assert info['source'] == source and info['detach_source']
+    name = 'gate_head' if source == 'separate_head' else 'candidate'
+    assert set(info['feature_blocks']) == {name, 'memory_context'}
+    assert ('gate_head' in info) == (source == 'separate_head')
+    assert 'token_context_norm' not in info
+    assert 'trace_write_pool_attention' not in result['arrays']
+    for name in ('trace.png', 'registers.png', 'posthoc_report.json'):
+        assert (job.analysis_dir/name).stat().st_size > 0
+
+
 def test_extended_report_covers_held_out_windows_and_cache(inputs, tmp_path):
     checkpoint, data, cfg, model, _ = inputs
     # Three disjoint four-segment windows in each of the two fixed streams.

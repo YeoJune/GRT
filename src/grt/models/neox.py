@@ -97,7 +97,7 @@ class NeoXBackbone(nn.Module):
                 nn.init.zeros_(module.bias)
 
     def forward(self, x, mask, read_state=None, token_length=0,
-                position_ids=None, rotary_length=None):
+                position_ids=None, rotary_length=None, return_register_hidden=False):
         h = self.dropout(x)
         positions = torch.arange(h.shape[1], device=h.device)[None] if position_ids is None else position_ids
         for layer in self.layers:
@@ -108,7 +108,10 @@ class NeoXBackbone(nn.Module):
             # NeoX parallel residual: both branches see the same layer input.
             h = h + layer.post_attention_dropout(attn) + layer.post_mlp_dropout(
                 layer.mlp(layer.post_attention_layernorm(h)))
-        return self.final_norm(h)
+        output = self.final_norm(h)
+        # A separate gate head branches from the SAME input to the existing
+        # final output path, not from the already-produced candidate.
+        return (output, h[:, token_length:]) if return_register_hidden else output
 
 
 class RecurrentNeoX(nn.Module):
@@ -125,7 +128,8 @@ class RecurrentNeoX(nn.Module):
             nn.init.normal_(self.initial_memory, std=0.02)
         elif m.name == 'grt':
             self.router = GlobalRouterUnit(m.router, m.num_registers, m.d_model,
-                m.register.write_gate_bias_init, m.register.dropout_prob)
+                m.register.write_gate_bias_init, m.register.dropout_prob,
+                m.register.conditional_read)
 
     def initial_state(self, batch_size):
         if self.cfg.name == 'neox':
@@ -161,19 +165,31 @@ class RecurrentNeoX(nn.Module):
             y, candidate = h[:, m:m+n], h[:, -m:]
             next_state = candidate
         else:
-            if gate_observations is None:
-                read, write, alpha = self.router(x, state)
+            shared = self.cfg.router.write_source != 'independent'
+            separate_head = self.cfg.router.write_source == 'separate_head'
+            if shared:
+                read = self.router.read(state)
             else:
-                read, write, alpha, raw_logits, hidden_norm = self.router(x, state, return_gate_inputs=True)
-                gate_observations.append((raw_logits, hidden_norm))
+                routed = self.router(x, state, return_gate_inputs=gate_observations is not None)
+                read, write, alpha = routed[:3]
             source = read * state if self.cfg.register.conditional_read else state
             # Reserve memory positions after a full segment even for a shorter prefix.
             # Otherwise future sequence length would change token-to-memory RoPE.
             positions = torch.cat([torch.arange(n, device=ids.device),
                 torch.arange(self.cfg.segment_len, self.cfg.segment_len+m, device=ids.device)])[None]
             h = self.backbone(torch.cat([x, source], 1),
-                self.attention_mask(n, ids.device), source, n, positions, self.cfg.segment_len+m)
+                self.attention_mask(n, ids.device), source, n, positions, self.cfg.segment_len+m,
+                return_register_hidden=separate_head)
+            if separate_head:
+                h, register_hidden = h
             y, candidate = h[:, :n], h[:, n:]
+            if shared:
+                features = register_hidden if separate_head else candidate
+                routed = self.router(x, state, features=features, read=read,
+                    return_gate_inputs=gate_observations is not None)
+                read, write, alpha = routed[:3]
+            if gate_observations is not None:
+                gate_observations.append(routed[3:])
             next_state = write_back(state, candidate, write)
             if trace is not None:
                 trace.record(read, write, state, candidate, alpha)

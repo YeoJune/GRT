@@ -141,6 +141,8 @@ models:
       name: grt
       router:
         mlp_hidden: 512
+        write_source: independent
+        write_detach_source: false
       register:
         conditional_read: false
         dropout_prob: 0.0
