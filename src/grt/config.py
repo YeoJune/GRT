@@ -89,6 +89,8 @@ class TrainingConfig:
     memory_fraction: float = 0.8
     max_steps: int = 2000
     lr: float = 0.0003
+    min_lr_ratio: float = 0.01
+    warmup_ratio: float = 0.05
     weight_decay: float = 0.001
     adam_beta2: float = 0.999
     grad_clip: float = 1.0
@@ -269,6 +271,8 @@ def validate_config(cfg, require_output=True):
         raise ValueError("training.memory_fraction must be between 0 and 1")
     if (
         t.lr <= 0
+        or not 0 <= t.min_lr_ratio <= 1
+        or not 0 <= t.warmup_ratio < 1
         or t.weight_decay < 0
         or t.grad_clip <= 0
         or not 0 < t.adam_beta2 < 1

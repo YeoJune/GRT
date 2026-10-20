@@ -160,7 +160,8 @@ def test_notebook_penalty_conditions_are_isolated_and_exportable(tmp_path, monke
         assert cfg.model.register.write_logit_coef == coef
         assert (cfg.model.segment_len, cfg.model.num_registers) == (75, 20)
         assert cfg.model.register.write_gate_bias_init == cfg.model.register.dropout_prob == 0
-        assert cfg.training.max_steps == 20000 and cfg.training.model_seed == 54
+        assert cfg.training.max_steps == 40000 and cfg.training.model_seed == 54
+        assert cfg.training.warmup_ratio == .05 and cfg.training.min_lr_ratio == .01
         assert cfg.training.batch_size * cfg.training.grad_accum_steps * job.world_size == 256
         assert cfg.training.mixed_precision == 'fp32'
         paths.add(job.run_dir)

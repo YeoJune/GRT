@@ -66,7 +66,7 @@ WikiText adapter는 명시적인 `target_ids`를 다음 token에 정렬한다. �
 
 매 update는 새 segment의 target만 loss로 삼는다. 이전 K segments를 같은 forward에서 재계산하고 그 앞 boundary state는 detach된 저장 state다. 현재 GRT/RMT는K3, NeoX는K0이다. Update 사이 graph는 저장하지 않는다. 마지막 짧은 segment를 포함한 실제 target 수를 기록한다. Nominal token 예산은global batch×L×updates이고 L75/20k/global256은384M이다.
 
-WikiText는 Adam(.9,.999), decay0, global norm clip.25, cosine·warmup0·LR5e-4다. Remember는 AdamW·value clipping·linear schedule/curriculum을 사용한다. 두 optimizer 프로토콜을 섞지 않는다. 모든 평가·분석은 dropout off, RNG/model mode를 보존한다. WikiText best는 전체 validation mean NLL로 선택한다.
+WikiText는 Adam(.9,.999), decay0, global norm clip.25, 설정 LR5e-4다. `training.warmup_ratio`의 기본0.05(범위[0,1), 0은off)에 따라 전체 updates의5%를 내림한 구간 동안 LR0에서 설정 LR까지 선형 상승한 뒤 cosine으로 감소한다. Cosine 최소 LR은 설정 LR×`training.min_lr_ratio`이며 기본0.01(5e-6), 설정 범위[0,1]이다. Remember는 AdamW·value clipping·linear schedule/curriculum을 사용한다. 두 optimizer 프로토콜을 섞지 않는다. 모든 평가·분석은 dropout off, RNG/model mode를 보존한다. WikiText best는 전체 validation mean NLL로 선택한다.
 
 ## 6. 배치·재개·분석
 

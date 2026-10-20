@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--model', choices=['neox', 'rmt', 'grt'])
     parser.add_argument('--size')
     parser.add_argument('--tokenization')
-    parser.add_argument('--budget')
+    parser.add_argument('--budget', help='Positive updates: 20k, 1m, 40000; or smoke for CPU checks')
     parser.add_argument('--runtime')
     parser.add_argument('--steps', type=int)
     parser.add_argument('--set', action='append', default=[], metavar='SECTION.FIELD=VALUE')

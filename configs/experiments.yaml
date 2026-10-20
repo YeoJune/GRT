@@ -8,6 +8,8 @@ defaults:
     auto_batch: false
     memory_fraction: 0.8
     lr: 0.0003
+    min_lr_ratio: 0.01
+    warmup_ratio: 0.05
     weight_decay: 0.001
     adam_beta2: 0.999
     mixed_precision: fp32
@@ -174,26 +176,7 @@ budgets:
       every_steps: 20
     wandb:
       every_steps: 10
-  10k:
-    training:
-      max_steps: 10000
-      curriculum: []
-    evaluation:
-      every_steps: 1000
-    wandb:
-      every_steps: 10
-  20k:
-    training:
-      max_steps: 20000
-      curriculum: []
-    evaluation:
-      every_steps: 1000
-    wandb:
-      every_steps: 10
-  100k:
-    training:
-      max_steps: 100000
-      curriculum: []
+  updates:
     evaluation:
       every_steps: 1000
     wandb:

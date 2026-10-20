@@ -16,7 +16,7 @@ from grt.checkpoint import (
     atomic_save,
     CHECKPOINT_FORMAT,
 )
-from grt.config import Config, build_config, save_config, validate_config
+from grt.config import save_config, validate_config
 from grt.logger import metadata, write_json, write_result_files, append_metrics, Monitor, TrainingMetrics
 from grt.models.factory import create_model
 from grt.vendor.armt import REFERENCE_COMMIT as COMMIT
@@ -35,7 +35,7 @@ def run(cfg, device, distributed=None):
     root.mkdir(parents=True, exist_ok=True)
     # Check configuration before initializing optional external monitoring.
     stored = root / "experiment_config.json"
-    if ctx.main and stored.exists() and asdict(build_config(Config, json.loads(stored.read_text()))) != asdict(cfg):
+    if ctx.main and stored.exists() and json.loads(stored.read_text()) != asdict(cfg):
         raise ValueError("Configuration changed; use a new output directory")
     if ctx.main and not stored.exists() and any(root.iterdir()):
         raise ValueError("Nonempty output directory without experiment configuration")

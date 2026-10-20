@@ -72,6 +72,60 @@ def test_explicit_values_and_invalid_choices():
         load_experiment(task='wikitext103', overrides={'model': {'register_read_source': 'fixed_state'}})
 
 
+@pytest.mark.parametrize('budget,steps', [('20k', 20000), ('1m', 1000000),
+    ('40000', 40000), (40000, 40000), ('30k', 30000), ('7', 7), ('002k', 2000)])
+def test_free_budget_through_notebook_runner(tmp_path, budget, steps):
+    job = WikiTextRun(REPO, budget=budget, work_dir=tmp_path, wandb=False)
+    cfg = job.config('rmt')
+    assert cfg.training.max_steps == steps and cfg.training.curriculum == []
+    assert cfg.evaluation.every_steps == 1000 and cfg.wandb.every_steps == 10
+    assert cfg.training.min_lr_ratio == .01
+
+
+@pytest.mark.parametrize('budget', ['0', '0k', '0m', 0, -1, True, 20000., '',
+    '1.5m', '20,000', '2e4', '40_000', '20kk', '1g', '-20k', '+20k', '20 k',
+    '２０k', '20K', 'updates'])
+def test_invalid_free_budget(budget):
+    with pytest.raises(ValueError, match='Invalid budget'):
+        load_experiment(task='wikitext103', budget=budget)
+
+
+def test_free_budget_merge_order_and_remember_curriculum():
+    cfg = load_experiment(task='remember', budget='40k')
+    assert cfg.training.max_steps == 40000 and not cfg.training.curriculum
+    cfg = load_experiment(task='wikitext103', budget='1m', runtime='cpu', steps=12,
+        overrides={'training': {'max_steps': 14}, 'evaluation': {'every_steps': 7}})
+    assert cfg.training.max_steps == 14 and cfg.evaluation.every_steps == 7
+
+
+@pytest.mark.parametrize('ratio', [0., .01, .2, 1.])
+def test_cosine_min_lr_config_roundtrip(tmp_path, ratio):
+    cfg = load_experiment(task='wikitext103',
+        overrides=parse_overrides([f'training.min_lr_ratio={ratio}']))
+    save_config(cfg, tmp_path/'config.yaml')
+    assert load_config(tmp_path/'config.yaml').training.min_lr_ratio == ratio
+
+
+@pytest.mark.parametrize('ratio', [-.01, 1.01, float('nan'), float('inf'), '0.01', True])
+def test_invalid_cosine_min_lr_ratio(ratio):
+    with pytest.raises(ValueError):
+        load_experiment(task='wikitext103', overrides={'training': {'min_lr_ratio': ratio}})
+
+
+@pytest.mark.parametrize('ratio', [0., .05, .5, .99])
+def test_warmup_config_roundtrip(tmp_path, ratio):
+    cfg = load_experiment(task='wikitext103',
+        overrides=parse_overrides([f'training.warmup_ratio={ratio}']))
+    save_config(cfg, tmp_path/'config.yaml')
+    assert load_config(tmp_path/'config.yaml').training.warmup_ratio == ratio
+
+
+@pytest.mark.parametrize('ratio', [-.01, 1., 1.01, float('nan'), float('inf'), '0.05', True])
+def test_invalid_warmup_ratio(ratio):
+    with pytest.raises(ValueError):
+        load_experiment(task='wikitext103', overrides={'training': {'warmup_ratio': ratio}})
+
+
 def test_colab_shared_budget_and_secret_setup(tmp_path, monkeypatch):
     colab = WikiTextRun(REPO, runtime='colab', world_size=1, work_dir=tmp_path,
                        models=('rmt', 'grt'), device='cpu')
@@ -98,17 +152,27 @@ def test_colab_shared_budget_and_secret_setup(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('runtime', ['kaggle', 'colab'])
-def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, monkeypatch):
+@pytest.mark.parametrize('budget,steps', [('20k', 20000), ('1m', 1000000), ('40000', 40000)])
+@pytest.mark.parametrize('warmup_ratio', [0., .05])
+def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, budget, steps, warmup_ratio, monkeypatch):
     """Current notebook exposes the chosen method while preserving all run budgets."""
     import ast
     notebook = json.loads((REPO/'notebooks'/f'{runtime}.ipynb').read_text())
+    assert 'min_lr_ratio' not in json.dumps(notebook)
     source = ast.parse(''.join(notebook['cells'][3]['source']))
+    warmup = next(node for node in source.body if isinstance(node, ast.Assign)
+                  and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'warmup_ratio')
+    assert ast.literal_eval(warmup.value) == .05
+    default_budget = next(node for node in source.body if isinstance(node, ast.Assign)
+                          and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'budget')
+    assert ast.literal_eval(default_budget.value) == '40k'
     monkeypatch.setattr(WikiTextRun, 'setup', lambda self: None)
     names = set()
     for memory in (8, 20, 75):
         for dropout in (0., .1):
             selection = copy.deepcopy(source)
-            values = dict(num_registers=memory, write_dropout=dropout)
+            values = dict(num_registers=memory, write_dropout=dropout, budget=budget,
+                          warmup_ratio=warmup_ratio)
             for node in selection.body:
                 if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                     key = node.targets[0].id
@@ -126,7 +190,9 @@ def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, monkeypa
             assert cfg.model.register.write_logit_coef == 1e-4
             assert cfg.model.d_model == 256 and cfg.model.alu.num_layers == 6
             assert cfg.model.router.pool_nhead == 8 and cfg.model.router.mlp_hidden == 512
-            assert cfg.training.max_steps == 20000 and cfg.training.bptt_segments == 3
+            assert cfg.training.max_steps == steps and cfg.training.bptt_segments == 3
+            assert cfg.training.min_lr_ratio == .01
+            assert cfg.training.warmup_ratio == warmup_ratio
             assert cfg.training.batch_size*cfg.training.grad_accum_steps*job.world_size == 256
             assert cfg.training.lr == .0005 and cfg.training.mixed_precision == 'fp32'
             assert cfg.training.memory_fraction == .95 and cfg.rtla.enabled
@@ -189,6 +255,7 @@ def test_utils_actual_preflight_and_two_updates(tmp_path, monkeypatch):
         assert bundle.namelist() == ['experiment_report.json']
     rows = [json.loads(line) for line in (job.run_dir / 'rmt/metrics.jsonl').read_text().splitlines()]
     assert {row['step'] for row in rows} == {1, 2}
+    assert rows[-1]['train/lr'] == pytest.approx(.0005*.01)
     assert 'total_compute_hours' in json.loads((job.run_dir / 'rmt_eta.json').read_text())
     assert sorted(p.name for p in job.run_dir.glob('*.yaml')) == ['rmt_config.yaml']
     job.steps = 3

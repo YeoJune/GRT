@@ -7,14 +7,16 @@
 [단일 카탈로그](../configs/experiments.yaml)는 task·size·model·tokenizer·budget·runtime의 기본값을 정의한다. `Config`의 typed 검증을 거치고 수동 override가 최종 적용된다. 숫자 변경 때문에 조건별 YAML·노트북을 새로 만들지 않는다.
 
 - Task: Remember / WikiText-103. Size: base/small/tiny. Model: neox/rmt/grt.
-- Budget: smoke200 /10k /20k /100k optimizer updates. 임의 값은 `steps=` 또는 `--steps`.
+- Budget: 양의 정수 optimizer updates를 자유 입력한다. `budget='20k'`→20,000, `'1m'`→1,000,000, `'40000'` 또는 `40000`→40,000이다. 접미사는 소문자 `k`/`m`만 허용하고 소수·부호·쉼표·다른 단위는 거부한다. CPU 점검용 `smoke`는200 updates다. 숫자 budget은 기본 validation1k·로그10 간격을 유지하며 `steps=`/`--steps`와 최종 override가 우선한다.
 - Tokenizer: GPT-2 BPE 또는 word. Runtime: Kaggle/Colab/CPU.
 - 노트북은 값 선택과 setup/prepare/preflight/train/report만 담당한다. 공통 동작은 `src/grt/utils/`에 둔다.
 
-[Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·20k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. M8/20/75×dropout0/.1 탐색은 완료했으며, 후속 실험은 모든 M에서 dropout0으로 통일한다. Dropout 효과는 더 긴 학습에서 재검증하며 결과와 판단은 [실험 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)에만 관리한다.
+[Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. M8/20/75×dropout0/.1 탐색은 완료했으며, 후속 실험은 모든 M에서 dropout0으로 통일한다. Dropout 효과는 더 긴 학습에서 재검증하며 결과와 판단은 [실험 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)에만 관리한다.
 
 ```python
-num_registers = 20         # 완료된 탐색 조건의 재현 선택
+num_registers = 20         # 후속 gate 경로 실험의 시작 M
+budget = '40k'            # 이번 실험의 공통 학습 예산
+warmup_ratio = 0.05        # 전체 updates의5%; 0이면 off
 write_dropout = 0.0        # 후속 실험 공통: off, M별 예외 없음
 write_logit_threshold = 10.0
 write_logit_coef = 1e-4     # 0이면 off
@@ -41,12 +43,16 @@ L을 바꾸면 처리 token 예산과 BPTT token 범위가 달라진다. K3은 �
 
 설정이 달라지면 새 hash/run 경로를 사용하고 기존 checkpoint에서 이어 학습하지 않는다. 같은 Config·world size·manifest의 last.pt만 재개한다. 세션 종료 전에 checkpoint·prepared 데이터를 외부에 보관한다. Report에는 가중치·optimizer가 들어 있지 않다.
 
+WikiText는 linear warmup 뒤 cosine을 적용한다. 노트북 `warmup_ratio`는 `training.warmup_ratio`로 기록하며 기본0.05, 범위[0,1), 0이면 off다. Warmup updates `W=int(max_steps×warmup_ratio)`는 내림하며, 20k는1,000·40k는2,000 updates다. W>0이면 LR0에서 설정 LR까지 선형 상승하고 이후 `progress=(step-W)/(max_steps-W)`에 대해 `lr=initial_lr × [r+(1-r)×(1+cos(π×progress))/2]`로 감소한다. 극소 예산에서 W=0이면 warmup을 생략한다.
+
+`training.min_lr_ratio`의 기본값은0.01이며 범위[0,1]이다. 설정 LR5e-4이면 마지막 LR은5e-6이다. 최소 비율은 config 또는 CLI `--set training.min_lr_ratio=0.01`로만 설정하고 노트북 선택 항목에는 노출하지 않는다. Warmup 구간에서는 이 최소값보다 LR이 낮을 수 있다. 이 설정들은 Remember의 linear schedule에는 적용하지 않는다. 이전 실험은 warmup0·최소 LR0이었으므로 새 기본 스케줄과 직접 대조하려면 baseline도 다시 실행한다. 학습 예산·warmup·최소 LR 비율을 바꾸면 새 run을 사용한다.
+
 ## 3. CLI와 로컬 과제
 
 CLI도 같은 카탈로그를 사용한다. 예를 들어 현재 A의 수치 조건은 다음과 같이 명시한다.
 
 ```bash
-python scripts/train.py --task wikitext103 --model grt --size small --tokenization gpt2_bpe --budget 20k --runtime kaggle --set model.segment_len=75 --set model.num_registers=20 --set model.register.write_gate_bias_init=0 --set model.register.write_logit_threshold=10 --set model.register.write_logit_coef=0.0001 --output-dir runs/a20 --device cuda
+python scripts/train.py --task wikitext103 --model grt --size small --tokenization gpt2_bpe --budget 40k --runtime kaggle --set model.segment_len=75 --set model.num_registers=20 --set model.register.write_gate_bias_init=0 --set model.register.write_logit_threshold=10 --set model.register.write_logit_coef=0.0001 --output-dir runs/gate_independent_m20_40k --device cuda
 ```
 
 Kaggle2GPU CLI는 `torchrun --standalone --nproc_per_node=2`로 같은 script를 실행한다. `--benchmark-steps`로 preflight를 수행한다. `--config`는 현재 형식의 최종 Config 하나만 읽고 과거 경로·설정 변환은 제공하지 않는다.

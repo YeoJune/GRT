@@ -1,9 +1,23 @@
 """Named experiment composition; the final typed Config remains the run contract."""
 from pathlib import Path
+import re
 import yaml
 from grt.config import Config, build_config, merge_dicts, validate_config
 
 CATALOG = Path(__file__).resolve().parents[2] / 'configs' / 'experiments.yaml'
+
+
+def parse_budget(value):
+    """Positive update count: digits, optionally followed by k or m."""
+    if type(value) is int and value > 0:
+        return value
+    if isinstance(value, str):
+        match = re.fullmatch(r'([0-9]+)([km]?)', value)
+        if match:
+            steps = int(match[1]) * {'': 1, 'k': 1000, 'm': 1000000}[match[2]]
+            if steps > 0:
+                return steps
+    raise ValueError(f'Invalid budget {value!r}; use positive digits with optional k/m suffix (20k, 1m, 40000)')
 
 
 def parse_overrides(items):
@@ -32,7 +46,7 @@ def load_experiment(*, task, model='rmt', size=None, tokenization=None,
     if task == 'wikitext103':
         size = size or 'small'
         tokenization = tokenization or 'gpt2_bpe'
-        budget = budget or '100k'
+        budget = '100k' if budget is None else budget
     elif tokenization is not None:
         raise ValueError('Tokenization presets apply only to WikiText')
     raw = catalog['defaults']
@@ -42,6 +56,11 @@ def load_experiment(*, task, model='rmt', size=None, tokenization=None,
         if name is None:
             continue
         choices = catalog[section]
+        if section == 'budgets' and name != 'smoke':
+            count = parse_budget(name)
+            raw = merge_dicts(raw, choices['updates'])
+            raw = merge_dicts(raw, {'training': {'max_steps': count, 'curriculum': []}})
+            continue
         if name not in choices:
             raise ValueError(f'Unknown {section} preset {name!r}; choose {list(choices)}')
         raw = merge_dicts(raw, choices[name])

@@ -65,10 +65,12 @@ def test_neox_has_same_backbone_but_no_memory_or_cross_segment_context(tmp_path)
     assert model.backbone.embedding.weight.grad.abs().sum() > 0
 
 
-def test_neox_train_resume_does_not_read_test_and_selects_validation(tmp_path, monkeypatch):
+@pytest.mark.parametrize('warmup_ratio', [0., .75])
+def test_neox_train_resume_does_not_read_test_and_selects_validation(tmp_path, monkeypatch, warmup_ratio):
     data = tmp_path/'data'
     prepared(data)
     cfg = small_cpu(tmp_path/'run')
+    cfg.training.warmup_ratio = warmup_ratio
     cfg.data.options['path'] = str(data)
     calls = []
     dataset = WikiTextAdapter.dataset
@@ -99,7 +101,17 @@ def test_neox_train_resume_does_not_read_test_and_selects_validation(tmp_path, m
     resumed = load_checkpoint(root/'last.pt')
     for key, value in full['model'].items():
         torch.testing.assert_close(value, resumed['model'][key], rtol=0, atol=0)
+    assert full['scheduler'] == resumed['scheduler']
+    assert full['optimizer']['param_groups'] == resumed['optimizer']['param_groups']
+    assert full['optimizer']['param_groups'][0]['lr'] == pytest.approx(cfg.training.lr*.01)
     assert 'test' not in calls
+    # A pre-floor run must not silently acquire the new schedule when resumed.
+    stored = root/'experiment_config.json'
+    previous = json.loads(stored.read_text())
+    del previous['training']['min_lr_ratio']
+    stored.write_text(json.dumps(previous))
+    with pytest.raises(ValueError, match='Configuration changed'):
+        run(cfg, torch.device('cpu'))
 
 
 def test_notebook_baselines_and_sequential_sweeps_preserve_attention(tmp_path):

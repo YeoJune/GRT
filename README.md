@@ -6,7 +6,7 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 ## 현재 gate 안정화 실험
 
-현재 후속 실험 설정은 **sigmoid write + logit tail 패널티 A + write dropout off**다. Dropout은 더 긴 학습에서 재검증할 수 있도록 지원한다. Small·L75·seed54·bias0·read off·20k·FP32·global256을 기준으로 한다.
+현재 후속 실험 설정은 **sigmoid write + logit tail 패널티 A + write dropout off**다. Dropout은 더 긴 학습에서 재검증할 수 있도록 지원한다. 후속 gate 경로 실험은 Small·L75·seed54·bias0·read off·40k·FP32·global256, warmup5%·cosine 최소 LR 비율1%로 진행한다. 완료된 안정화 탐색의20k 결과는 선행 기록으로 보존한다.
 
 - [Gate 안정화 보고서](docs/experiments/20261018_l75_gate_stabilization.md): 패널티·dropout을 먼저 설명하고, 공통6패널·지표로 모든 조건을 비교한다. Bias·Refine·Uniform은 아래 이력에 정리한다.
 - [최종 결론·후속 방침](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion): 탐색 완료. 후속 실험은 모든 M에서 A/dropout0을 사용하고, dropout 효과는 더 긴 학습에서 재검증한다.
@@ -21,6 +21,8 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 ```python
 num_registers = 20
+budget = '40k'              # '1m', '40000' 등 숫자와 k/m으로 자유 입력
+warmup_ratio = 0.05         # 전체 updates의5%; 0이면 off
 write_dropout = 0.0          # 모든 M의 후속 실험에서 off; 장기 효과는 추후 재검증
 write_logit_threshold = 10.0
 write_logit_coef = 1e-4      # 0은 off 대조

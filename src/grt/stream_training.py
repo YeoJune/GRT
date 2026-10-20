@@ -9,13 +9,23 @@ from pathlib import Path
 import json
 import time
 import torch
-from transformers import get_cosine_schedule_with_warmup
 from grt.checkpoint import (CHECKPOINT_FORMAT, seed_all, capture_rng, restore_rng,
                             atomic_save, load_checkpoint, preserve_rng, evaluation_context)
 from grt.config import save_config
 from grt.logger import metadata, write_json, write_result_files, TrainingMetrics
 from grt.models.factory import create_model
 from grt.utils.batching import calibrate_batch, peak_fraction
+
+
+def cosine_schedule(optimizer, *, max_steps, min_lr_ratio, warmup_ratio):
+    """Linear warmup to each base LR, then cosine decay to its configured floor."""
+    warmup_steps = int(max_steps * warmup_ratio)
+    def factor(step):
+        if step < warmup_steps:
+            return step / warmup_steps
+        progress = min((step-warmup_steps) / (max_steps-warmup_steps), 1.0)
+        return min_lr_ratio + (1-min_lr_ratio) * (1+math.cos(math.pi*progress)) / 2
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, factor)
 
 
 def train_stream(adapter, cfg, device, monitor, ctx):
@@ -29,7 +39,8 @@ def train_stream(adapter, cfg, device, monitor, ctx):
     wrapped = ctx.wrap(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=t.lr,
         betas=(0.9, t.adam_beta2), weight_decay=t.weight_decay)
-    scheduler = get_cosine_schedule_with_warmup(optimizer, 0, t.max_steps)
+    scheduler = cosine_schedule(optimizer, max_steps=t.max_steps,
+        min_lr_ratio=t.min_lr_ratio, warmup_ratio=t.warmup_ratio)
     train_tokens = adapter.dataset(cfg, 'train')
     validation = adapter.dataset(cfg, 'validation')
     train = adapter.streams(train_tokens, global_batch)[ctx.rank::ctx.world_size]
