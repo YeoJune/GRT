@@ -101,6 +101,8 @@ def test_stream_monitor_logs_and_preserves_training(tmp_path, monkeypatch):
         url = 'https://example.invalid/mock-wandb'
         def __init__(self):
             self.summary, self.logs = {}, []
+        def define_metric(self, name, **settings):
+            torch.rand(3)
         def log(self, payload, step):
             self.logs.append((step, payload))
             torch.rand(3)
@@ -120,10 +122,10 @@ def test_stream_monitor_logs_and_preserves_training(tmp_path, monkeypatch):
     assert all(torch.equal(value, logged['model'][key]) for key, value in plain['model'].items())
     assert torch.equal(plain['rng_by_rank'][0]['torch'], logged['rng_by_rank'][0]['torch'])
     assert [step for step, _ in runs[0].logs] == [1, 2]
-    key = 'grt/rtla/reset_delta_nll'
+    key = '03_memory/reset_delta_nll'
     assert all(key in payload for _, payload in runs[0].logs)
     rows = [json.loads(row) for row in (tmp_path/'True/metrics.jsonl').read_text().splitlines()]
-    assert rows[-1][key] == runs[0].logs[-1][1][key]
+    assert rows[-1]['grt/rtla/reset_delta_nll'] == runs[0].logs[-1][1][key]
     assert (tmp_path/'True/rtla/step_000002/arrays.npz').exists()
     # Same checkpoint trajectory and short tail as production WikiText evaluation.
     model = create_model(cfg)

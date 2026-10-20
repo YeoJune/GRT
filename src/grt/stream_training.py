@@ -118,7 +118,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
                 loss.backward()
             training_metrics.update(out, (end-start)/local_batch)
             final_states.append(out.memory_state.detach())
-        torch.nn.utils.clip_grad_norm_(model.parameters(), t.grad_clip, error_if_nonfinite=True)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), t.grad_clip, error_if_nonfinite=True)
         optimizer.step()
         scheduler.step()
         history.append(ids.clone())
@@ -132,7 +132,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
         payload = training_metrics.reduce(ctx)
         loss_value = payload['train/loss']
         validation_due = step % cfg.evaluation.every_steps == 0 or step == t.max_steps
-        payload.update({'train/lr':optimizer.param_groups[0]['lr'],
+        payload.update({'train/lr':optimizer.param_groups[0]['lr'], 'train/grad_norm':float(grad_norm),
             'train/target_tokens':tokens_seen,
             'train/elapsed_seconds':elapsed+time.perf_counter()-started,
             'train/peak_gpu_memory_bytes':peak})

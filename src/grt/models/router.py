@@ -69,7 +69,7 @@ class GlobalRouterUnit(nn.Module):
         read_context, _ = self.context(s, s)
         return self.mlp_r(read_context).sigmoid().unsqueeze(-1)
 
-    def forward(self, x, s, *, features=None, read=None, return_gate_inputs=False):
+    def forward(self, x, s, *, features=None, read=None, return_write_logits=False):
         read = self.read(s) if read is None else read
         if self.write_source == 'independent':
             write_context, alpha = self.context(x, s)
@@ -83,20 +83,13 @@ class GlobalRouterUnit(nn.Module):
             if self.write_source == 'separate_head':
                 features = self.gate_head(features)
             write_context, alpha = self.with_state(features, s), None
-        if return_gate_inputs:
-            hidden = self.mlp_w[1](self.mlp_w[0](write_context))
-            raw_logits = self.mlp_w[-1](hidden)
-        else:
-            raw_logits = self.mlp_w(write_context)
+        raw_logits = self.mlp_w(write_context)
         write_logits = raw_logits
         if self.training and self.dropout_prob:
             write_logits = write_logits.masked_fill(
                 torch.rand_like(write_logits) < self.dropout_prob, -torch.inf
             )
         write = write_logits.sigmoid()
-        if return_gate_inputs:
-            hidden_norm = hidden.float().norm(dim=-1)
-            if hidden_norm.ndim == 2:
-                hidden_norm = hidden_norm.mean(-1)
-            return read, write.unsqueeze(-1), alpha, raw_logits, hidden_norm
+        if return_write_logits:
+            return read, write.unsqueeze(-1), alpha, raw_logits
         return read, write.unsqueeze(-1), alpha

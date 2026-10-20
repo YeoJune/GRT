@@ -6,10 +6,10 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 ## 현재 gate 안정화 실험
 
-현재 사용하는 장치는 **sigmoid write + logit tail 패널티 A + write dropout**이다. Small·L75·seed54·bias0·read off·20k·FP32·global256을 기준으로 한다.
+현재 후속 실험 설정은 **sigmoid write + logit tail 패널티 A + write dropout off**다. Dropout은 더 긴 학습에서 재검증할 수 있도록 지원한다. Small·L75·seed54·bias0·read off·20k·FP32·global256을 기준으로 한다.
 
 - [Gate 안정화 보고서](docs/experiments/20261018_l75_gate_stabilization.md): 패널티·dropout을 먼저 설명하고, 공통6패널·지표로 모든 조건을 비교한다. Bias·Refine·Uniform은 아래 이력에 정리한다.
-- [현재 진행 상태](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion): M8/M20/M75 A 완료, 남은 M8/20/75 dropout.1 비교.
+- [최종 결론·후속 방침](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion): 탐색 완료. 후속 실험은 모든 M에서 A/dropout0을 사용하고, dropout 효과는 더 긴 학습에서 재검증한다.
 - [후속 gate 경로 실험](docs/experiments/20261019_l75_gate_paths.md): state 참조와 안정화 dropout을 고정한 뒤 M20의 독립 attention/별도 gate linear/candidate 출력 공유를 비교하고, 지표 선정→선택적 detach→다른 M 검증까지 하나의 실험으로 진행한다.
 - [L150 baseline·용량 비교](docs/experiments/20261012_small_register_sweep.md): 별도 실험 주제의 결과다.
 
@@ -20,8 +20,8 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 기존 선택 셀에서 다음 값만 바꿔 한 run씩 실행한다. 새 notebook/config 파일은 만들지 않는다.
 
 ```python
-num_registers = 75
-write_dropout = 0.1          # 각 M의 A/dropout0과 비교
+num_registers = 20
+write_dropout = 0.0          # 모든 M의 후속 실험에서 off; 장기 효과는 추후 재검증
 write_logit_threshold = 10.0
 write_logit_coef = 1e-4      # 0은 off 대조
 ```
@@ -29,6 +29,8 @@ write_logit_coef = 1e-4      # 0은 off 대조
 `setup → prepare_data → preflight → train → report` 순서다. 자동 배치는 VRAM 목표 안에서 micro/accum을 조절하며 global256·평가 batch·FP32는 유지한다. 설정이 달라지면 새 초기화 run, 같은 설정·world size·manifest면 last.pt를 재개한다. Tokenizer만 다운로드하고 backbone weights는 새로 초기화한다.
 
 마지막 `job.report(posthoc=True, download=True, ...)`는 best checkpoint의 사후 분석까지 실행한다. **`experiment_results.zip` 하나**를 보내면 된다. ZIP은 학습·사후 JSON만 포함하므로 checkpoint·prepared 데이터는 따로 보관한다. 다른 세션의 checkpoint는 [Colab 사후 분석](notebooks/colab_analysis.ipynb)을 사용한다. 파일 배치는 [workflow](docs/20261011_experiment_workflow.md#posthoc-colab)에 있다.
+
+새 run의 W&B는 **Quality / Optimization / Memory / Runtime** 네 그룹의 핵심 지표만 표시한다. 마지막 셀은 best·final validation, 선택 checkpoint의 memory probe, 비용, 사후 평가 window를 구분해 요약한다. 상세 지표·단위는 [공통 모니터링 안내](docs/20261011_experiment_workflow.md#rtla-학습-중-모니터링과-사후-분석)를 따른다.
 
 ## 설치·CLI·로컬 과제
 

@@ -1,6 +1,6 @@
 # GRT/RMT/NeoX · 현재 구현 명세
 
-갱신: 2026-10-19 · 실행 계약만 유지한다. 이전 설계·검증 이력은 [아카이브](archive/README.md), 측정 결과는 [실험 보고서](README.md)에 둔다.
+갱신: 2026-10-20 · 실행 계약만 유지한다. 이전 설계·검증 이력은 [아카이브](archive/README.md), 측정 결과는 [실험 보고서](README.md)에 둔다.
 
 ## 1. 범위와 소스
 
@@ -43,12 +43,13 @@ GRT token 위치는0..n−1, register 위치는segment_len..segment_len+M−1로
 
 ## 3. 현재 gate 안정화 장치
 
-일반 sigmoid write에 **logit tail regularization**과 **write dropout**을 사용한다. 현재 노트북은 small·L75/M20·bias0·read off·threshold10/coef1e-4·dropout0을 선택한다. M8/M75와 dropout.1 비교는 [안정화 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)를 따른다.
+일반 sigmoid write에 **logit tail regularization**과 선택적인 **write dropout**을 지원한다. 현재 노트북은 small·L75/M20·bias0·read off·threshold10/coef1e-4·dropout0을 선택한다. M8/20/75의 dropout0/.1 탐색은 완료했으며, 후속 실험은 모든 M에서 dropout0으로 통일한다. Dropout의 효과는 더 긴 학습에서 재검증한다. 판단 범위는 [안정화 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)를 따른다.
 
 - `write_logit_threshold`, `write_logit_coef`: `relu(abs(raw_logit)-threshold)^2`의 슬롯 평균을 유효 predictor token 수로 가중한다. Config의 coef 기본값0은 off다.
 - 과거 BPTT replay(target=-100)의 직접 패널티는0이며 state를 통한 gradient는 유지한다. M/L 추가 배율이나 run별 표준편차 보정은 없다.
 - `dropout_prob`: 학습 중 write를 Bernoulli mask로0으로 만들고 rescale하지 않는다. 패널티는 mask 이전 raw logits에서 계산한다.
 - 실제 backward는 LM+coef*R, logging은 LM/raw R/weighted R/total을 분리한다. Evaluation·PPL·best 선택에는 규제를 넣지 않는다.
+- Training 관측은raw write와abs logit>20 비율만 유지한다. 안정화 전용 logit 평균/최대·threshold 초과율·sigmoid slope·hidden norm 계산 경로는 제거했으며 상세 관측은 사후 분석에서 수행한다.
 - `write_gate_bias_init`는 공통 초기화 기록이다. 현재 노트북은0으로 고정하며 과거 수치 실험은 결과에서만 비교한다.
 
 Refine head·Uniform 초기화 전용 구현은 제거했다. Gate 전용 warmup·write mean loss·router normalization·softmax write는 현재 구현하지 않는다. 이들의 제안·종료 이력을 실행 선택지로 되살리지 않는다.
@@ -71,4 +72,4 @@ WikiText는 Adam(.9,.999), decay0, global norm clip.25, cosine·warmup0·LR5e-4�
 
 `training.auto_batch`는 VRAM 목표 안에서 microbatch와 accumulation을 조절하며 global batch와 평가 batch는 유지한다. 현재 노트북 목표는.95, 카탈로그 기본은.8이다. 같은 world size·데이터·최종 Config로만 재개한다. Checkpoint에는 model/optimizer/scheduler/RNG, rank별 history·boundary states·offset·target 수·manifest·best loss가 들어간다.
 
-학습 중 RTLA는 고정 validation probe의 정상/reset/swap과 실제 update를 측정한다. 사후에는 슬롯·그룹·retention·gate/logit·rank/CKA 분석을 수행한다. Read off의 계산값을 읽기량으로 보고하지 않으며 candidate와 실제 update를 구분한다. 자세한 파일 전달·실행은 [workflow](20261011_experiment_workflow.md), 지표 해석은 [공통 사전](experiments/20261018_l75_gate_stabilization.md#2-공통-비교-기준)을 따른다.
+학습 중 RTLA는 고정 validation probe의 정상/reset/swap과 실제 update를 측정한다. W&B에는 Quality·Optimization·Memory·Runtime의 핵심 지표만 전송하며, 노트북과 JSON의 `overview`도 같은 best/final·단위 계약을 사용한다. 사후에는 슬롯·그룹·retention·gate/logit·rank/CKA 분석을 수행한다. Read off의 계산값을 읽기량으로 보고하지 않으며 candidate와 실제 update를 구분한다. 자세한 파일 전달·실행은 [workflow](20261011_experiment_workflow.md), 지표 해석은 [공통 사전](experiments/20261018_l75_gate_stabilization.md#2-공통-비교-기준)을 따른다.

@@ -170,7 +170,7 @@ class RecurrentNeoX(nn.Module):
             if shared:
                 read = self.router.read(state)
             else:
-                routed = self.router(x, state, return_gate_inputs=gate_observations is not None)
+                routed = self.router(x, state, return_write_logits=gate_observations is not None)
                 read, write, alpha = routed[:3]
             source = read * state if self.cfg.register.conditional_read else state
             # Reserve memory positions after a full segment even for a shorter prefix.
@@ -186,10 +186,10 @@ class RecurrentNeoX(nn.Module):
             if shared:
                 features = register_hidden if separate_head else candidate
                 routed = self.router(x, state, features=features, read=read,
-                    return_gate_inputs=gate_observations is not None)
+                    return_write_logits=gate_observations is not None)
                 read, write, alpha = routed[:3]
             if gate_observations is not None:
-                gate_observations.append(routed[3:])
+                gate_observations.append(routed[3])
             next_state = write_back(state, candidate, write)
             if trace is not None:
                 trace.record(read, write, state, candidate, alpha)

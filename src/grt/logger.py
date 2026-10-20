@@ -11,27 +11,23 @@ import torch
 import transformers
 from grt.checkpoint import preserve_rng
 from grt.config import EXPERIMENT_VERSION
+from grt.monitoring import configure_wandb, history_metrics, summary_metrics
 
 
 class TrainingMetrics:
-    """Sample-weighted means and true maxima across microbatches and ranks."""
+    """Sample-weighted means across microbatches and ranks."""
     def __init__(self):
         self.values = {}
 
     def update(self, output, weight):
         metrics = getattr(output, 'training_metrics', None) or {'train/loss': output.loss.detach()}
         keys = list(metrics)
-        values = torch.stack([metrics[k].detach().float() if k.endswith('_max')
-                              else metrics[k].detach().float() * weight for k in keys]).cpu().tolist()
+        values = torch.stack([metrics[k].detach().float() * weight for k in keys]).cpu().tolist()
         for key, value in zip(keys, values):
-            self.values[key] = (max(self.values.get(key, 0), value) if key.endswith('_max')
-                                else self.values.get(key, 0) + value)
+            self.values[key] = self.values.get(key, 0) + value
 
     def reduce(self, ctx):
-        means = [k for k in self.values if not k.endswith('_max')]
-        result = dict(zip(means, [v / ctx.world_size for v in ctx.sum([self.values[k] for k in means])]))
-        result.update({k: ctx.max(v) for k, v in self.values.items() if k.endswith('_max')})
-        return result
+        return dict(zip(self.values, [v / ctx.world_size for v in ctx.sum(list(self.values.values()))]))
 
 
 def write_json(path, value):
@@ -106,6 +102,7 @@ class Monitor:
         self.root = Path(root)
         self.run = None
         self.enabled = cfg.wandb.enabled
+        self.stream = cfg.data.name == 'wikitext103'
         if not self.enabled:
             return
         self.status = dict(enabled=True, project=cfg.wandb.project, mode=cfg.wandb.mode, failures=0)
@@ -133,6 +130,7 @@ class Monitor:
                     config=asdict(cfg),
                     dir=str(self.root),
                 )
+                configure_wandb(self.run, self.stream)
                 mode = getattr(getattr(self.run, 'settings', None), 'mode', cfg.wandb.mode)
                 url = getattr(self.run, 'url', None) if mode == 'online' else None
                 self._status('connected', id=identity['id'], mode=mode, url=url)
@@ -160,7 +158,7 @@ class Monitor:
             return
         try:
             with preserve_rng():
-                self.run.log({"global_step": step, **payload}, step=step)
+                self.run.log({"global_step": step, **history_metrics(payload, self.stream)}, step=step)
             self._status('active', last_logged_step=step, error=None)
         except Exception as error:
             self._status('upload_failed', error=str(error))
@@ -171,7 +169,7 @@ class Monitor:
             return
         try:
             with preserve_rng():
-                self.run.summary.update(payload)
+                self.run.summary.update(summary_metrics(payload))
             self._status('active', summary_updated=True)
         except Exception as error:
             self._status('summary_failed', error=str(error))

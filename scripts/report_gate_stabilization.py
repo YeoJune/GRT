@@ -16,9 +16,11 @@ RUNS = {
     'm8_off': ('ccf041592f3e4ebe8f287e69195205a5', 'Off'),
     'm8_dropout': ('746ab4ab41e84ec0bdd0f3f0ed6bffdb', 'Dropout'),
     'm8_a': ('1006dcd4d956442097dba6780d07ab69', 'A'),
+    'm8_a_dropout': ('d3b3358f21f949bd84e58b7b1ed0aee5', 'A+Dropout'),
     'm20_off': ('86fb2481ac1e45f29da0164863b28d66', 'Off'),
     'm20_dropout': ('51bafa3f611d48c2808a7a55d732c91d', 'Dropout'),
     'm20_a': ('b0420e8b63f64d0094ed84a8d273f14b', 'A'),
+    'm20_a_dropout': ('8c2eec49e4cc43989a9847ccd7b942c9', 'A+Dropout'),
     'm20_b': ('31a7d55d4d64400e81578e055d88b2e1', 'B'),
     'm20_c': ('93d019b472434814b3e057ea5732f616', 'C'),
     'm20_bias_minus': ('3001e7328e87456395275745ada7b946', 'Bias-2'),
@@ -28,6 +30,7 @@ RUNS = {
     'm75_off': ('b4b4414578524de0a6e9de50851b91b2', 'Off'),
     'm75_dropout': ('06fe396a3e6b4e258b779481409de1ba', 'Dropout'),
     'm75_a': ('70bea6e32c584668ad3078de871cd66c', 'A'),
+    'm75_a_dropout': ('ba51ccddc849423a9e7aa5bc26729b9c', 'A+Dropout'),
     'l150_m10': ('22ab31a56cb546f993197e5ce937e5de', 'L150'),
     'l150_m40': ('22cfd16b44964befbe42912c4aba28c5', 'L150'),
     'l150_m160': ('0e0ead4744594b59a7d9a771049c79a1', 'L150'),
@@ -36,11 +39,12 @@ GROUPS = {
     'penalty': ('Penalty settings: L75/M20', ['m20_off', 'm20_a', 'm20_b', 'm20_c']),
     'transfer': ('Penalty A transfer: L75/M8, M20 and M75', ['m8_off', 'm8_a', 'm20_off', 'm20_a', 'm75_off', 'm75_a']),
     'dropout': ('Write dropout: L75, penalty off', ['m8_off', 'm8_dropout', 'm20_off', 'm20_dropout', 'm75_off', 'm75_dropout']),
+    'combined': ('Write dropout with penalty A: L75', ['m8_a', 'm8_a_dropout', 'm20_a', 'm20_a_dropout', 'm75_a', 'm75_a_dropout']),
     'bias': ('Bias initialization: L75/M20', ['m20_off', 'm20_bias_minus', 'm20_bias_plus']),
     'initialization': ('Retired gate variants: L75/M20', ['m20_off', 'm20_refine', 'm20_uniform']),
     'reference': ('Reference: L150 vs L75, bias -2', ['l150_m10', 'l150_m40', 'l150_m160', 'm20_bias_minus']),
 }
-COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',
+COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A+Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',
           'C': '#8b5cf6', 'Bias-2': '#009E73', 'Bias+2': '#CC79A7',
           'Refine': '#E69F00', 'Uniform': '#CC79A7', 'L150': '#56B4E9'}
 METRICS = [
@@ -152,6 +156,17 @@ def source_block(runs):
     return '\n'.join(lines)
 
 
+def dropout_effect_table(runs):
+    lines = ['| M | Off: dropout0 → .1 최종 PPL | A: dropout0 → .1 최종 PPL | dropout ΔNLL (Off) | dropout ΔNLL (A) | 차이의 차이 |',
+             '|---|---|---|---:|---:|---:|']
+    for memory in (8, 20, 75):
+        off, drop, a, combined = [runs[f'm{memory}_{suffix}'] for suffix in ('off', 'dropout', 'a', 'a_dropout')]
+        off_delta = drop['final_nll'] - off['final_nll']
+        a_delta = combined['final_nll'] - a['final_nll']
+        lines.append(f"| {memory} | {off['final_ppl']:.4f} → {drop['final_ppl']:.4f} | {a['final_ppl']:.4f} → {combined['final_ppl']:.4f} | {off_delta:+.6f} | {a_delta:+.6f} | {a_delta - off_delta:+.6f} |")
+    return '\n'.join(lines)
+
+
 def style(run):
     return dict(color=COLORS[run['method']], linestyle={8: '--', 20: '-', 75: ':', 10: '--', 40: '-', 160: ':'}[run['M']])
 
@@ -244,6 +259,7 @@ def generate(root):
     text = report.read_text()
     for group in GROUPS:
         text = update_block(text, group, table_block(group, runs))
+    text = update_block(text, 'effects', dropout_effect_table(runs))
     text = update_block(text, 'sources', source_block(runs)); report.write_text(text)
     summary = {key: {k: v for k, v in r.items() if k not in ('history', 'abs_logits', 'slot_stds')} for key, r in runs.items()}
     path = root / 'docs/tables/gate_stabilization_metrics.json'; path.parent.mkdir(parents=True, exist_ok=True)
@@ -257,4 +273,4 @@ if __name__ == '__main__':
     parser.add_argument('--repo-dir', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     data = generate(args.repo_dir)
-    print(f'Updated {len(data)} source pairs, 7 figures and marked report tables.')
+    print(f'Updated {len(data)} source pairs, {len(GROUPS) + 1} figures and marked report tables.')

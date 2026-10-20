@@ -12,6 +12,11 @@ class FakeRun:
         self.logs = []
         self.summary = {}
         self.finished = False
+        self.definitions = []
+
+    def define_metric(self, name, **settings):
+        torch.rand(3)
+        self.definitions.append((name, settings))
 
     def log(self, payload, step):
         torch.rand(5)
@@ -56,8 +61,8 @@ def test_enabled_monitor_preserves_training_rng_and_resumes_id(tmp_path, monkeyp
         assert all(torch.equal(v, right["model"][k]) for k, v in left["model"].items())
         assert torch.equal(left["rng_by_rank"][0]["torch"], right["rng_by_rank"][0]["torch"])
     assert [s for s, p in runs[0].logs] == [1, 2, 3, 4]
-    assert [p["num_pairs"] for s, p in runs[0].logs] == [1, 1, 2, 2]
-    assert "test/exact_match" in runs[0].summary and runs[0].finished
+    assert [p['progress/num_pairs'] for s, p in runs[0].logs] == [1, 1, 2, 2]
+    assert 'result/test_exact_match' in runs[0].summary and runs[0].finished
     trainer.run(b, torch.device("cpu"))
     assert calls[0]["id"] == calls[1]["id"]
     assert len(calls[0]["id"]) == 8

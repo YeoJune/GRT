@@ -22,7 +22,7 @@ def test_tail_penalty_weights_tokens_ignores_replay_and_has_unsaturated_gradient
     tail = torch.tensor([[5., 6.]], requires_grad=True)
     valid = torch.tensor([[False, False, True, True, True]])
     task = torch.tensor(3., requires_grad=True)
-    observations = [(z, torch.ones(1)) for z in (old, new, tail)]
+    observations = [old, new, tail]
     total, metrics = write_logit_regularization(task, observations, valid, 2, 10., .1)
     # Two supervised tokens at mean penalty52; one short-tail token at penalty0.
     expected = torch.tensor(52. * 2 / 3)
@@ -32,10 +32,10 @@ def test_tail_penalty_weights_tokens_ignores_replay_and_has_unsaturated_gradient
     torch.testing.assert_close(old.grad, torch.zeros_like(old))
     torch.testing.assert_close(new.grad, torch.tensor([[.1 * 4 / 3, -.1 * 20 / 3]]))
     torch.testing.assert_close(tail.grad, torch.zeros_like(tail))
-    assert metrics['train/gate_abs_logit_max'] == 20
+    assert metrics['train/gate_fraction_abs_over20'] == 0
     assert all(not value.requires_grad for value in metrics.values())
     # Duplicating identical registers preserves the slot-average objective.
-    duplicated = [(z.detach().repeat(1, 3), h) for z, h in observations]
+    duplicated = [z.detach().repeat(1, 3) for z in observations]
     _, other = write_logit_regularization(task.detach(), duplicated, valid, 2, 10., .1)
     torch.testing.assert_close(other['train/gate_logit_penalty'], expected)
 
@@ -61,7 +61,7 @@ def test_model_uses_raw_logits_before_dropout_and_excludes_masked_history(tmp_pa
     handle.remove()
     assert len(calls) == 3
     assert out.training_metrics['train/gate_logit_penalty'] == 1
-    assert out.training_metrics['train/gate_abs_logit_max'] == 6
+    assert out.training_metrics['train/gate_fraction_abs_over20'] == 0
     torch.testing.assert_close(out.memory_state, torch.zeros_like(out.memory_state))
     torch.testing.assert_close(out.loss, out.training_metrics['train/loss'] + .1)
     out.loss.backward()
@@ -104,7 +104,10 @@ def test_microbatch_gradients_and_metrics_match_full_stream_batch(tmp_path):
     cfg.model.register.write_logit_coef = .01
     cfg.model.register.write_logit_threshold = 5
     cfg.model.register.write_gate_bias_init = 12
-    full = create_model(cfg).train()
+    # Keep this numerical comparison independent of earlier tests' RNG use.
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(54)
+        full = create_model(cfg).train()
     split = copy.deepcopy(full)
     ids = torch.arange(24).reshape(4, 6)
     targets = ids.clone(); targets[:, :4] = -100

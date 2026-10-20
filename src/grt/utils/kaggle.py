@@ -330,32 +330,40 @@ class WikiTextRun:
         results = {}
         if plot:
             import matplotlib.pyplot as plt
-            _, ax = plt.subplots()
+            figure, axes = plt.subplots(1, 2, figsize=(11, 3.7), constrained_layout=True)
         for model in self.models:
             root = self.run_dir / model
-            for name in ['wandb_status.json', 'summary.json']:
-                if (root / name).exists():
-                    value = json.loads((root / name).read_text())
-                    print(model, name, value)
-                    if name == 'summary.json':
-                        results[model] = value
+            if (root / 'summary.json').exists():
+                results[model] = json.loads((root / 'summary.json').read_text())
+            if (root / 'wandb_status.json').exists():
+                status = json.loads((root / 'wandb_status.json').read_text())
+                print(f"{model} W&B: {status.get('state')} {status.get('url') or ''}")
+                if status.get('last_error'):
+                    print('W&B error:', status['last_error'])
             if (root / 'warnings.txt').exists():
                 print((root / 'warnings.txt').read_text())
             if plot and (root / 'metrics.jsonl').exists():
                 rows, _ = read_metrics(root / 'metrics.jsonl')
                 rows = [row for row in rows if 'val/loss' in row]
-                ax.plot([r['step'] for r in rows], [r['val/loss'] for r in rows], label=model)
+                xx = [r['train/target_tokens'] / 1e6 for r in rows]
+                axes[0].plot(xx, [r['val/loss'] for r in rows], label=model)
+                axes[1].plot(xx, [r['val/perplexity'] for r in rows], label=model)
         if plot:
-            ax.set(xlabel='optimizer updates', ylabel='validation token NLL')
-            ax.grid()
-            if ax.lines:
-                ax.legend()
+            for ax, metric in zip(axes, ('NLL', 'PPL')):
+                ax.set(title='Full validation ' + metric, xlabel='Trained target tokens (M)', ylabel=metric)
+                ax.grid(alpha=.25)
+                if ax.lines:
+                    ax.legend()
             plt.show()
+            plt.close(figure)
         print('Results:', self.run_dir, '\nData/tokenizer:', self.prepared_dir)
         path = self.export_report()
         if posthoc:
             # Persist training results first, even if analysis is interrupted.
             reports = self.posthoc(**(posthoc_options or {}))
+            from grt.monitoring import print_posthoc_overview
+            print_posthoc_overview({model: json.loads(Path(report_path).read_text())
+                                   for model, report_path in reports.items()})
             path = self.run_dir / 'experiment_results.zip'
             temporary = path.with_suffix('.tmp')
             with ZipFile(temporary, 'w', compression=ZIP_DEFLATED) as bundle:
@@ -379,6 +387,8 @@ class WikiTextRun:
 
     def export_report(self):
         """Export this experiment only; no cross-session result accumulation."""
+        from grt.monitoring import training_overview, print_training_overview
+
         def read_json(path):
             return json.loads(path.read_text()) if path.exists() else None
 
@@ -392,7 +402,7 @@ class WikiTextRun:
             console = self.run_dir / (model + '_train_console.txt')
             experiments.append(dict(
                 model=model, status=summary['status'] if summary else 'no_summary',
-                config=asdict(cfg), summary=summary,
+                config=asdict(cfg), summary=summary, overview=training_overview(summary),
                 metadata=read_json(root / 'metadata.json'),
                 benchmark=read_json(self.run_dir / (model + '_preflight') / 'benchmark.json'),
                 eta=read_json(self.run_dir / (model + '_eta.json')),
@@ -415,15 +425,6 @@ class WikiTextRun:
         temporary = self.report_path.with_suffix('.tmp')
         temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + '\n')
         temporary.replace(self.report_path)
-        print('\n| model | M | MLP hidden | best val PPL | swap ΔNLL | status |')
-        print('|---|---:|---:|---:|---:|---|')
-        for experiment in experiments:
-            model_cfg = experiment['config']['model']
-            summary = experiment['summary']
-            ppl = f"{summary['selected_validation']['perplexity']:.4f}" if summary else ''
-            delta = summary['selected_rtla'].get('grt/rtla/swap_delta_nll', '') if summary else ''
-            hidden = model_cfg['router']['mlp_hidden'] if model_cfg['router'] else ''
-            print(f"| {experiment['model']} | {model_cfg['num_registers']} | {hidden} | "
-                  f"{ppl} | {delta} | {experiment['status']} |")
+        print_training_overview(experiments)
         print('보내주실 결과 파일:', self.report_path)
         return self.report_path

@@ -20,7 +20,7 @@ def runs():
 
 def test_received_sources_match_training_checkpoint_and_common_tables(runs):
     # load_runs rejects mismatched manifests, selected steps, metrics and non-GPU provenance.
-    assert len(runs) == 18
+    assert len(runs) == 21
     for group, (_, keys) in report.GROUPS.items():
         table = report.table_block(group, runs)
         for _, label, _ in report.METRICS:
@@ -74,3 +74,18 @@ def test_regeneration_preserves_narrative_and_rejects_ambiguous_markers():
                     '<!-- gate-report:x:end --><!-- gate-report:x:start -->'):
         with pytest.raises(ValueError, match='marked block'):
             report.update_block(invalid, 'x', 'new table')
+
+
+@pytest.mark.parametrize('memory,delta,interaction', [
+    (8, -.017353918402487345, -.02245326202835729),
+    (20, .02513037121590589, .012153103744894533),
+    (75, .013854796198694341, .039796086605711434),
+])
+def test_completed_dropout_comparison_uses_final_budget(runs, memory, delta, interaction):
+    combined, a = [runs[f'm{memory}_{suffix}'] for suffix in ('a_dropout', 'a')]
+    assert combined['best_step'] == 19000
+    assert combined['history'][-1]['step'] == a['history'][-1]['step'] == 20000
+    assert combined['source']['target_tokens'] == a['source']['target_tokens'] == 383975424
+    assert combined['final_nll'] - a['final_nll'] == pytest.approx(delta)
+    line, = [v for v in report.dropout_effect_table(runs).splitlines() if v.startswith(f'| {memory} |')]
+    assert line.endswith(f'| {delta:+.6f} | {interaction:+.6f} |')

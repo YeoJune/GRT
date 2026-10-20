@@ -114,7 +114,7 @@ def test_detach_blocks_only_source_edge_and_gate_head_still_learns(
     state = torch.randn(2, 4, 32, requires_grad=True)
     features = torch.randn_like(state, requires_grad=True)
     result = model.router(torch.randn(2, 3, 32), state,
-                          features=features, return_gate_inputs=True)
+                          features=features, return_write_logits=True)
     result[3].square().mean().backward()
     assert (features.grad is None) == detach
     if not detach:
@@ -175,7 +175,7 @@ def test_all_sources_keep_raw_tail_penalty_before_write_dropout(tmp_path, source
     out = model(ids, target_ids=ids)
     torch.testing.assert_close(out.memory_state, model.initial_state(1))
     assert out.training_metrics['train/gate_logit_penalty'] == 1.
-    assert out.training_metrics['train/gate_hidden_norm'].ndim == 0
+    assert out.training_metrics['train/gate_fraction_abs_over20'] == 0
     out.loss.backward()
     torch.testing.assert_close(model.router.mlp_w[-1].bias.grad,
                                torch.full((4,), .2 / 4))

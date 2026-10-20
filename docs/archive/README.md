@@ -4,6 +4,7 @@
 
 | 기록 | 문서 |
 |---|---|
+| 게이트 안정화 전용 모니터링 정리 이력 | [20261020_gate_monitoring.md](20261020_gate_monitoring.md) |
 | L75 small: gate 안정화 실험 | [20261019_gate_stabilization_history.md](20261019_gate_stabilization_history.md) |
 | Write loss regularization으로 레지스터 분화를 유도하는 설계 검토 | [20261016_write_regularization.md](20261016_write_regularization.md) |
 | WikiText 크기 선택과 짧은 동작 확인 | [20261011_wikitext_presets.md](20261011_wikitext_presets.md) |
