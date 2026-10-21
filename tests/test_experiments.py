@@ -54,6 +54,7 @@ def test_catalog_current_contract(model, size, budget, tokenization):
         assert cfg.model.router is None and cfg.model.register is None
     else:
         assert cfg.model.router.pool_nhead == cfg.model.alu.nhead
+        assert cfg.model.router.write_source == 'candidate'
         assert not cfg.model.register.conditional_read
 
 

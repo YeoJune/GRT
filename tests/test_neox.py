@@ -47,10 +47,8 @@ def test_parallel_query_has_no_answer_and_one_stack_per_segment(tmp_path, name):
     out.loss.backward()
     assert model.initial_memory.grad.abs().sum()>0
     if name=='grt':
-        assert model.router.mlp_r[-1].weight.grad is None
+        assert not hasattr(model.router, 'mlp_r')  # Candidate/read-off needs no read head.
         assert model.router.mlp_w[-1].weight.grad.abs().sum()>0
-        with torch.no_grad():
-            model.router.mlp_r[-1].weight.add_(100)
         torch.testing.assert_close(out.logits,forward_batch(model,batch,'cpu').logits,rtol=0,atol=0)
         _,trace=model.forward_with_trace(**{k:batch[k] for k in ['input_ids','labels','labels_mask','attention_mask']})
         assert len(trace.records['w_gates'])==3

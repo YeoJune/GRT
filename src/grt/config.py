@@ -23,7 +23,7 @@ class ALUConfig:
 class RouterConfig:
     pool_nhead: int = 4
     mlp_hidden: int = 512
-    write_source: str = "independent"
+    write_source: str = "candidate"
     write_detach_source: bool = False
 
 

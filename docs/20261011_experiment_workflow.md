@@ -1,6 +1,6 @@
 # 실험 실행과 결과 갱신
 
-갱신: 2026-10-20 · 현재 실행 방법만 유지한다. 과거 운영·오류 수정 이력은 [아카이브](archive/README.md)에 있다.
+갱신: 2026-10-21 · 현재 실행 방법만 유지한다. 과거 운영·오류 수정 이력은 [아카이브](archive/README.md)에 있다.
 
 ## 1. 설정과 실행 진입점
 
@@ -17,12 +17,14 @@
 num_registers = 20         # 후속 gate 경로 실험의 시작 M
 budget = '40k'            # 이번 실험의 공통 학습 예산
 warmup_ratio = 0.05        # 전체 updates의5%; 0이면 off
+write_source = 'candidate' # M20 비교 후 선택한 기본값; 두 대안도 유지
+write_detach_source = False
 write_dropout = 0.0        # 후속 실험 공통: off, M별 예외 없음
 write_logit_threshold = 10.0
 write_logit_coef = 1e-4     # 0이면 off
 ```
 
-후속 [gate 경로 실험](experiments/20261019_l75_gate_paths.md)은 먼저 M20에서 `write_source='independent'/'separate_head'/'candidate'`를 바꿔 실행한다. State 참조는 register attention으로 고정하고 첫 비교는 `write_detach_source=False`다. 2번에만 D→D gate linear를 추가하며 지표 선정→선택적 detach→다른 M 검증 순서다. A와 선행 실험에서 선택한 write dropout은 비교 안에서 고정한다. Config는 `model.router`의 같은 이름 필드로 기록된다.
+[Gate 경로 비교](experiments/20261019_l75_gate_paths.md)의 M20 결과에 따라 `write_source='candidate'`를 기본값으로 선택했다. `independent`·`separate_head`도 계속 선택할 수 있다. State 참조는 register attention, `write_detach_source=False`를 유지한다. Separate_head에만 D→D gate linear가 있다. 다른 M에서는 candidate·A·write dropout0을 고정해 전달성을 검증한다. Config는 `model.router`의 같은 이름 필드로 기록된다.
 
 Colab은 GPU와 `WANDB_API_KEY` secret의 노트북 접근을 켠다. Kaggle은 Internet·T4×2·같은 이름의 secret을 사용한다. `wandb_enabled=False`로 로컬 기록만 사용할 수 있다. Tokenizer만 다운로드하며 backbone weights는 새로 초기화한다.
 
@@ -52,7 +54,7 @@ WikiText는 linear warmup 뒤 cosine을 적용한다. 노트북 `warmup_ratio`�
 CLI도 같은 카탈로그를 사용한다. 예를 들어 현재 A의 수치 조건은 다음과 같이 명시한다.
 
 ```bash
-python scripts/train.py --task wikitext103 --model grt --size small --tokenization gpt2_bpe --budget 40k --runtime kaggle --set model.segment_len=75 --set model.num_registers=20 --set model.register.write_gate_bias_init=0 --set model.register.write_logit_threshold=10 --set model.register.write_logit_coef=0.0001 --output-dir runs/gate_independent_m20_40k --device cuda
+python scripts/train.py --task wikitext103 --model grt --size small --tokenization gpt2_bpe --budget 40k --runtime kaggle --set model.segment_len=75 --set model.num_registers=20 --set model.register.write_gate_bias_init=0 --set model.register.write_logit_threshold=10 --set model.register.write_logit_coef=0.0001 --output-dir runs/gate_candidate_m20_40k --device cuda
 ```
 
 Kaggle2GPU CLI는 `torchrun --standalone --nproc_per_node=2`로 같은 script를 실행한다. `--benchmark-steps`로 preflight를 수행한다. `--config`는 현재 형식의 최종 Config 하나만 읽고 과거 경로·설정 변환은 제공하지 않는다.

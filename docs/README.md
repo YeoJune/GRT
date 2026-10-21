@@ -5,7 +5,7 @@
 | 모델·loss·BPTT 계약 | [현재 구현 명세](20261011_current_spec.md) |
 | 설정·학습·사후 분석·파일 전달 | [실험 workflow](20261011_experiment_workflow.md) |
 | Gate 안정화의 선택·결과·진행 상태 | [패널티·dropout, 이전 시도](experiments/20261018_l75_gate_stabilization.md) |
-| L75/M20 gate 경로·M 확장: 세 경로40k 수신·비교 완료, candidate 우선 권고 | [Write gate 정보 경로 비교](experiments/20261019_l75_gate_paths.md) |
+| L75/M20 gate 경로·M 확장: M20 최종 선택 candidate·기본값 반영, 다른 M 검증 예정 | [Write gate 정보 경로 비교](experiments/20261019_l75_gate_paths.md) |
 | L150 baseline·레지스터 용량 | [small 용량 비교](experiments/20261012_small_register_sweep.md) |
 | 수신 원본 보관 | [results/README](../results/README.md) |
 

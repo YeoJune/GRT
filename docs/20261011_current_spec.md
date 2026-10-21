@@ -1,6 +1,6 @@
 # GRT/RMT/NeoX · 현재 구현 명세
 
-갱신: 2026-10-20 · 실행 계약만 유지한다. 이전 설계·검증 이력은 [아카이브](archive/README.md), 측정 결과는 [실험 보고서](README.md)에 둔다.
+갱신: 2026-10-21 · 실행 계약만 유지한다. 이전 설계·검증 이력은 [아카이브](archive/README.md), 측정 결과는 [실험 보고서](README.md)에 둔다.
 
 ## 1. 범위와 소스
 
@@ -20,18 +20,18 @@ GRT는 시작 state S를 모든 layer의 token 읽기 source로 사용한다. �
 
 ```text
 X = embedding(segment)
-u = AttentionPool(q_pool, X)
-v = RegisterAttention(u, S, S)
-w = sigmoid(MLP_write(concat(u, v)))
 S_read = read_gate(S) * S if conditional_read else S
 [Y; C] = NeoXStack([X; S_read], token_read_source=S_read)
+F = C
+V = RegisterAttention(F, S, S)
+w = sigmoid(MLP_write(concat(F, V)))
 logits = tied_lm_head(Y)
 S_next = (1-w) * S + w * C
 ```
 
-Gate는 슬롯별 scalar[B,M,1], state/candidate는[B,M,D]다. Router는 원래 token embedding을 요약하며 contextual backbone hidden을 입력하지 않는다. Read gate는 시작 S만 참조하고 기본 off다. 전체 stack 뒤 write-back을 한 번 수행하며 새 state는 다음 segment에서 사용한다. GRT의 S0는 학습 가능한0 초기화다.
+Gate는 슬롯별 scalar[B,M,1], state/candidate는[B,M,D]다. 기본 router는 최종 정규화를 마친 실제 candidate C를 재사용한다. Read gate는 시작 S만 참조하고 기본 off다. 전체 stack 뒤 write-back을 한 번 수행하며 새 state는 다음 segment에서 사용한다. GRT의 S0는 학습 가능한0 초기화다.
 
-위 식은 기본 `router.write_source=independent`다. 후속 [정보 경로 실험](experiments/20261019_l75_gate_paths.md)의2번 `separate_head`는 기존 최종 출력 정규화 직전 register hidden에서 D→D gate linear로 분기하고,3번 `candidate`는 기존 최종 norm 뒤 C를 그대로 사용한다. Candidate 출력 경로·명칭은 유지하고2번에만 head를 추가한다. 세 경로 모두 `V=RegisterAttention(F,S,S)`를 유지하고 concat(F,V)의2D를 write MLP에 넣는다. State on/off 옵션은 없다. 공유 경로의 write는 stack 뒤 계산하지만 token은 시작 S만 읽는다. `write_detach_source`는 공유 backbone 입력 연결만 차단하며2번에서는 head 앞에 적용해 head·state attention·MLP는 계속 학습한다. 기본 false이며 독립 경로에서는 허용하지 않는다. Write-back·A·write dropout은 공통이다.
+위 식은 M20 [정보 경로 비교](experiments/20261019_l75_gate_paths.md)에서 채택한 기본 `router.write_source=candidate`다. 대안 `independent`는 원래 token embedding의 독립 attention pooling을, `separate_head`는 기존 최종 출력 정규화 직전 register hidden의 D→D gate linear를 사용하며 두 구현 모두 유지한다. Candidate 출력 경로·명칭은 유지하고 별도 head는 separate_head에만 추가한다. 세 경로 모두 `V=RegisterAttention(F,S,S)`와 concat(F,V)의2D 입력을 유지한다. State on/off 옵션은 없다. 공유 경로의 write는 stack 뒤 계산하지만 token은 시작 S만 읽는다. `write_detach_source`는 공유 backbone 입력 연결만 차단하며 separate_head에서는 head 앞에 적용해 head·state attention·MLP는 계속 학습한다. 기본 false이며 독립 경로에서는 허용하지 않는다. Write-back·A·write dropout은 공통이다.
 
 | Query → Key | 인코더 | 디코더 |
 |---|---|---|

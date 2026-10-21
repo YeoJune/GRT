@@ -143,7 +143,7 @@ models:
       name: grt
       router:
         mlp_hidden: 512
-        write_source: independent
+        write_source: candidate
         write_detach_source: false
       register:
         conditional_read: false
