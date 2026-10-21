@@ -20,7 +20,7 @@ def runs():
 
 def test_received_sources_match_training_checkpoint_and_common_tables(runs):
     # load_runs rejects mismatched manifests, selected steps, metrics and non-GPU provenance.
-    assert len(runs) == 21
+    assert len(runs) == 23
     for group, (_, keys) in report.GROUPS.items():
         table = report.table_block(group, runs)
         for _, label, _ in report.METRICS:
@@ -63,6 +63,26 @@ def test_empty_random_control_is_missing_and_refine_uses_effective_gate(runs):
     # Refine's raw logits describe base p, not its corrected effective w.
     assert any(np.max(abs(np.asarray(w['diagnostics']['write_gates']) -
         1 / (1 + np.exp(-np.asarray(w['diagnostics']['gate_logits']['raw']))))) > 1e-5 for w in windows)
+
+
+def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
+    for key, best_step, best_ppl, final_ppl, raw_rows in [
+        ('gate_m20_independent', 38000, 28.25498946758573, 28.28760396048914, 4016),
+        ('gate_m20_candidate', 39000, 28.178114591242053, 28.203008750372558, 4027),
+    ]:
+        row = runs[key]
+        raw = json.loads((REPO/'results'/f"{row['source']['train_id']}.json").read_text())
+        experiment, = raw['experiments']
+        cfg = experiment['config']
+        assert experiment['status'] == 'completed' and experiment['summary']['step'] == 40000
+        assert cfg['training']['warmup_ratio'] == .05 and cfg['training']['min_lr_ratio'] == .01
+        assert row['source']['target_tokens'] == 767950848
+        assert row['best_step'] == best_step and row['best_ppl'] == best_ppl and row['final_ppl'] == final_ppl
+        assert len(experiment['metrics']) == raw_rows and len(row['history']) == 4001
+        latest = {v['step']: v for v in experiment['metrics']}
+        assert row['history'] == [latest[step] for step in sorted(latest)]
+        assert row['counts'] == {'closed': 0, 'open': 1, 'other': 19}
+        assert row['stats']['over20'] == 0
 
 
 def test_regeneration_preserves_narrative_and_rejects_ambiguous_markers():

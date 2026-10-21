@@ -113,7 +113,7 @@ MyDrive/GRT_analysis/
 1. JSON의 Config·report ID·checkpoint step/hash·manifest·GPU/precision을 확인한다.
 2. `results/<report_id>.json`, `results/posthoc/<report_id>.json`에 **bytes를 바꾸지 않고** 보관한다. 미완료·미측정을0으로 채우지 않는다.
 3. 실험 주제마다 Markdown 하나에 조건·품질·공통 진단·추가 지표·판단·다음 상태를 갱신한다. 실행 설계의 과거 버전은 archive로 옮긴다.
-4. Gate 비교는 `scripts/report_gate_stabilization.py`의 RUNS/GROUPS에 수신 원본을 등록하고 스크립트를 실행한다. 공통 표·현재8개 그림·집계 JSON을 함께 갱신하고 해석은 수동으로 검토한다.
+4. Gate 비교는 `scripts/report_gate_stabilization.py`의 RUNS/GROUPS에 수신 원본을 등록하고 스크립트를 실행한다. 공통 표·현재9개 그림·집계 JSON을 함께 갱신하고 해석은 수동으로 검토한다.
 5. Raw 결과 보존·수치·링크·실행 경로를 검증하고 GPU 실험과 CPU 기능 검증을 구분해 보고한다. 커밋·push는 저장소 협업 지침에 따른다.
 
 CSV로 환경별 결과를 누적하지 않는다. 재현용 checkpoint·prepared 데이터는 사용자 실행 환경 밖에 따로 보관한다. 자세한 원본 규칙은 [results/README](../results/README.md)를 따른다.

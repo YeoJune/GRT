@@ -34,6 +34,8 @@ RUNS = {
     'l150_m10': ('22ab31a56cb546f993197e5ce937e5de', 'L150'),
     'l150_m40': ('22cfd16b44964befbe42912c4aba28c5', 'L150'),
     'l150_m160': ('0e0ead4744594b59a7d9a771049c79a1', 'L150'),
+    'gate_m20_independent': ('c4b4660b71164924a0bef45863d42a92', 'Independent'),
+    'gate_m20_candidate': ('73881fe675194b53b499eab9e754a6d2', 'Candidate'),
 }
 GROUPS = {
     'penalty': ('Penalty settings: L75/M20', ['m20_off', 'm20_a', 'm20_b', 'm20_c']),
@@ -43,10 +45,13 @@ GROUPS = {
     'bias': ('Bias initialization: L75/M20', ['m20_off', 'm20_bias_minus', 'm20_bias_plus']),
     'initialization': ('Retired gate variants: L75/M20', ['m20_off', 'm20_refine', 'm20_uniform']),
     'reference': ('Reference: L150 vs L75, bias -2', ['l150_m10', 'l150_m40', 'l150_m160', 'm20_bias_minus']),
+    'gate_paths': ('Gate paths: L75/M20, 40k updates (separate head pending)',
+                   ['gate_m20_independent', 'gate_m20_candidate']),
 }
 COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A+Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',
           'C': '#8b5cf6', 'Bias-2': '#009E73', 'Bias+2': '#CC79A7',
-          'Refine': '#E69F00', 'Uniform': '#CC79A7', 'L150': '#56B4E9'}
+          'Refine': '#E69F00', 'Uniform': '#CC79A7', 'L150': '#56B4E9',
+          'Independent': '#0072B2', 'Candidate': '#009E73'}
 METRICS = [
     ('write_mean', 'Write 평균', '.6f'), ('slot_std', '슬롯 내 gate std', '.6f'),
     ('abs_median', '절대 logit 중앙값', '.3f'), ('over20', '절대 logit >20 (%)', '.2f'),
@@ -127,7 +132,8 @@ def load_runs(root):
             peak_gib=s['peak_gpu_memory_bytes'] / 2**30, counts=counts, stats=stats, groups=groups,
             output_bias_range=[min(head['output_bias']), max(head['output_bias'])],
             output_weight_norm=float(np.mean(head['output_weight_row_norm'])), source=provenance,
-            history=e['metrics'], abs_logits=np.concatenate([w[1] for w in summaries]),
+            history=sorted({v['step']: v for v in e['metrics']}.values(), key=lambda v: v['step']),
+            abs_logits=np.concatenate([w[1] for w in summaries]),
             slot_stds=np.mean([w[2] for w in summaries], axis=0))
     return runs
 
@@ -214,7 +220,10 @@ def common_figure(group, runs, destination):
         ax.yaxis.label.set_fontsize(9)
         ax.grid(alpha=.2); ax.set_axisbelow(True)
     fig.suptitle(GROUPS[group][0], fontsize=16)
-    fig.supxlabel('GPU measurements, seed54. Posthoc: windows16/32; Refine logits are base p, gates are effective w. Conditions and versions differ.', fontsize=9, y=.025)
+    footer = ('GPU measurements, seed54. Posthoc: windows16/32; same 40k schedule. Separate head pending; repeated steps keep the last logged row.'
+              if group == 'gate_paths' else
+              'GPU measurements, seed54. Posthoc: windows16/32; Refine logits are base p, gates are effective w. Conditions and versions differ.')
+    fig.supxlabel(footer, fontsize=9, y=.025)
     fig.savefig(destination / (group + '.png'), dpi=150); plt.close(fig)
 
 
@@ -258,9 +267,17 @@ def generate(root):
     report = root / 'docs/experiments/20261018_l75_gate_stabilization.md'
     text = report.read_text()
     for group in GROUPS:
+        if group == 'gate_paths':
+            continue
         text = update_block(text, group, table_block(group, runs))
     text = update_block(text, 'effects', dropout_effect_table(runs))
-    text = update_block(text, 'sources', source_block(runs)); report.write_text(text)
+    path_runs = {key: runs[key] for key in GROUPS['gate_paths'][1]}
+    text = update_block(text, 'sources', source_block({key: r for key, r in runs.items() if key not in path_runs}))
+    report.write_text(text)
+    path_report = root / 'docs/experiments/20261019_l75_gate_paths.md'
+    text = update_block(path_report.read_text(), 'gate_paths', table_block('gate_paths', runs))
+    text = update_block(text, 'gate_path_sources', source_block(path_runs))
+    path_report.write_text(text)
     summary = {key: {k: v for k, v in r.items() if k not in ('history', 'abs_logits', 'slot_stds')} for key, r in runs.items()}
     path = root / 'docs/tables/gate_stabilization_metrics.json'; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(format='grt.gate_summary/1', source='User GPU JSON only; no model execution',
