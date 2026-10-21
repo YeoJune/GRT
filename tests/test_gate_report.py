@@ -20,7 +20,7 @@ def runs():
 
 def test_received_sources_match_training_checkpoint_and_common_tables(runs):
     # load_runs rejects mismatched manifests, selected steps, metrics and non-GPU provenance.
-    assert len(runs) == 23
+    assert len(runs) == 24
     for group, (_, keys) in report.GROUPS.items():
         table = report.table_block(group, runs)
         for _, label, _ in report.METRICS:
@@ -68,6 +68,7 @@ def test_empty_random_control_is_missing_and_refine_uses_effective_gate(runs):
 def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
     for key, best_step, best_ppl, final_ppl, raw_rows in [
         ('gate_m20_independent', 38000, 28.25498946758573, 28.28760396048914, 4016),
+        ('gate_m20_separate_head', 40000, 28.41196133215214, 28.41196133215214, 4087),
         ('gate_m20_candidate', 39000, 28.178114591242053, 28.203008750372558, 4027),
     ]:
         row = runs[key]
@@ -81,7 +82,8 @@ def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
         assert len(experiment['metrics']) == raw_rows and len(row['history']) == 4001
         latest = {v['step']: v for v in experiment['metrics']}
         assert row['history'] == [latest[step] for step in sorted(latest)]
-        assert row['counts'] == {'closed': 0, 'open': 1, 'other': 19}
+        expected_counts = {'closed': 0, 'open': 0, 'other': 20} if key.endswith('separate_head') else {'closed': 0, 'open': 1, 'other': 19}
+        assert row['counts'] == expected_counts
         assert row['stats']['over20'] == 0
 
 

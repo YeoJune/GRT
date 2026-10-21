@@ -35,6 +35,7 @@ RUNS = {
     'l150_m40': ('22cfd16b44964befbe42912c4aba28c5', 'L150'),
     'l150_m160': ('0e0ead4744594b59a7d9a771049c79a1', 'L150'),
     'gate_m20_independent': ('c4b4660b71164924a0bef45863d42a92', 'Independent'),
+    'gate_m20_separate_head': ('d598c992d4734bd9aa327cbff78b96c5', 'Separate head'),
     'gate_m20_candidate': ('73881fe675194b53b499eab9e754a6d2', 'Candidate'),
 }
 GROUPS = {
@@ -45,13 +46,13 @@ GROUPS = {
     'bias': ('Bias initialization: L75/M20', ['m20_off', 'm20_bias_minus', 'm20_bias_plus']),
     'initialization': ('Retired gate variants: L75/M20', ['m20_off', 'm20_refine', 'm20_uniform']),
     'reference': ('Reference: L150 vs L75, bias -2', ['l150_m10', 'l150_m40', 'l150_m160', 'm20_bias_minus']),
-    'gate_paths': ('Gate paths: L75/M20, 40k updates (separate head pending)',
-                   ['gate_m20_independent', 'gate_m20_candidate']),
+    'gate_paths': ('Gate paths: L75/M20, 40k updates',
+                   ['gate_m20_independent', 'gate_m20_separate_head', 'gate_m20_candidate']),
 }
 COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A+Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',
           'C': '#8b5cf6', 'Bias-2': '#009E73', 'Bias+2': '#CC79A7',
           'Refine': '#E69F00', 'Uniform': '#CC79A7', 'L150': '#56B4E9',
-          'Independent': '#0072B2', 'Candidate': '#009E73'}
+          'Independent': '#0072B2', 'Separate head': '#D55E00', 'Candidate': '#009E73'}
 METRICS = [
     ('write_mean', 'Write 평균', '.6f'), ('slot_std', '슬롯 내 gate std', '.6f'),
     ('abs_median', '절대 logit 중앙값', '.3f'), ('over20', '절대 logit >20 (%)', '.2f'),
@@ -220,7 +221,7 @@ def common_figure(group, runs, destination):
         ax.yaxis.label.set_fontsize(9)
         ax.grid(alpha=.2); ax.set_axisbelow(True)
     fig.suptitle(GROUPS[group][0], fontsize=16)
-    footer = ('GPU measurements, seed54. Posthoc: windows16/32; same 40k schedule. Separate head pending; repeated steps keep the last logged row.'
+    footer = ('GPU measurements, seed54. Posthoc: windows16/32; same 40k schedule. Repeated steps keep the last logged row.'
               if group == 'gate_paths' else
               'GPU measurements, seed54. Posthoc: windows16/32; Refine logits are base p, gates are effective w. Conditions and versions differ.')
     fig.supxlabel(footer, fontsize=9, y=.025)

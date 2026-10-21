@@ -10,7 +10,7 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 - [Gate 안정화 보고서](docs/experiments/20261018_l75_gate_stabilization.md): 패널티·dropout을 먼저 설명하고, 공통6패널·지표로 모든 조건을 비교한다. Bias·Refine·Uniform은 아래 이력에 정리한다.
 - [최종 결론·후속 방침](docs/experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion): 탐색 완료. 후속 실험은 모든 M에서 A/dropout0을 사용하고, dropout 효과는 더 긴 학습에서 재검증한다.
-- [후속 gate 경로 실험](docs/experiments/20261019_l75_gate_paths.md): 40k independent/candidate 학습·사후 결과를 기록했으며 별도 gate head 결과는 대기 중이다. State 참조와 안정화 dropout을 고정한 뒤 M20의 세 경로를 비교하고, 지표 선정→선택적 detach→다른 M 검증까지 하나의 실험으로 진행한다.
+- [후속 gate 경로 실험](docs/experiments/20261019_l75_gate_paths.md): M20 세 경로의40k 학습·사후 결과를 기록했다. Candidate를 후속 우선 후보로 권고하며, 별도 head의 초반 안정성과 최종 성능을 구분한다. State 참조와 안정화 dropout을 고정한 뒤 M20의 세 경로를 비교하고, 지표 선정→선택적 detach→다른 M 검증까지 하나의 실험으로 진행한다.
 - [L150 baseline·용량 비교](docs/experiments/20261012_small_register_sweep.md): 별도 실험 주제의 결과다.
 
 ## GPU 노트북
