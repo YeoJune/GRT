@@ -2,7 +2,7 @@
 
 작성: 2026-10-21 · 코드 검토 기준: `10defc9` · 상태: **설계 제안, 미구현**
 
-후속 구체화: [AWS 관리 서버·자체 API·Vast 제어·GUI/CLI 최소 설계](20261021_experiment_control_api_design.md). API와 프론트엔드의 최초 범위는 후속 설계를 우선하며, 이 문서의 연구·보관·비용 원칙은 유지한다.
+후속 구체화: [AWS 관리 서버·자체 API·Vast 제어·GUI/CLI 설계](20261021_experiment_control_api_design.md). API·프론트엔드·로그인/권한은 후속 설계를 우선하며 토큰은 write/read-only 두 종류로 통일한다. 이 문서의 연구·보관·비용 원칙은 유지한다.
 
 ## 1. 권장안
 
