@@ -13,7 +13,7 @@ from uuid import uuid4
 from zipfile import ZipFile, ZIP_DEFLATED
 
 
-def run_logged(command, *, cwd, log_path):
+def run_logged(command, *, cwd, log_path, poll=None):
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     print(' '.join(map(str, command)), flush=True)
@@ -22,7 +22,29 @@ def run_logged(command, *, cwd, log_path):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             bufsize=1, start_new_session=True)
         try:
-            for line in process.stdout:
+            if poll is None:
+                lines = process.stdout
+            else:
+                from queue import Queue, Empty
+                from threading import Thread
+                queue = Queue()
+                def read_output():
+                    for line in process.stdout:
+                        queue.put(line)
+                    queue.put(None)
+                Thread(target=read_output, daemon=True).start()
+                def monitored_lines():
+                    while True:
+                        poll()
+                        try:
+                            line = queue.get(timeout=1)
+                        except Empty:
+                            continue
+                        if line is None:
+                            return
+                        yield line
+                lines = monitored_lines()
+            for line in lines:
                 print(line, end='', flush=True)
                 log.write(line)
                 log.flush()
@@ -105,9 +127,21 @@ class WikiTextRun:
     num_registers: int | None = None
     router_hidden: int | None = None
     test_at_end: bool = False
+    server_mode: str = 'off'
+    server_url: str | None = None
+    secret_source: str = 'env'
+    server_queue: str = 'research'
+    server_deadline: str | None = None
 
     def __post_init__(self):
         self.repo_dir, self.work_dir = Path(self.repo_dir), Path(self.work_dir)
+        if self.server_mode not in ('off', 'upload', 'queue'):
+            raise ValueError('server_mode must be off, upload or queue')
+        if self.server_mode == 'queue':
+            raise ValueError('Use WikiTextRun.claim() for queue mode; local choices cannot replace a queued spec')
+        self._server_sessions = {}
+        self._server_client = None
+        self._queued_config = None
         if not self.models or len(set(self.models)) != len(self.models) or any(m not in ('neox', 'rmt', 'grt') for m in self.models):
             raise ValueError('Select neox/rmt/grt once each')
         if any(value is not None and (type(value) is not int or value <= 0)
@@ -145,10 +179,19 @@ class WikiTextRun:
         if model == 'grt' and self.router_hidden is not None:
             specific['router'] = {'mlp_hidden': self.router_hidden}
         model_overrides = merge_dicts(model_overrides, {'model': specific})
-        cfg = load_experiment(task='wikitext103', model=model, size=self.size,
-            tokenization=self.tokenization, budget=self.budget, runtime=self.runtime, steps=self.steps,
-            overrides=model_overrides, output_dir=self.run_dir / model,
-            catalog_path=self.repo_dir / 'configs/experiments.yaml')
+        if self._queued_config is None:
+            cfg = load_experiment(task='wikitext103', model=model, size=self.size,
+                tokenization=self.tokenization, budget=self.budget, runtime=self.runtime, steps=self.steps,
+                overrides=model_overrides, output_dir=self.run_dir / model,
+                catalog_path=self.repo_dir / 'configs/experiments.yaml')
+        else:
+            from copy import deepcopy
+            from grt.config import Config, build_config, validate_config
+            raw = deepcopy(self._queued_config)
+            raw['run']['output_dir'] = str(self.run_dir / model)
+            raw['data']['options']['path'] = str(self.prepared_dir)
+            raw['wandb']['run_name'] = self.run_dir.name + '-' + model
+            cfg = validate_config(build_config(Config, raw))
         if cfg.model.name != model:
             raise ValueError('Select the model through models, not overrides')
         benchmark = self.run_dir / (model + '_preflight') / 'benchmark.json'
@@ -172,14 +215,17 @@ class WikiTextRun:
             raise ValueError('Existing training config changed; use a new run_id')
         return cfg
 
-    def setup(self):
+    def setup(self, *, install=True):
+        if self.server_mode != 'off':
+            self._connect_server()
         os.environ['OMP_NUM_THREADS'] = '1'
         os.environ['MKL_NUM_THREADS'] = '1'
         os.environ.setdefault('HF_HOME', str(self.work_dir / 'hf_cache'))
         configs = [self.config(model) for model in self.models]
         extras = 'wandb,wikitext' if any(cfg.wandb.enabled for cfg in configs) else 'wikitext'
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '-e',
-                        str(self.repo_dir) + f'[{extras}]'], check=True)
+        if install:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-e',
+                            str(self.repo_dir) + f'[{extras}]'], check=True)
         import torch
         if self.device == 'cuda':
             if torch.cuda.device_count() < self.world_size:
@@ -194,9 +240,11 @@ class WikiTextRun:
             elif self.runtime == 'colab':
                 from google.colab import userdata
                 wandb.login(key=userdata.get('WANDB_API_KEY'))
-            else:
+            elif self.runtime == 'kaggle':
                 from kaggle_secrets import UserSecretsClient
                 wandb.login(key=UserSecretsClient().get_secret('WANDB_API_KEY'))
+            else:
+                raise ValueError('Set WANDB_API_KEY for online W&B in a remote environment')
 
     def prepare_data(self, *, source=None, prepared_input=None, resume_input=None,
                      dataset_revision='main',
@@ -245,8 +293,51 @@ class WikiTextRun:
         print('Prepared:', self.prepared_dir, manifest['token_counts'])
         return manifest
 
-    def _logged(self, command, filename):
-        run_logged(command, cwd=self.repo_dir, log_path=self.run_dir / filename)
+    def _connect_server(self):
+        if self._server_client is None:
+            from grt.utils.server import ServerClient
+            client = ServerClient(self.server_url, secret_source=self.secret_source)
+            client.check()
+            self._server_client = client
+        return self._server_client
+
+    def server_job(self, model, *, posthoc_options=None):
+        """Return a submit-ready immutable job; never submit or start training here."""
+        from grt.utils.server import job_definition
+        if model not in self.models:
+            raise ValueError('Select a model from this run')
+        return job_definition(self, model, posthoc_options=posthoc_options)
+
+    def _server_session(self, model):
+        if self.server_mode == 'off':
+            return None
+        if model not in self._server_sessions:
+            from grt.utils.server import ServerRun
+            session = ServerRun(self, model, self._connect_server(),
+                                assignment=getattr(self, '_queued_assignment', None))
+            try:
+                session.connect()
+            except BaseException:
+                session.close()
+                raise
+            self._server_sessions[model] = session
+        return self._server_sessions[model]
+
+    @classmethod
+    def claim(cls, repo_dir, **options):
+        """Return the next compatible server-defined run, or None for an empty queue."""
+        from grt.utils.server import claim_run
+        return claim_run(repo_dir, **options)
+
+    def close(self):
+        """Release connections without declaring an unfinished experiment successful."""
+        for session in self._server_sessions.values():
+            session.close()
+        self._server_sessions.clear()
+        self._server_client = None
+
+    def _logged(self, command, filename, *, poll=None):
+        run_logged(command, cwd=self.repo_dir, log_path=self.run_dir / filename, poll=poll)
 
     def _launch(self, model, output, *, benchmark=False):
         from grt.config import save_config
@@ -259,7 +350,21 @@ class WikiTextRun:
         command += ['scripts/train.py', '--config', path, '--output-dir', output, '--device', self.device]
         if benchmark:
             command += ['--benchmark-steps', str(self.benchmark_steps)]
-        self._logged(command, model + ('_preflight_console.txt' if benchmark else '_train_console.txt'))
+        session = self._server_session(model)
+        if session:
+            if session.job['status'] in ('succeeded', 'finalizing'):
+                return
+            session.check()
+            session.stage = 'preflight' if benchmark else 'training'
+            command += ['--stop-file', str(session.stop_file)]
+            if not benchmark:
+                session.evidence()
+                command += ['--checkpoint-seconds', '300']
+        self._logged(command, model + ('_preflight_console.txt' if benchmark else '_train_console.txt'),
+                     poll=session.checkpoint if session else None)
+        if session:
+            session.checkpoint()
+            session.check()
 
     def preflight(self):
         from grt.config import save_config
@@ -288,7 +393,12 @@ class WikiTextRun:
         for model in self.models:
             if not (self.run_dir / (model + '_preflight') / 'benchmark.json').exists():
                 raise ValueError('Run preflight before training')
-            self._launch(model, self.run_dir / model)
+            try:
+                self._launch(model, self.run_dir / model)
+            except BaseException:
+                if self.server_mode != 'off':
+                    self._preserve_partial()
+                raise
             cfg = self.config(model)
             summary = json.loads((self.run_dir / model / 'summary.json').read_text())
             if cfg.wandb.enabled:
@@ -298,6 +408,8 @@ class WikiTextRun:
                     or (summary['status'] == 'completed' and status.get('last_logged_step', 0) < cfg.training.max_steps)
                     or status['mode'] != cfg.wandb.mode
                     or (cfg.wandb.mode == 'online' and not status.get('url'))):
+                    if self.server_mode != 'off':
+                        self._preserve_partial(finalize=False, phase='monitoring_failed')
                     raise RuntimeError('W&B logging failed; local results remain in the run directory')
             results[model] = summary
         return results
@@ -360,7 +472,17 @@ class WikiTextRun:
         path = self.export_report()
         if posthoc:
             # Persist training results first, even if analysis is interrupted.
-            reports = self.posthoc(**(posthoc_options or {}))
+            try:
+                for model in self.models:
+                    session = self._server_session(model)
+                    if session:
+                        session.stage = 'posthoc'
+                        session.check()
+                reports = self.posthoc(**(posthoc_options or {}))
+            except BaseException:
+                if self.server_mode != 'off':
+                    self._preserve_partial(finalize=False, phase='posthoc_failed')
+                raise
             from grt.monitoring import print_posthoc_overview
             print_posthoc_overview({model: json.loads(Path(report_path).read_text())
                                    for model, report_path in reports.items()})
@@ -372,6 +494,11 @@ class WikiTextRun:
                     bundle.write(report, f'posthoc/{model}/posthoc_report.json')
             temporary.replace(path)
             print('보내주실 학습·사후 분석 묶음:', path)
+        if self.server_mode != 'off':
+            for model in self.models:
+                session = self._server_session(model)
+                session.finish(posthoc=posthoc)
+            self.close()
         if download:
             if self.runtime == 'colab':
                 from google.colab import files
@@ -380,6 +507,21 @@ class WikiTextRun:
                 from IPython.display import FileLink, display
                 display(FileLink(str(path)))
         return results
+
+    def _preserve_partial(self, *, finalize=True, phase='training_failed'):
+        """A sync failure never hides the original error or removes local evidence."""
+        try:
+            self.export_report()
+            for session in self._server_sessions.values():
+                if finalize:
+                    session.finish(error=True)
+                else:
+                    session.preserve_partial(phase)
+        except Exception:
+            print('Server sync pending; local results and private request journal are preserved.')
+        finally:
+            if finalize:
+                self.close()
 
     @property
     def report_path(self):

@@ -78,6 +78,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
         step, offset, tokens_seen, best, elapsed, peak = (
             saved[k] for k in ['step','offset','target_tokens_seen','best_loss','elapsed_seconds','peak_gpu_bytes'])
     started = time.perf_counter()
+    last_checkpoint = started
     if device.type == 'cuda':
         torch.cuda.reset_peak_memory_stats(device)
 
@@ -99,7 +100,7 @@ def train_stream(adapter, cfg, device, monitor, ctx):
     validation_step = -1
     model.train()
     while step < t.max_steps:
-        if ctx.decision(t.max_seconds is not None and elapsed+time.perf_counter()-started >= t.max_seconds):
+        if ctx.decision(ctx.stop_requested() or (t.max_seconds is not None and elapsed+time.perf_counter()-started >= t.max_seconds)):
             break
         if offset >= train.shape[1]-1:
             offset = 0
@@ -168,8 +169,9 @@ def train_stream(adapter, cfg, device, monitor, ctx):
                 suffix = f", val PPL={last_validation['perplexity']:.3f}" if validation_due else ''
                 print(f"Step {step}: loss={loss_value:.5f}{suffix}", flush=True)
             monitor.log(step, payload)
-        if validation_due:
+        if validation_due or (ctx.checkpoint_seconds and ctx.decision(time.perf_counter() - last_checkpoint >= ctx.checkpoint_seconds)):
             save(path)
+            last_checkpoint = time.perf_counter()
     if validation_step != step:
         last_validation = adapter.evaluate(model, cfg, validation, device)
         if last_validation['loss'] < best or not (root/'best.pt').exists():

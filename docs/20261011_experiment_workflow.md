@@ -1,6 +1,6 @@
 # 실험 실행과 결과 갱신
 
-갱신: 2026-10-21 · 현재 실행 방법만 유지한다. 과거 운영·오류 수정 이력은 [아카이브](archive/README.md)에 있다.
+갱신: 2026-10-22 · 현재 실행 방법만 유지한다. 과거 운영·오류 수정 이력은 [아카이브](archive/README.md)에 있다.
 
 ## 1. 설정과 실행 진입점
 
@@ -10,6 +10,8 @@
 - Budget: 양의 정수 optimizer updates를 자유 입력한다. `budget='20k'`→20,000, `'1m'`→1,000,000, `'40000'` 또는 `40000`→40,000이다. 접미사는 소문자 `k`/`m`만 허용하고 소수·부호·쉼표·다른 단위는 거부한다. CPU 점검용 `smoke`는200 updates다. 숫자 budget은 기본 validation1k·로그10 간격을 유지하며 `steps=`/`--steps`와 최종 override가 우선한다.
 - Tokenizer: GPT-2 BPE 또는 word. Runtime: Kaggle/Colab/CPU.
 - 노트북은 값 선택과 setup/prepare/preflight/train/report만 담당한다. 공통 동작은 `src/grt/utils/`에 둔다.
+
+GRT Server 자동 저장은 선택 셀에서 `server_mode='upload'`로 켠다. 기본 `off`와 로컬 실행 순서는 유지한다. 큐 실행·secret·장애 복구의 구체적인 방법은 [서버 연결](20261022_server_integration.md)을 따른다.
 
 [Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. M8/20/75×dropout0/.1 탐색은 완료했으며, 후속 실험은 모든 M에서 dropout0으로 통일한다. Dropout 효과는 더 긴 학습에서 재검증하며 결과와 판단은 [실험 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)에만 관리한다.
 

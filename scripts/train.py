@@ -1,8 +1,10 @@
 """Train either model through the same dataset and curriculum interfaces."""
 
 import argparse
+import math
 from pathlib import Path
 import sys
+import signal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import torch
@@ -28,8 +30,10 @@ def main():
     parser.add_argument("--grad-accum-steps", type=int)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--benchmark-steps", type=int, default=0)
+    parser.add_argument('--stop-file', type=Path, help='Save and stop at an update boundary when this file appears')
+    parser.add_argument('--checkpoint-seconds', type=float, default=0, help='Optional wall-time checkpoint interval; 0 keeps the normal validation schedule')
     args = parser.parse_args()
-    if args.benchmark_steps < 0:
+    if args.benchmark_steps < 0 or not math.isfinite(args.checkpoint_seconds) or args.checkpoint_seconds < 0:
         parser.error("Invalid benchmark settings")
     from grt.experiments import load_experiment, parse_overrides
     overrides = parse_overrides(args.set)
@@ -53,6 +57,9 @@ def main():
     if device.type == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA unavailable")
     ctx = DistributedContext(device, initialize=True)
+    ctx.stop_file = args.stop_file
+    ctx.checkpoint_seconds = args.checkpoint_seconds
+    previous_term = signal.signal(signal.SIGTERM, lambda *_: setattr(ctx, 'stopping', True))
     try:
         if args.benchmark_steps:
             from grt.benchmark import benchmark
@@ -61,6 +68,7 @@ def main():
         else:
             run(cfg, ctx.device, ctx)
     finally:
+        signal.signal(signal.SIGTERM, previous_term)
         ctx.close()
 
 

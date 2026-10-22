@@ -212,11 +212,12 @@ def _run(cfg, device, monitor, ctx):
             ctx.barrier()
 
         model.train()
+        last_checkpoint = time.perf_counter()
         while step < stage.max_steps and not done:
             if ctx.decision(
-                cfg.training.max_seconds is not None
+                ctx.stop_requested() or (cfg.training.max_seconds is not None
                 and prior_wall + time.perf_counter() - started
-                >= cfg.training.max_seconds
+                >= cfg.training.max_seconds)
             ):
                 break
             if device.type == "cuda":
@@ -331,6 +332,7 @@ def _run(cfg, device, monitor, ctx):
                         flush=True,
                     )
                 save(path, done)
+                last_checkpoint = time.perf_counter()
             elif step % cfg.wandb.every_steps == 0:
                 monitor.log(
                     global_offset + step,
@@ -344,6 +346,9 @@ def _run(cfg, device, monitor, ctx):
                         "train/peak_gpu_memory_bytes": peak_memory,
                     },
                 )
+            if ctx.checkpoint_seconds and ctx.decision(time.perf_counter() - last_checkpoint >= ctx.checkpoint_seconds):
+                save(path, done)
+                last_checkpoint = time.perf_counter()
         if last_validation is None:
             last_validation = evaluate(
                 model,

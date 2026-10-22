@@ -45,6 +45,12 @@ class DistributedContext:
         self.world_size = dist.get_world_size() if dist.is_initialized() else 1
         self.rank = dist.get_rank() if dist.is_initialized() else 0
         self.main = self.rank == 0
+        self.stopping = False
+        self.stop_file = None
+        self.checkpoint_seconds = 0
+
+    def stop_requested(self):
+        return self.stopping or (self.stop_file is not None and self.stop_file.exists())
 
     def barrier(self):
         if self.world_size > 1:

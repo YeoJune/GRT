@@ -6,6 +6,7 @@
 | 설정·학습·사후 분석·파일 전달 | [실험 workflow](20261011_experiment_workflow.md) |
 | 원격 GPU 임대·순차 큐·완료 결과 수집·비용/ETA 관리 설계 제안 | [원격 GPU 큐 설계 보고서](20261021_remote_gpu_queue_design.md) |
 | AWS 관리 서버·2종 토큰·secret/기존 실행 연결·필드 확장·GUI/CLI·자체 시나리오 점검 | [실험 제어 API 설계](20261021_experiment_control_api_design.md) |
+| 구현된 off/upload/queue 연결·노트북 자동 저장·큐 worker·CPU 통합 검증 | [GRT Server 연결](20261022_server_integration.md) |
 | Gate 안정화의 선택·결과·진행 상태 | [패널티·dropout, 이전 시도](experiments/20261018_l75_gate_stabilization.md) |
 | L75/M20 gate 경로·M 확장: M20 최종 선택 candidate·기본값 반영, 다른 M 검증 예정 | [Write gate 정보 경로 비교](experiments/20261019_l75_gate_paths.md) |
 | L150 baseline·레지스터 용량 | [small 용량 비교](experiments/20261012_small_register_sweep.md) |

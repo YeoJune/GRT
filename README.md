@@ -32,6 +32,8 @@ write_logit_coef = 1e-4      # 0은 off 대조
 
 마지막 `job.report(posthoc=True, download=True, ...)`는 best checkpoint의 사후 분석까지 실행한다. **`experiment_results.zip` 하나**를 보내면 된다. ZIP은 학습·사후 JSON만 포함하므로 checkpoint·prepared 데이터는 따로 보관한다. 다른 세션의 checkpoint는 [Colab 사후 분석](notebooks/colab_analysis.ipynb)을 사용한다. 파일 배치는 [workflow](docs/20261011_experiment_workflow.md#posthoc-colab)에 있다.
 
+선택 셀의 `server_mode='upload'`와 서버 주소·UTC 세션 종료 시각을 지정하면 GRT Server에 상태·원본 결과·checkpoint를 자동 저장한다. 기본 `off`는 기존 실행을 유지한다. 서버의 불변 Config를 실행하는 큐 worker와 인증·재연결 방법은 [서버 연결 안내](docs/20261022_server_integration.md)를 따른다.
+
 새 run의 W&B는 **Quality / Optimization / Memory / Runtime** 네 그룹의 핵심 지표만 표시한다. 마지막 셀은 best·final validation, 선택 checkpoint의 memory probe, 비용, 사후 평가 window를 구분해 요약한다. 상세 지표·단위는 [공통 모니터링 안내](docs/20261011_experiment_workflow.md#rtla-학습-중-모니터링과-사후-분석)를 따른다.
 
 ## 설치·CLI·로컬 과제
