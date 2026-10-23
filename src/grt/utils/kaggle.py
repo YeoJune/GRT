@@ -246,7 +246,7 @@ class WikiTextRun:
             else:
                 raise ValueError('Set WANDB_API_KEY for online W&B in a remote environment')
 
-    def prepare_data(self, *, source=None, prepared_input=None, resume_input=None,
+    def prepare_data(self, *, source=None, prepared_input=None, resume_input=None, server_cache=None,
                      dataset_revision='main',
                      tokenizer='openai-community/gpt2', local_files_only=False):
         if resume_input is not None:
@@ -254,6 +254,12 @@ class WikiTextRun:
                 raise FileExistsError('Run already exists; omit resume_input to reuse it')
             shutil.copytree(resume_input, self.run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
+        if server_cache is not None:
+            if prepared_input is not None or source is not None:
+                raise ValueError('Choose local prepared input/source or server_cache')
+            from grt.utils.server_files import fetch_prepared
+            self.prepared_dir = self.work_dir / 'prepared' / server_cache
+            fetch_prepared(self._connect_server(), server_cache, self.prepared_dir)
         if prepared_input is not None and not self.prepared_dir.exists():
             shutil.copytree(prepared_input, self.prepared_dir)
         manifest_path = self.prepared_dir / 'manifest.json'
@@ -292,6 +298,11 @@ class WikiTextRun:
         (self.run_dir / 'dataset_manifest.json').write_text(json.dumps(manifest, indent=2))
         print('Prepared:', self.prepared_dir, manifest['token_counts'])
         return manifest
+
+    def cache_prepared(self):
+        """Explicitly preserve verified prepared files for reuse by other sessions."""
+        from grt.utils.server_files import cache_prepared
+        return cache_prepared(self._connect_server(), self.prepared_dir)
 
     def _connect_server(self):
         if self._server_client is None:

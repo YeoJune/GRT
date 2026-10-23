@@ -86,3 +86,19 @@ GRT_TEST_SERVER_REPO=/path/to/GRT_server python -m pytest tests/test_server.py -
 GRT_server checkout에는 `npm ci`가 필요하다. 실제 Express 서버를 임시 SQLite·계정으로 실행해 작은 합성 token 데이터의 CPU 학습·posthoc·원본 다운로드·중복 방지·전송 응답 유실·큐·취소 저장을 검사한다. 서버 설치본이 없으면 외부 통합 검사는 skip된다. 일반 GRT 검사는 서버 없이 실행한다.
 
 자동 검사는 CPU 기능 검증이다. GPU 학습 품질·수렴, 새 플랫폼·저장소·운영 구성은 각 환경에서 확인한다. 배포 검증 기록은 [서버 아카이브](https://github.com/YeoJune/GRT_server/blob/main/docs/archive/README.md)에 보존한다.
+
+## Prepared 데이터 공유 캐시
+
+로컬 데이터 재사용이 기본이다. 다른 세션에서도 같은 데이터를 쓰려면 준비·검증 후 `job.cache_prepared()`를 명시적으로 실행한다. 토큰은 기존 server_url/secret_source를 사용하며 write 권한이 필요하다. 서버는 원본 manifest SHA256으로 조회하고, 같은 manifest·파일 hash의 캐시를 재사용한다. 캐시는 공유 dataset이므로 실험 삭제 시 유지한다.
+
+```python
+job.prepare_data()
+cached = job.cache_prepared()
+print(cached['extensions']['manifest_sha256'])
+# 다른 세션: hash를 지정했을 때만 서버 다운로드
+job.prepare_data(server_cache='<manifest SHA256>')
+```
+
+다운로드는 ZIP·manifest·각 파일 SHA256을 검사한 후 확정하며 다른 조건이나 손상된 파일을 조용히 덮어쓰지 않는다. 데이터·tokenizer·전처리 결과가 달라 manifest가 다르면 별개 캐시다. 모델·학습 예산만 달라지고 prepared 데이터가 같으면 재사용한다. 서버 캐시는 명시적으로 업로드한 것만 제공하며 자동 만료하지 않는다. ZIP 크기가 서버의 MAX_ARTIFACT_BYTES(기본 1GiB)를 넘으면 운영 한도·디스크를 조정해야 한다.
+
+큐 worker는 `--prepared-dir` 대신 `--prepared-from-server`를 선택할 수 있다. 이 경우 job의 dataset_sha256과 일치하는 서버 캐시를 받아 사용하며, 없으면 실패한다. 제출자와 worker 모두 선택한 GRT commit을 사용한다.

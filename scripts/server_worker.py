@@ -10,7 +10,9 @@ from grt.utils.kaggle import WikiTextRun
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work-dir', type=Path, required=True)
-    parser.add_argument('--prepared-dir', type=Path, required=True)
+    data = parser.add_mutually_exclusive_group(required=True)
+    data.add_argument('--prepared-dir', type=Path)
+    data.add_argument('--prepared-from-server', action='store_true')
     parser.add_argument('--deadline', required=True, help='UTC ISO8601 session deadline; never extended automatically')
     parser.add_argument('--queue', default='research')
     parser.add_argument('--runtime', choices=('remote', 'colab', 'kaggle', 'cpu'), default='remote')
@@ -32,7 +34,10 @@ def main():
             return int(failed)
         try:
             run.setup(install=False)  # Prepare dependencies once before processing jobs.
-            run.prepare_data(prepared_input=args.prepared_dir)
+            if args.prepared_from_server:
+                run.prepare_data(server_cache=run._queued_assignment['job']['spec']['dataset_sha256'])
+            else:
+                run.prepare_data(prepared_input=args.prepared_dir)
             run.preflight()
             run.train()
             options = run._queued_assignment['job']['spec']['posthoc_options']

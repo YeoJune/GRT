@@ -368,3 +368,50 @@ def test_revoked_token_stops_locally_and_new_token_recovers_same_lease(tmp_path,
         assert client.request('GET', '/jobs/' + job_id)['status'] == 'cancelled'
     finally:
         run.close()
+
+
+def test_shared_prepared_cache_reuses_verified_bytes_and_download_is_optional(tmp_path, client, api_server, monkeypatch):
+    from grt.utils.server_files import cache_prepared, fetch_prepared
+    run = make_run(tmp_path, client, mode='off')
+    cached = run.cache_prepared()
+    assert cached['kind'] == 'dataset' and cached['status'] == 'verified'
+    assert cache_prepared(client, run.prepared_dir)['id'] == cached['id']
+    fields = {k: cached[k] for k in ('name', 'kind', 'size_bytes', 'sha256', 'format', 'format_version', 'extensions')}
+    assert client.request('POST', '/artifacts/uploads', fields)['id'] == cached['id']
+    monkeypatch.setenv('GRT_SERVER_TOKEN', api_server.tokens['read-only'])
+    reader = ServerClient(api_server.url)
+    sha = digest(run.prepared_dir / 'manifest.json')
+    restored = tmp_path / 'restored'
+    fetch_prepared(reader, sha, restored)
+    for file in run.prepared_dir.rglob('*'):
+        if file.is_file():
+            assert (restored / file.relative_to(run.prepared_dir)).read_bytes() == file.read_bytes()
+    assert fetch_prepared(reader, sha, restored) == restored
+    (restored / 'train.pt').write_bytes(b'corrupted')
+    with pytest.raises(ValueError, match='SHA256 mismatch'):
+        fetch_prepared(reader, sha, restored)
+    assert len(client.request('GET', '/datasets')['data']) >= 1
+
+
+def test_prepared_cache_rejects_archive_traversal_before_publishing(tmp_path, client):
+    import zipfile
+    from grt.utils.server_files import fetch_prepared
+    archive = tmp_path / 'unsafe.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('../escaped.txt', 'untrusted')
+    sha = '0' * 64
+    item = client.request('POST', '/artifacts/uploads', dict(name='unsafe.zip', kind='dataset',
+        format='zip', format_version='1', size_bytes=archive.stat().st_size, sha256=digest(archive),
+        extensions={'cache_format': 'grt.prepared/1', 'manifest_sha256': sha}))
+    with archive.open('rb') as stream:
+        response = requests.put(item['upload']['url'], data=stream, timeout=5)
+    assert response.status_code == 204
+    client.request('POST', '/artifacts/uploads/' + item['id'] + '/complete', {})
+    for _ in range(40):
+        if client.request('GET', '/artifacts/uploads/' + item['id'])['status'] == 'verified':
+            break
+        time.sleep(.1)
+    with pytest.raises(ValueError, match='Unsafe prepared archive'):
+        fetch_prepared(client, sha, tmp_path / 'destination')
+    assert not (tmp_path / 'destination').exists()
+    assert not list(tmp_path.rglob('escaped.txt'))
