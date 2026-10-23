@@ -3,7 +3,6 @@ from contextlib import nullcontext
 from pathlib import Path
 import math
 import numpy as np
-import torch
 import torch.nn.functional as F
 from grt.checkpoint import evaluation_context
 from grt.config import EXPERIMENT_VERSION

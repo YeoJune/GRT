@@ -1,4 +1,4 @@
-> 과거 실행 안내/검증 기록입니다. 현재 실행 규칙은 [실험 workflow](../20261011_experiment_workflow.md)를 따릅니다.
+> 과거 실행 안내/검증 기록입니다. 현재 실행 규칙은 [실험 workflow](20261023_experiment_workflow.md)를 따릅니다.
 
 # WikiText 크기 선택과 짧은 동작 확인
 

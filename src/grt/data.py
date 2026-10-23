@@ -1,20 +1,10 @@
 """Dataset adapter boundary: models and trainer never interpret task tokens."""
 
-from typing import Protocol
 from types import SimpleNamespace
 import importlib
 import torch
 from torch.utils.data import DataLoader
 from grt.vendor.armt.data import ARDataset, make_collator
-
-
-class DatasetAdapter(Protocol):
-    def validate(self, cfg): ...
-    def configure_stage(self, cfg, stage): ...
-    def dataset(self, cfg, split, pairs): ...
-    def collator(self, cfg, vary): ...
-    def generation_kwargs(self, cfg): ...
-    def generation_target(self, cfg, batch): ...
 
 
 class RememberAdapter:

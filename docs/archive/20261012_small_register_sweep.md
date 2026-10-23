@@ -2,7 +2,7 @@
 
 실험 시작: 2026-10-12 · 갱신: 2026-10-17 · 상태: NeoX/RMT baseline과 GRT M10/M40/M160의 10k 학습·다중 window/그룹 사후 분석 완료, 선택 M 미정
 
-[공통 실행 안내](../20261011_experiment_workflow.md) · [Colab 사후 분석 방법](../20261011_experiment_workflow.md#posthoc-colab) · [원본 JSON 보관 규칙](../../results/README.md)
+[공통 실행 안내](20261023_experiment_workflow.md) · [Colab 사후 분석 방법](20261023_experiment_workflow.md#posthoc-colab) · [원본 JSON 보관 규칙](../../results/README.md)
 
 ## 1. 현재 결론과 결정할 점
 

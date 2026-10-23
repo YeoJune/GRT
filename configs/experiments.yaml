@@ -1,4 +1,4 @@
-# One catalog. See docs/20261011_experiment_workflow.md for ownership and merge order.
+# One catalog. See docs/workflow.md for ownership and merge order.
 version: 1
 defaults:
   training:

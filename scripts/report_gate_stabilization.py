@@ -145,13 +145,13 @@ def table_block(group, runs):
              '|---|---|---|---|---|']
     for r in selected:
         src = r['source']
-        lines.append(f"| {r['label']} | {r['best_step']:,} / {r['best_ppl']:.4f} | {r['final_ppl']:.4f} / {r['final_nll']:.6f} | {r['wall_h']:.3f} / {r['peak_gib']:.3f} | [학습](../../results/{src['train_id']}.json) / [사후](../../results/posthoc/{src['post_id']}.json) |")
+        lines.append(f"| {r['label']} | {r['best_step']:,} / {r['best_ppl']:.4f} | {r['final_ppl']:.4f} / {r['final_nll']:.6f} | {r['wall_h']:.3f} / {r['peak_gib']:.3f} | [학습](../results/{src['train_id']}.json) / [사후](../results/posthoc/{src['post_id']}.json) |")
     lines += ['', '| 공통 지표 | ' + ' | '.join(r['label'] for r in selected) + ' |',
               '|---|' + '---:|' * len(selected)]
     lines.append('| C/O/T (window0) | ' + ' | '.join('/'.join(str(r['counts'][k]) for k in ('closed', 'open', 'other')) for r in selected) + ' |')
     for key, label, fmt in METRICS:
         lines.append('| ' + label + ' | ' + ' | '.join(format(r['stats'][key], fmt) for r in selected) + ' |')
-    lines += ['', f'![{GROUPS[group][0]} — 공통 6패널](../figures/gate_stabilization/{group}.png)']
+    lines += ['', f'![{GROUPS[group][0]} — 공통 6패널](figures/gate_stabilization/{group}.png)']
     return '\n'.join(lines)
 
 
@@ -265,20 +265,13 @@ def generate(root):
     for group in GROUPS:
         common_figure(group, runs, destination)
     penalty_figure(runs, destination)
-    report = root / 'docs/experiments/20261018_l75_gate_stabilization.md'
+    report = root / 'docs/research.md'
     text = report.read_text()
     for group in GROUPS:
-        if group == 'gate_paths':
-            continue
         text = update_block(text, group, table_block(group, runs))
     text = update_block(text, 'effects', dropout_effect_table(runs))
-    path_runs = {key: runs[key] for key in GROUPS['gate_paths'][1]}
-    text = update_block(text, 'sources', source_block({key: r for key, r in runs.items() if key not in path_runs}))
+    text = update_block(text, 'sources', source_block(runs))
     report.write_text(text)
-    path_report = root / 'docs/experiments/20261019_l75_gate_paths.md'
-    text = update_block(path_report.read_text(), 'gate_paths', table_block('gate_paths', runs))
-    text = update_block(text, 'gate_path_sources', source_block(path_runs))
-    path_report.write_text(text)
     summary = {key: {k: v for k, v in r.items() if k not in ('history', 'abs_logits', 'slot_stds')} for key, r in runs.items()}
     path = root / 'docs/tables/gate_stabilization_metrics.json'; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(format='grt.gate_summary/1', source='User GPU JSON only; no model execution',

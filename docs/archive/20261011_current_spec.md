@@ -1,4 +1,4 @@
-> 정리 전 기록입니다. 최신 실행은 [실험 workflow](../20261011_experiment_workflow.md), 현재 결과는 [gate 안정화 보고서](../experiments/20261018_l75_gate_stabilization.md)를 따릅니다. 이 문서의 당시 계획·기능 상태·그림은 최신 기준이 아닙니다.
+> 정리 전 기록입니다. 최신 실행은 [실험 workflow](20261023_experiment_workflow.md), 현재 결과는 [gate 안정화 보고서](20261018_l75_gate_stabilization.md)를 따릅니다. 이 문서의 당시 계획·기능 상태·그림은 최신 기준이 아닙니다.
 
 # GRT/RMT/NeoX 최신 실험·구현 명세
 
@@ -7,7 +7,7 @@
 이전 문서는 archive에 보존하며 현재 설정을 선택하는 근거로 사용하지 않는다.
 현재 실행 구조는 공통 NeoX 하나다. 과거 모델/설정/checkpoint 호환 경로는 제공하지 않는다.
 
-2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. 이전 small 용량 비교는 [L150 결과](../experiments/20261012_small_register_sweep.md), L75 gate 비교 결과는 [통합 실험 보고서](../experiments/20261018_l75_gate_stabilization.md)을 따른다.
+2026-10-12 추가: WikiText의 메모리 없는 `neox` baseline을 공통 backbone/cell 인터페이스로 지원한다. register/router parameter 없이 M0·BPTT0으로 각 segment만 causal하게 읽는다. 현재 NeoX baseline은 WikiText decoder 전용이며 Remember는 RMT/GRT를 사용한다. 이전 small 용량 비교는 [L150 결과](20261012_small_register_sweep.md), L75 gate 비교 결과는 [통합 실험 보고서](20261018_l75_gate_stabilization.md)을 따른다.
 
 ## 1. 범위와 순서
 
@@ -35,7 +35,7 @@ GPT-NeoX 계열 Transformer, parallel residual, RoPE, tied embedding/출력 head
 RoPE rotary_pct=0.25, base=10000을 사용한다.
 base는 RMT 2022 WikiText의 차원을 맞춘 NeoX 변형이며 정확한 원문 모델 재현이 아니다.
 small은 후속 사용자 지시에 따라 D256으로 변경했고 FFN=4D(1024)를 유지한다. tied full softmax를 두 모델에 공통 적용한다.
-크기·예산 선택과 노트북 운영은 [실험 workflow](../20261011_experiment_workflow.md)를 따른다. tiny와 200-update 조건은 유지한다.
+크기·예산 선택과 노트북 운영은 [실험 workflow](20261023_experiment_workflow.md)를 따른다. tiny와 200-update 조건은 유지한다.
 WikiText word-level vocabulary는 267735, 별도 GPT-2 BPE 옵션은 50257이다. Remember는 기존 V128/token 규칙을 기반으로 한다.
 공통 NeoX 경로는 기존 vendor의 GELU, LayerNorm eps=1e-5, 선형/embedding 초기화 std=0.02를 계승한다.
 후보와 token hidden은 모두 final norm 뒤에서 추출한다. 새 비교 프로토콜을 추가한 것으로 해석하지 않는다.
@@ -118,7 +118,7 @@ Remember 디코더도 현재 공통 NeoX를 사용하며 next-token shift loss�
 
 원문 word tokenizer와 데이터 처리, vocabulary 267735.
 full softmax는 원문 adaptive softmax와 다르며 메모리 비용을 실제 측정한다.
-실행 방법은 [실험 workflow](../20261011_experiment_workflow.md)를 따른다.
+실행 방법은 [실험 workflow](20261023_experiment_workflow.md)를 따른다.
 GPT-2 BPE는 `openai-community/gpt2`의 50257 vocabulary를 사용한다. 각 원본 줄에서 CR/LF만 제거하고 공백·대소문자를 보존한다. 빈 줄을 포함해 줄마다 EOS50256을 붙이며 BOS/padding/truncation/prefix-space 추가는 하지 않는다. tokenizer만 다운로드하고 모델 weights는 초기화한다. tokenizer와 prepared artifact의 hash를 manifest에 기록한다.
 단어 기준 원문 조건과 구분하며 BPE-token PPL을 기록한다.
 

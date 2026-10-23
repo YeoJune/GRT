@@ -1,10 +1,10 @@
 # 실험 실행과 결과 갱신
 
-갱신: 2026-10-22 · 현재 실행 방법만 유지한다. 과거 운영·오류 수정 이력은 [아카이브](archive/README.md)에 있다.
+갱신: 2026-10-22 · 현재 실행 방법만 유지한다. 과거 운영·오류 수정 이력은 [아카이브](README.md)에 있다.
 
 ## 1. 설정과 실행 진입점
 
-[단일 카탈로그](../configs/experiments.yaml)는 task·size·model·tokenizer·budget·runtime의 기본값을 정의한다. `Config`의 typed 검증을 거치고 수동 override가 최종 적용된다. 숫자 변경 때문에 조건별 YAML·노트북을 새로 만들지 않는다.
+[단일 카탈로그](../../configs/experiments.yaml)는 task·size·model·tokenizer·budget·runtime의 기본값을 정의한다. `Config`의 typed 검증을 거치고 수동 override가 최종 적용된다. 숫자 변경 때문에 조건별 YAML·노트북을 새로 만들지 않는다.
 
 - Task: Remember / WikiText-103. Size: base/small/tiny. Model: neox/rmt/grt.
 - Budget: 양의 정수 optimizer updates를 자유 입력한다. `budget='20k'`→20,000, `'1m'`→1,000,000, `'40000'` 또는 `40000`→40,000이다. 접미사는 소문자 `k`/`m`만 허용하고 소수·부호·쉼표·다른 단위는 거부한다. CPU 점검용 `smoke`는200 updates다. 숫자 budget은 기본 validation1k·로그10 간격을 유지하며 `steps=`/`--steps`와 최종 override가 우선한다.
@@ -13,7 +13,7 @@
 
 GRT Server 자동 저장은 선택 셀에서 `server_mode='upload'`로 켠다. 기본 `off`와 로컬 실행 순서는 유지한다. 큐 실행·secret·장애 복구의 구체적인 방법은 [서버 연결](20261022_server_integration.md)을 따른다.
 
-[Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. M8/20/75×dropout0/.1 탐색은 완료했으며, 후속 실험은 모든 M에서 dropout0으로 통일한다. Dropout 효과는 더 긴 학습에서 재검증하며 결과와 판단은 [실험 보고서](experiments/20261018_l75_gate_stabilization.md#logit-tail-expansion)에만 관리한다.
+[Colab](../../notebooks/colab.ipynb)·[Kaggle](../../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. M8/20/75×dropout0/.1 탐색은 완료했으며, 후속 실험은 모든 M에서 dropout0으로 통일한다. Dropout 효과는 더 긴 학습에서 재검증하며 결과와 판단은 [실험 보고서](20261018_l75_gate_stabilization.md#logit-tail-expansion)에만 관리한다.
 
 ```python
 num_registers = 20         # 후속 gate 경로 실험의 시작 M
@@ -26,7 +26,7 @@ write_logit_threshold = 10.0
 write_logit_coef = 1e-4     # 0이면 off
 ```
 
-[Gate 경로 비교](experiments/20261019_l75_gate_paths.md)의 M20 결과에 따라 `write_source='candidate'`를 기본값으로 선택했다. `independent`·`separate_head`도 계속 선택할 수 있다. State 참조는 register attention, `write_detach_source=False`를 유지한다. Separate_head에만 D→D gate linear가 있다. 다른 M에서는 candidate·A·write dropout0을 고정해 전달성을 검증한다. Config는 `model.router`의 같은 이름 필드로 기록된다.
+[Gate 경로 비교](20261019_l75_gate_paths.md)의 M20 결과에 따라 `write_source='candidate'`를 기본값으로 선택했다. `independent`·`separate_head`도 계속 선택할 수 있다. State 참조는 register attention, `write_detach_source=False`를 유지한다. Separate_head에만 D→D gate linear가 있다. 다른 M에서는 candidate·A·write dropout0을 고정해 전달성을 검증한다. Config는 `model.router`의 같은 이름 필드로 기록된다.
 
 Colab은 GPU와 `WANDB_API_KEY` secret의 노트북 접근을 켠다. Kaggle은 Internet·T4×2·같은 이름의 secret을 사용한다. `wandb_enabled=False`로 로컬 기록만 사용할 수 있다. Tokenizer만 다운로드하며 backbone weights는 새로 초기화한다.
 
@@ -61,7 +61,7 @@ python scripts/train.py --task wikitext103 --model grt --size small --tokenizati
 
 Kaggle2GPU CLI는 `torchrun --standalone --nproc_per_node=2`로 같은 script를 실행한다. `--benchmark-steps`로 preflight를 수행한다. `--config`는 현재 형식의 최종 Config 하나만 읽고 과거 경로·설정 변환은 제공하지 않는다.
 
-Remember 실행은 [README](../README.md)와 [template](../notebooks/template.ipynb)를 사용한다. 인코더는 `model.attention_mode=encoder`, `data.options.objective=parallel`을 함께 지정하고, 디코더는 next-token 규칙을 사용한다. WikiText 인코더 MLM은 지원하지 않는다.
+Remember 실행은 [README](../../README.md)와 [template](../../notebooks/template.ipynb)를 사용한다. 인코더는 `model.attention_mode=encoder`, `data.options.objective=parallel`을 함께 지정하고, 디코더는 next-token 규칙을 사용한다. WikiText 인코더 MLM은 지원하지 않는다.
 
 <a id="rtla-학습-중-모니터링과-사후-분석"></a>
 ## 4. 핵심 모니터링과 최종 결과
@@ -81,7 +81,7 @@ Quality·optimization·memory의 기본 가로축은 실제 누적 target tokens
 
 노트북 마지막 셀은 summary 전체 대신 **Quality / Memory·Cost / Posthoc** 요약과 전체 validation NLL/PPL 두 그래프를 보여준다. `overview`는 best validation과 final-budget validation을 별도 step과 함께 기록하며, 선택 checkpoint probe와 사후 평가 window 평균을 구분한다. `experiment_report.json`에는 전체 Config·metadata·summary·학습 이력·로컬 RTLA와 요약을 보존하고, ZIP에는 별도 사후 JSON을 담는다. 원본 상세 배열을 W&B에 중복 업로드하지 않는다.
 
-학습 통계와 validation probe, 사후 checkpoint 관측은 다른 범위다. 공통 집계·그림·해석은 [안정화 보고서의 지표 사전](experiments/20261018_l75_gate_stabilization.md#2-공통-비교-기준)을 따른다. 같은 그룹 크기의 random 비교와 horizon도 실험 간 고정한다.
+학습 통계와 validation probe, 사후 checkpoint 관측은 다른 범위다. 공통 집계·그림·해석은 [안정화 보고서의 지표 사전](20261018_l75_gate_stabilization.md#2-공통-비교-기준)을 따른다. 같은 그룹 크기의 random 비교와 horizon도 실험 간 고정한다.
 
 <a id="posthoc-colab"></a>
 ## 5. 사후 분석과 전달 파일
@@ -99,7 +99,7 @@ job.report(posthoc=True, download=True, posthoc_options=dict(
 
 **보내줄 파일은 `experiment_results.zip` 하나**다. 안에는 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`이 있다. 학습 결과를 먼저 저장하므로 분석 실패로 학습 결과가 사라지지 않는다. 분석 로그는 run의 `grt_posthoc_console.txt`에 남고 마지막 셀을 재실행하면 완료된 같은 분석은 재사용한다. 학습 JSON만 필요하면 `job.report(download=True)`다.
 
-다른 세션의 checkpoint는 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)으로 분석한다. Drive에 다음과 같이 배치하고 선택 셀의 경로를 지정한다.
+다른 세션의 checkpoint는 [Colab 분석 노트북](../../notebooks/colab_analysis.ipynb)으로 분석한다. Drive에 다음과 같이 배치하고 선택 셀의 경로를 지정한다.
 
 ```text
 MyDrive/GRT_analysis/
@@ -120,4 +120,4 @@ MyDrive/GRT_analysis/
 4. Gate 비교는 `scripts/report_gate_stabilization.py`의 RUNS/GROUPS에 수신 원본을 등록하고 스크립트를 실행한다. 공통 표·현재9개 그림·집계 JSON을 함께 갱신하고 해석은 수동으로 검토한다.
 5. Raw 결과 보존·수치·링크·실행 경로를 검증하고 GPU 실험과 CPU 기능 검증을 구분해 보고한다. 커밋·push는 저장소 협업 지침에 따른다.
 
-CSV로 환경별 결과를 누적하지 않는다. 재현용 checkpoint·prepared 데이터는 사용자 실행 환경 밖에 따로 보관한다. 자세한 원본 규칙은 [results/README](../results/README.md)를 따른다.
+CSV로 환경별 결과를 누적하지 않는다. 재현용 checkpoint·prepared 데이터는 사용자 실행 환경 밖에 따로 보관한다. 자세한 원본 규칙은 [results/README](../../results/README.md)를 따른다.

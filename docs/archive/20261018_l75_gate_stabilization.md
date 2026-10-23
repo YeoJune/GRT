@@ -2,7 +2,7 @@
 
 갱신: 2026-10-20 · **탐색 완료 · 후속 실험: 패널티 A + write dropout off** · 단일 seed·20k 예산의 결과
 
-[실행 안내](../20261011_experiment_workflow.md) · [모델 명세](../20261011_current_spec.md) · [원본](../../results/README.md) · [L150 용량 비교](20261012_small_register_sweep.md) · [이전 설계·상세 기록](../archive/README.md)
+[실행 안내](20261023_experiment_workflow.md) · [모델 명세](20261023_current_spec.md) · [원본](../../results/README.md) · [L150 용량 비교](20261012_small_register_sweep.md) · [이전 설계·상세 기록](README.md)
 
 ## 1. 현재 선택과 진행 상태
 
@@ -68,7 +68,7 @@ L75, GRT small(D256·6layers·head8·FF1024), router attention D256/head8·MLP51
 
 같은 logit에서 A의 패널티는 항상 B·C 이하다. A가 유용한 쓰기를 덜 제한해 품질에 유리했을 가능성이 있지만, 서로 다른 학습 분포와 환경 때문에 그 원인을 확정하지 않는다. B/C는 같은 loss의 수치 ablation이며 별도 구현 분기가 아니다.
 
-[ST-MoE §3.3](https://arxiv.org/abs/2202.08906)의 softmax router z-loss와 계수1e-3은 관련 선례다. 우리 loss는 독립 sigmoid·FP32의 고착을 다루는 별도 설계이며 원문 재현이나 계수의 동등한 강도로 표현하지 않는다. 자세한 후보 설계는 [아카이브](../archive/20261016_write_regularization.md)에 둔다.
+[ST-MoE §3.3](https://arxiv.org/abs/2202.08906)의 softmax router z-loss와 계수1e-3은 관련 선례다. 우리 loss는 독립 sigmoid·FP32의 고착을 다루는 별도 설계이며 원문 재현이나 계수의 동등한 강도로 표현하지 않는다. 자세한 후보 설계는 [아카이브](20261016_write_regularization.md)에 둔다.
 
 <!-- gate-report:penalty:start -->
 | 조건 | best step / PPL | 최종 PPL / NLL | wall h / peak GiB | 학습 / 사후 원본 |
@@ -313,7 +313,7 @@ LM은 `F.cross_entropy`, 규제는 PyTorch의 `abs/clamp/square`와 명시적인
 
 이번 게이트 안정화 탐색은 위 방침으로 마무리한다. 전체 조건 중 가장 낮은20k PPL은M75 A/0의32.0361이나, M20 A/0의32.3376보다 많은 메모리 슬롯·연산을 사용한다. 모델 효율 선택은 품질 순위와 구분하며, 여러 seed·다른 L/size·수렴 후 일반성과 인과 기전은 별도 검증 범위로 남긴다.
 
-후속 run의 기본 모니터링은 [공통 workflow의 네 그룹](../20261011_experiment_workflow.md#rtla-학습-중-모니터링과-사후-분석)을 따른다. 이 보고서의 과거 training logit/hidden 통계·그림은 수신 원본의 기록으로 유지하며, 해당 안정화 전용 상시 측정 구현은 제거했다. 상세 gate/logit·rank/CKA·그룹 개입은 사후 분석에서 계속 측정한다.
+후속 run의 기본 모니터링은 [공통 workflow의 네 그룹](20261023_experiment_workflow.md#rtla-학습-중-모니터링과-사후-분석)을 따른다. 이 보고서의 과거 training logit/hidden 통계·그림은 수신 원본의 기록으로 유지하며, 해당 안정화 전용 상시 측정 구현은 제거했다. 상세 gate/logit·rank/CKA·그룹 개입은 사후 분석에서 계속 측정한다.
 
 ## 7. 이전 시도
 
@@ -381,7 +381,7 @@ M20/dropout0에서 비교했다. 기준0보다−2와+2 모두 PPL이 좋았지�
 
 두 방법 모두 Off보다 좋은 품질·문맥별 갱신 회복을 보이지 않았다. Refine의17/2/1과 Uniform의17/3/0 분할, 작은 gate std·낮은 update rank가 함께 나타났다. Uniform의 열린3개에는 유용한 메모리가 남았지만 고착 완화 성공을 뜻하지 않는다. Refine의 기본 p logit과 최종 유효 w를 같은 gate로 해석하지 않는다.
 
-[Gu et al., ICML2020](https://arxiv.org/abs/1910.09890)의 원래 전체 UR-LSTM을 재현한 실험이 아니라 GRT에 옮긴 단독 조건이다. 이번 실패를 원논문 전체의 부정으로 확대하지 않는다. 당시 가설·세부 관측은 [정리 전 기록](../archive/20261019_gate_stabilization_history.md)에 보존한다.
+[Gu et al., ICML2020](https://arxiv.org/abs/1910.09890)의 원래 전체 UR-LSTM을 재현한 실험이 아니라 GRT에 옮긴 단독 조건이다. 이번 실패를 원논문 전체의 부정으로 확대하지 않는다. 당시 가설·세부 관측은 [정리 전 기록](20261019_gate_stabilization_history.md)에 보존한다.
 
 ## 8. L150 참고와 전체 출처
 

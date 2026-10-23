@@ -1,8 +1,6 @@
 # GRT Server 연결
 
-배포 후 바로 확인하려면 [임시 테스트 노트북](../notebooks/tmp_server_acceptance.ipynb)과 [실행 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/20261023_aws_test_execution_guide.md)를 사용한다. 기본은 합성 token의 작은 실제 학습이며 WikiText 표본은 선택할 수 있다.
-
-갱신: 2026-10-22. [API 설계](20261021_experiment_control_api_design.md)의 선택 연결을 공통 `WikiTextRun`에 구현한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md)를 따른다.
+공통 `WikiTextRun`의 선택적 서버 연결을 설명한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md), 서버 운영은 [운영 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/operations.md)를 따른다.
 
 ## 실행 모드
 
@@ -20,7 +18,7 @@
 
 ```python
 server_mode = 'upload'
-server_url = 'https://research.example.com'
+server_url = 'https://grt.grtserver.cloud'
 server_deadline = '<실제 세션 종료 시각: UTC ISO8601>'
 ```
 
@@ -85,4 +83,4 @@ GRT_TEST_SERVER_REPO=/path/to/GRT_server python -m pytest tests/test_server.py -
 
 GRT_server checkout에는 `npm ci`가 필요하다. 실제 Express 서버를 임시 SQLite·계정으로 실행해 작은 합성 token 데이터의 CPU 학습·posthoc·원본 다운로드·중복 방지·전송 응답 유실·큐·취소 저장을 검사한다. 서버 설치본이 없으면 외부 통합 검사는 skip된다. 일반 GRT 검사는 서버 없이 실행한다.
 
-CPU 기능 검증은 실제 WikiText 학습 품질·GPU 수렴·Colab/Kaggle secret 권한·AWS/S3 배포·장시간 장애 내성을 입증하지 않는다. 실제 환경 pilot에서 별도로 확인한다.
+자동 검사는 CPU 기능 검증이다. GPU 학습 품질·수렴, 새 플랫폼·저장소·운영 구성은 각 환경에서 확인한다. 배포 검증 기록은 [서버 아카이브](https://github.com/YeoJune/GRT_server/blob/main/docs/archive/README.md)에 보존한다.

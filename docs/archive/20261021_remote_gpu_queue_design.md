@@ -16,7 +16,7 @@
 
 ## 2. 현재 실측과 해결할 문제
 
-[M20 gate 경로 최종 보고서](experiments/20261019_l75_gate_paths.md)의 실측은 다음과 같다. 공통 조건은 T4×2·FP32·global256·L75/M20·40k다. 학습 wall에는 validation·RTLA·checkpoint 저장이 포함되고, 준비·preflight·별도 사후 분석은 제외된다.
+[M20 gate 경로 최종 보고서](20261019_l75_gate_paths.md)의 실측은 다음과 같다. 공통 조건은 T4×2·FP32·global256·L75/M20·40k다. 학습 wall에는 validation·RTLA·checkpoint 저장이 포함되고, 준비·preflight·별도 사후 분석은 제외된다.
 
 | 경로 | 40k 학습 wall | wall/update | 별도 사후 분석 |
 |---|---:|---:|---:|
@@ -473,6 +473,6 @@ ETA는 pilot부터 예측 대비 실제 오차를 기록하고 학습·분석·�
 
 ## 14. 근거와 이번 변경 범위
 
-내부 근거는 [현재 구현 명세](20261011_current_spec.md), [실험 workflow](20261011_experiment_workflow.md), [M20 gate 경로 보고서](experiments/20261019_l75_gate_paths.md)와 `utils/kaggle.py`, `stream_training.py`, `trainer.py`, `logger.py`, `monitoring.py`, `utils/posthoc.py`다. 외부 운영·과금 관련 공식 문서는 본문 링크를2026-10-21에 확인했으며 계약 직전에 재확인해야 한다.
+내부 근거는 [현재 구현 명세](20261023_current_spec.md), [실험 workflow](20261023_experiment_workflow.md), [M20 gate 경로 보고서](20261019_l75_gate_paths.md)와 `utils/kaggle.py`, `stream_training.py`, `trainer.py`, `logger.py`, `monitoring.py`, `utils/posthoc.py`다. 외부 운영·과금 관련 공식 문서는 본문 링크를2026-10-21에 확인했으며 계약 직전에 재확인해야 한다.
 
 이번 변경은 본 설계서와 문서 목록 링크만 포함한다. 코드·설정·노트북·기존 연구 보고서·원본 결과는 변경하지 않는다. 사용자 요청에 따라 구현과 CPU 검사는 수행하지 않고 문서 차분·참조를 확인한 뒤 커밋·push한다.
