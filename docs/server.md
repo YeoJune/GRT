@@ -26,6 +26,8 @@ server_deadline = '<실제 세션 종료 시각: UTC ISO8601>'
 
 기존 `setup → prepare_data → preflight → train → report` 순서는 유지한다. `setup()`에서 권한·버전을 확인하며, setup을 생략해도 preflight 전에 검사한다. 필요한 schema와 큐는 등록한다. 연결 옵션은 연구 Config나 결과 JSON에 넣지 않는다.
 
+Online W&B run URL은 heartbeat와 완료 시 서버로 전달하며 실험 목록·상세에서 클릭해 연다. 기존 실행의 링크는 서버 실험 수정에서 입력할 수 있다.
+
 학습 전에 Config/provenance를 전송한다. 서버 연결 시 5분 간격으로 update 경계에서 확정 checkpoint를 저장하고 helper가 snapshot하여 전송한다. `report()`는 원본 `experiment_report.json`, 실제 Config·metadata·checkpoint·로그와 선택한 posthoc/ZIP을 자동 저장한다. 원본 bytes는 변경하지 않고 서버 검증용 envelope는 별도로 만든다. `download=True`의 기존 로컬 다운로드도 유지한다.
 
 학습 프로세스 종료만으로 성공을 확정하지 않는다. 최종 `report()`가 업로드·finish를 요청하고 서버가 실제 크기·SHA256과 완료 증거를 검증한 뒤에만 성공을 반환한다.

@@ -149,6 +149,10 @@ def test_real_upload_training_posthoc_and_repeat_are_idempotent(tmp_path, client
         assert run.train()['grt']['step'] == 2
         session = run._server_sessions['grt']
         job_id = session.job['id']
+        wandb_url = 'https://wandb.ai/grt/test/runs/integration'
+        (run.run_dir / 'grt/wandb_status.json').write_text(json.dumps({'mode': 'online', 'url': wandb_url}))
+        session.heartbeat()
+        assert client.request('GET', '/jobs/' + job_id)['summary']['wandb_url'] == wandb_url
         checkpoint_before = digest(run.run_dir / 'grt/last.pt')
         with pytest.raises(subprocess.CalledProcessError):
             run.report(plot=False, posthoc=True, posthoc_options={'window_starts': [0, 1]})
@@ -160,6 +164,7 @@ def test_real_upload_training_posthoc_and_repeat_are_idempotent(tmp_path, client
         run.report(plot=False, posthoc=True, posthoc_options=options)
         detail = client.request('GET', '/jobs/' + job_id)
         assert detail['status'] == 'succeeded'
+        assert detail['summary']['wandb_url'] == wandb_url
         assert detail['summary']['partial_result'] is False and detail['summary']['phase_error'] is None
         assert digest(run.run_dir / 'grt/last.pt') == checkpoint_before
         assert len(detail['attempts']) == 1

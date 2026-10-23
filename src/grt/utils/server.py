@@ -296,6 +296,15 @@ class ServerRun:
         assignment = self.state['assignment']
         return {key: assignment[key] for key in ('worker_id', 'lease_token', 'generation')}
 
+    def wandb_summary(self):
+        status_path = self.run.run_dir / self.model / 'wandb_status.json'
+        try:
+            status = json.loads(status_path.read_text())
+            url = status.get('url') if status.get('mode') == 'online' else None
+        except (OSError, ValueError):
+            url = None
+        return {'wandb_url': url} if url else {}
+
     def heartbeat(self):
         progress = None
         metrics = self.run.run_dir / self.model / 'metrics.jsonl'
@@ -308,7 +317,8 @@ class ServerRun:
             except (ValueError, KeyError, IndexError):
                 pass
         reply = self.client.request('POST', '/attempts/' + self.state['assignment']['attempt_id'] + '/heartbeat',
-            {**self.lease, 'stage': self.stage, 'progress': progress} if progress else {**self.lease, 'stage': self.stage},
+            {**self.lease, 'stage': self.stage, **({'progress': progress} if progress else {}),
+             'summary': self.wandb_summary()},
             stop_event=self._done)
         self._last_online = time.monotonic()
         if reply['command'] == 'cancel':
@@ -463,7 +473,7 @@ class ServerRun:
         manifest = dict(spec_sha256=self.job['spec_sha256'], config_sha256=config['sha256'],
             completed_steps=step, target_steps=self.job['spec']['target_steps'], posthoc_completed=bool(analyzed))
         self.client.request('POST', '/attempts/' + self.state['assignment']['attempt_id'] + '/heartbeat',
-            {**self.lease, 'stage': 'uploading', 'summary': {**summary, 'partial_result': outcome != 'completed', 'phase_error': None}})
+            {**self.lease, 'stage': 'uploading', 'summary': {**summary, **self.wandb_summary(), 'partial_result': outcome != 'completed', 'phase_error': None}})
         self.mutation('finish', '/attempts/' + self.state['assignment']['attempt_id'] + '/finish',
             {**self.lease, 'outcome': outcome, 'stage': 'uploading', 'error': 'Local stage failed; inspect preserved results and logs' if error else None,
              'artifact_ids': artifacts, 'manifest': manifest})
