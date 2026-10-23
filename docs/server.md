@@ -1,6 +1,6 @@
 # GRT Server 연결
 
-공통 `WikiTextRun`의 선택적 서버 연결을 설명한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md), 서버 운영은 [운영 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/operations.md)를 따른다.
+공통 `WikiTextRun`의 선택적 서버 연결을 설명한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md), 환경별 큐 실행·결과 회수·실험 관리는 [환경별 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/environments.md), 서버 운영은 [운영 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/operations.md)를 따른다.
 
 ## 실행 모드
 

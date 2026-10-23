@@ -1,10 +1,10 @@
-> 정리 전 기록입니다. 최신 실행은 [실험 workflow](20261023_experiment_workflow.md), 현재 결과는 [gate 안정화 보고서](20261018_l75_gate_stabilization.md)를 따릅니다. 이 문서의 당시 계획·기능 상태·그림은 최신 기준이 아닙니다.
+> 정리 전 기록입니다. 최신 실행은 [실험 workflow](20261023_experiment_workflow.md), 현재 결과는 [gate 안정화 보고서](../experiments/20261018_l75_gate_stabilization.md)를 따릅니다. 이 문서의 당시 계획·기능 상태·그림은 최신 기준이 아닙니다.
 
 # L75 small: gate 안정화 실험
 
 작성: 2026-10-15 · 통합·갱신: 2026-10-19 · 상태: M20 A/B/C·M8 A 결과 반영, M75 A 및 write dropout 비교 대기
 
-[공통 실행 안내](20261023_experiment_workflow.md) · [L150 용량 비교](20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Regularization 설계 검토](20261016_write_regularization.md)
+[공통 실행 안내](20261023_experiment_workflow.md) · [L150 용량 비교](../experiments/20261012_small_register_sweep.md) · [원본 보관](../../results/README.md) · [Regularization 설계 검토](20261016_write_regularization.md)
 
 ## 1. 결론과 범위
 
@@ -463,7 +463,7 @@ window0 정상probe PPL은−2/0/+2에서36.7766/35.8678/36.2851로 전체valida
 
 #### 4.10 L150의 bias−2 결과와 교차 확인
 
-2026-10-17 학습 원본의 resolved Config와 사후 checkpoint Config를 대조했다. **L150 GRT M10/M40/M160은 모두 write bias init−2·write dropout0·read off·model/data seed54**다. NeoX/RMT baseline에는 GRT write gate가 없어 같은 bias 실험으로 세지 않는다. 아래는 [L150 실험](20261012_small_register_sweep.md)의 원본과 이번 M20 결과를 같은 집계 정의로 재계산한 비교다. 그룹은 window0, 포화·gate·표현은 window16/32 평균이다.
+2026-10-17 학습 원본의 resolved Config와 사후 checkpoint Config를 대조했다. **L150 GRT M10/M40/M160은 모두 write bias init−2·write dropout0·read off·model/data seed54**다. NeoX/RMT baseline에는 GRT write gate가 없어 같은 bias 실험으로 세지 않는다. 아래는 [L150 실험](../experiments/20261012_small_register_sweep.md)의 원본과 이번 M20 결과를 같은 집계 정의로 재계산한 비교다. 그룹은 window0, 포화·gate·표현은 window16/32 평균이다.
 
 | L / M | bias init | 닫힘 / 열림 / other | 평균gate | 극단 포화(abs logit>20) |
 |---|---:|---|---:|---:|

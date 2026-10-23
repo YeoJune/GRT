@@ -1,10 +1,10 @@
-> 정리 전 기록입니다. 최신 실행은 [실험 workflow](20261023_experiment_workflow.md), 현재 결과는 [gate 안정화 보고서](20261018_l75_gate_stabilization.md)를 따릅니다. 이 문서의 당시 계획·기능 상태·그림은 최신 기준이 아닙니다.
+> 정리 전 기록입니다. 최신 실행은 [실험 workflow](20261023_experiment_workflow.md), 현재 결과는 [gate 안정화 보고서](../experiments/20261018_l75_gate_stabilization.md)를 따릅니다. 이 문서의 당시 계획·기능 상태·그림은 최신 기준이 아닙니다.
 
 # 실험 설정과 노트북 운영 규칙
 
 현재 실행 규칙은 이 문서를 따른다. 모델/gradient/데이터 계약은 [통합 명세](20261023_current_spec.md)를 따른다. 모델 구조와 실험 조건은 카탈로그와 명시 override로 관리하며 자동 조정은 확정된 실질 배치를 바꾸지 않는다.
 
-2026-10-18 Kaggle/Colab 학습 노트북은 GRT/small/L75/M20/20k/seed54/bias0/write dropout0/read off의 일반 sigmoid write를 기본으로 한다. `WikiTextRun(num_registers=..., router_hidden=..., seed=...)`와 typed override를 사용하고, attention은 size의 차원/head를 유지한다. VRAM 예약 목표95%에서 실질 배치를 보존한다. [Gate 안정화 실험 보고서](20261018_l75_gate_stabilization.md)에 종료된 실험과 현재 설정의 범위를 기록한다.
+2026-10-18 Kaggle/Colab 학습 노트북은 GRT/small/L75/M20/20k/seed54/bias0/write dropout0/read off의 일반 sigmoid write를 기본으로 한다. `WikiTextRun(num_registers=..., router_hidden=..., seed=...)`와 typed override를 사용하고, attention은 size의 차원/head를 유지한다. VRAM 예약 목표95%에서 실질 배치를 보존한다. [Gate 안정화 실험 보고서](../experiments/20261018_l75_gate_stabilization.md)에 종료된 실험과 현재 설정의 범위를 기록한다.
 
 `WikiTextRun`은 기본 `test_at_end=False`로 탐색 중 test를 생략한다. CLI는 `--set evaluation.test_at_end=false`를 사용한다. 학습 종료 시 best checkpoint의 validation과 RTLA를 재평가해 `selected_validation`, `selected_rtla`, `selected_step`에 기록한다. 2026-10-16부터 학습 노트북 마지막 `job.report(posthoc=True, download=True, posthoc_options=...)`는 GRT best checkpoint의 확장 사후 분석까지 실행하고 `experiment_results.zip` 하나를 내보낸다. ZIP에는 이번 run의 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`이 들어간다. `job.report(download=True)`는 분석 없이 학습 JSON만 내보낸다. 최종 Config·환경 metadata·학습 곡선·RTLA 요약·경고를 포함하며 다른 환경의 결과를 누적하지 않는다. 받은 JSON은 `results/`에 보관하고 실험 계획의 Markdown 결과표를 갱신한다. test가 필요한 최종 run은 명시적으로 켜거나 별도 평가 CLI를 사용한다.
 
@@ -182,7 +182,7 @@ job.__class__ = importlib.reload(notebook_runtime).WikiTextRun
 아래 별도 노트북은 이미 학습한 checkpoint를 다른 세션에서 분석할 때 사용한다. 분석 helper와 기본 조건은 학습 마지막 셀과 같다.
 
 
-[Colab 분석 노트북 열기](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb) · [노트북 파일](../../notebooks/colab_analysis.ipynb) · [small 레지스터 실험 결과](20261012_small_register_sweep.md)
+[Colab 분석 노트북 열기](https://colab.research.google.com/github/YeoJune/GRT/blob/main/notebooks/colab_analysis.ipynb) · [노트북 파일](../../notebooks/colab_analysis.ipynb) · [small 레지스터 실험 결과](../experiments/20261012_small_register_sweep.md)
 
 GPU 런타임을 선택하고 Drive에 현재 형식의 WikiText GRT checkpoint와 원본 prepared 파일을 넣는다. Kaggle2GPU에서 학습한 checkpoint도 Colab 단일 GPU에서 분석할 수 있으며 W&B key는 필요 없다.
 

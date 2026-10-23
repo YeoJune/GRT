@@ -1,6 +1,6 @@
 # 아카이브
 
-날짜별 설계·검토·완료된 실험·검증 기록이다. 현재 실행·명세·선택은 [문서 목록](../README.md)을 따른다. archive에는 Markdown만 두며 실행 코드·config·notebook·원본 결과 파일은 넣지 않는다. 원본 결과는 `results/`, 그림·표 이력은 `docs/figures/history/`, `docs/tables/history/`에 보존한다.
+이전 설계·계획·검토·일회성 검증 기록이다. 실험의 최종 기록은 [실험 폴더](../experiments/README.md)에 주제별 하나씩 유지한다. 현재 실행·명세·선택은 [문서 목록](../README.md)을 따른다. archive에는 Markdown만 두며 실행 코드·config·notebook·원본 결과 파일은 넣지 않는다. 원본 결과는 `results/`, 그림·표 이력은 `docs/figures/history/`, `docs/tables/history/`에 보존한다.
 
 | 기록 | 문서 |
 |---|---|
@@ -10,11 +10,8 @@
 | 원격 GPU 큐·임대 목표 설계 | [20261021_remote_gpu_queue_design.md](20261021_remote_gpu_queue_design.md) |
 | 실험 제어 API 목표 설계 | [20261021_experiment_control_api_design.md](20261021_experiment_control_api_design.md) |
 | 게이트 안정화 단계의 모니터링 이력 | [20261020_gate_monitoring.md](20261020_gate_monitoring.md) |
-| L75/M20 write gate 정보 경로 비교 최종 기록 | [20261019_l75_gate_paths.md](20261019_l75_gate_paths.md) |
 | L75 small: gate 안정화 실험 | [20261019_gate_stabilization_history.md](20261019_gate_stabilization_history.md) |
-| L75 gate 안정화 탐색 최종 기록 | [20261018_l75_gate_stabilization.md](20261018_l75_gate_stabilization.md) |
 | Write loss regularization으로 레지스터 분화를 유도하는 설계 검토 | [20261016_write_regularization.md](20261016_write_regularization.md) |
-| L150 baseline·레지스터 용량 비교 기록 | [20261012_small_register_sweep.md](20261012_small_register_sweep.md) |
 | WikiText 크기 선택과 짧은 동작 확인 | [20261011_wikitext_presets.md](20261011_wikitext_presets.md) |
 | Small WikiText-103: Kaggle T4 × 2 | [20261011_wikitext_kaggle.md](20261011_wikitext_kaggle.md) |
 | WikiText-103 GPT-2 BPE와 Kaggle 노트북 | [20261011_wikitext_bpe.md](20261011_wikitext_bpe.md) |

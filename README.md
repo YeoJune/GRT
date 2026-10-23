@@ -2,7 +2,7 @@
 
 GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. Remember 인코더/디코더와 WikiText-103 디코더를 지원한다.
 
-[문서 목록](docs/README.md) · [모델 명세](docs/specification.md) · [실행 workflow](docs/workflow.md) · [서버 연결](docs/server.md) · [연구 요약](docs/research.md)
+[문서 목록](docs/README.md) · [모델 명세](docs/specification.md) · [실행 workflow](docs/workflow.md) · [서버 연결](docs/server.md) · [연구 요약](docs/research.md) · [실험 기록](docs/experiments/README.md)
 
 ## GPU 실행
 
@@ -37,6 +37,6 @@ Remember 디코더는 위 두 `--set` 옵션을 제거한다. RMT는 `--model rm
 python -m pytest -q
 ```
 
-작은 CPU 검사와 실제 GPU 연구 결과를 구분한다. 서버 통합 검사 실행은 [서버 연결](docs/server.md#검증)을 따른다. 수신 JSON의 원본 bytes는 [results](results/README.md)에 보존하고, 최신 비교는 [연구 요약](docs/research.md), 완료된 설계·경과는 [아카이브](docs/archive/README.md)에 둔다. 실행 코드·config·notebook은 archive에 보관하지 않는다.
+작은 CPU 검사와 실제 GPU 연구 결과를 구분한다. 서버 통합 검사 실행은 [서버 연결](docs/server.md#검증)을 따른다. 수신 JSON의 원본 bytes는 [results](results/README.md)에 보존하고, 실험별 조건·비교·판단은 완료 후에도 [실험 폴더](docs/experiments/README.md)에 주제별 하나씩 유지한다. 공통 선택·지표는 [연구 요약](docs/research.md), 이전 설계·계획·일회성 검증은 [아카이브](docs/archive/README.md)에 둔다. 실행 코드·config·notebook은 archive에 보관하지 않는다.
 
 출처·라이선스는 [NOTICE](third_party/NOTICE.md)와 [vendor SOURCE](src/grt/vendor/armt/SOURCE.json)를 따른다.
