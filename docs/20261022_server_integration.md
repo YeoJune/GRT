@@ -1,5 +1,7 @@
 # GRT Server 연결
 
+배포 후 바로 확인하려면 [임시 테스트 노트북](../notebooks/tmp_server_acceptance.ipynb)과 [실행 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/20261023_aws_test_execution_guide.md)를 사용한다. 기본은 합성 token의 작은 실제 학습이며 WikiText 표본은 선택할 수 있다.
+
 갱신: 2026-10-22. [API 설계](20261021_experiment_control_api_design.md)의 선택 연결을 공통 `WikiTextRun`에 구현한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md)를 따른다.
 
 ## 실행 모드
