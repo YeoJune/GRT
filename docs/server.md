@@ -120,6 +120,24 @@ python scripts/server_worker.py --work-dir /path/to/new-work \
 
 이 기능 도입 후 생성한 snapshot이 필요하며 기존 raw last.pt 하나만으로는 자동 재개하지 않는다. 서버에 업로드·검증된 지점 이후의 진행은 강제 종료 시 유실될 수 있다. 종료 자체를 서버가 자동 확인하거나 새 Kaggle 세션을 생성하지 않는다. 라이브러리·GPU 변경 시 수치 동등성까지 보장하지 않으며 CPU 검사에서는 중단 없는 실행과 재개의 최종 가중치 일치를 확인한다. 중단 시 추가 validation은 기존 학습 동작으로 유지한다.
 
+<a id="gate-transfer-kaggle"></a>
+## M8/M75 전달성: 새 Kaggle Save에서 재개
+
+[전용 노트북](../notebooks/kaggle_gate_transfer.ipynb)은 서버 캐시·snapshot 사용을 필수로 한다. 기존 범용 노트북의 서버 기본 `off`는 유지한다. Kaggle Internet·T4×2와 Secrets의 write 권한 `GRT_SERVER_TOKEN`·`WANDB_API_KEY` 접근을 켠다.
+
+최초 Save에서 `execution_mode='new'`, `num_registers=8` 또는 `75`, `write_source='candidate'` 또는 `'independent'`를 고른 뒤 **Save Version → Save & Run All** 한다. 노트북은 데이터를 준비해 서버 캐시에 검증·보관하고, full commit·소스 hash·manifest·사후 분석 조건을 고정한 job 하나를 전용 큐에 등록한 뒤 worker를 실행한다. 출력된 job ID·commit·manifest hash를 보관한다. 셀 재실행 시 같은 제출 본문·멱등 키를 사용한다.
+
+| 새 Save의 목적 | 선택값 | 서버에서 먼저 할 일 |
+|---|---|---|
+| 새로운 조건의 첫 실행 | `execution_mode='new'`, M·source 선택 | 없음 |
+| 중단된 같은 실험의 재개 | `execution_mode='resume'`, `resume_job_id='job_...'` | 이전 Save 종료 확인 → 해당 job의 **이어서 학습** |
+
+중단 후에는 **처음부터 재시도**나 새 job 제출을 사용하지 않는다. Stale running이면 이전 런타임 종료와 lease 만료를 확인하고 서버 웹에 종료 근거를 입력한다. 재개 노트북은 queued 상태와 `resume_artifact_id`를 검사하고, 해당 job의 `spec.code_ref`를 checkout한 뒤 서버 캐시와 snapshot을 복원한다. 로컬 작업 폴더가 없는 새 Save여도 되며 기존 파일을 수동 업로드할 필요는 없다. 위 M·source를 바꿔도 재개 job의 불변 조건은 변경되지 않는다. 같은 T4×2·world size2·기존 microbatch/accumulation을 유지한다.
+
+첫 코드 셀 실행 시각을 로컬 파일에 고정하고 **11시간 뒤를 worker 종료 시각**으로 등록해12시간 강제 종료 전 여유를 둔다. 셀 재실행으로 이 시각을 연장하지 않는다. 학습 중5분 간격 snapshot을 전송하지만 강제 종료·통신 오류에서는 마지막 **verified snapshot** 이후 진행분이 유실될 수 있다. 종료 전에 서버 웹의 snapshot step을 확인한다. 서버는 새 Kaggle Save 자체를 자동 생성하지 않는다.
+
+한 Save는 `--once` worker로 한 조건만 처리한다. M8/candidate, M8/independent, M75/candidate, M75/independent의 네 조건을 각각40k로 실행하며, 각 조건이 중단될 때마다 같은 job을 재개한다. 기존20k 안정화 실험은40k·warmup5% 기준을 대체하지 않는다. 같은40k 기준이 이미 있다면 해당 independent 실행은 생략한다. 완료 기준은40k 학습과 window0/16/32 사후 분석의 서버 검증을 마친 `succeeded`다. 수신 결과는 [기존 경로 비교 보고서](experiments/20261019_l75_gate_paths.md)에 추가한다.
+
 ## 장애와 재시도
 
 - heartbeat는 학습과 별도로 수행한다. 취소·인증 만료/폐기·세션 deadline·약 10분의 통신 단절이 확인되면 stop 파일을 만들고 학습은 update 경계에서 checkpoint를 저장하고 중단한다. 진행 중인 update·평가가 끝나는 시간은 필요하며 강제 런타임 삭제에는 저장을 보장하지 않는다.

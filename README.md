@@ -20,6 +20,8 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 Prepared 데이터의 선택적 서버 캐시·다운로드, 불변 Config를 실행하는 큐 worker, snapshot을 통한 중단 후 재개와 결과 회수는 [서버 연결](docs/server.md)을 따른다. 서버 API·운영은 [GRT_server](https://github.com/YeoJune/GRT_server)를 참조한다.
 
+M8/M75 전달성 실험은 [Kaggle 서버 재개 노트북](notebooks/kaggle_gate_transfer.ipynb)을 사용한다. 최초 Save는 `new`, 중단 후 서버에서 **이어서 학습**을 선택한 새 Save는 `resume`과 같은 job ID로 실행한다. 서버 캐시·snapshot 사용을 필수로 하며, 자세한 순서는 [새 Save 재개 안내](docs/server.md#gate-transfer-kaggle)에 있다.
+
 ## 설치·로컬 실행
 
 Python3.10+와 PyTorch를 사용한다.
