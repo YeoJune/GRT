@@ -18,7 +18,7 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 선택 셀에서 `server_mode='upload'`, 서버 주소·UTC 세션 종료 시각을 지정한다. 플랫폼 Secrets에 `GRT_SERVER_TOKEN` write 토큰을 등록하면 상태·원본 결과·checkpoint를 자동 저장한다. 기본 `off`는 서버 없이 실행한다.
 
-서버의 불변 Config를 순차 실행하는 큐 worker, 인증·재연결·안전 중단은 [서버 연결](docs/server.md)을 따른다. 서버 API·운영은 [GRT_server](https://github.com/YeoJune/GRT_server)를 참조한다.
+Prepared 데이터의 선택적 서버 캐시·다운로드, 불변 Config를 실행하는 큐 worker, snapshot을 통한 중단 후 재개와 결과 회수는 [서버 연결](docs/server.md)을 따른다. 서버 API·운영은 [GRT_server](https://github.com/YeoJune/GRT_server)를 참조한다.
 
 ## 설치·로컬 실행
 

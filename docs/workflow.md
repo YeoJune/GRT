@@ -11,7 +11,7 @@
 - Tokenizer: GPT-2 BPE 또는 word. Runtime: Kaggle/Colab/CPU.
 - 노트북은 값 선택과 setup/prepare/preflight/train/report만 담당한다. 공통 동작은 `src/grt/utils/`에 둔다.
 
-GRT Server 자동 저장은 선택 셀에서 `server_mode='upload'`로 켠다. 기본 `off`와 로컬 실행 순서는 유지한다. 큐 실행·secret·장애 복구의 구체적인 방법은 [서버 연결](server.md)을 따른다.
+GRT Server 자동 저장은 선택 셀에서 `server_mode='upload'`로 켠다. 기본 `off`와 로컬 실행 순서는 유지한다. 큐 실행·secret·prepared 공유 캐시·서버 snapshot 재개·결과 회수의 구체적인 방법은 [서버 연결](server.md)을 따른다.
 
 [Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. Dropout은 모든 M에서0으로 고정한다. 선택 근거와 미검증 범위는 [연구 요약](research.md#현재-선택)에 관리한다.
 

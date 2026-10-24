@@ -6,7 +6,7 @@
 |---|---|
 | 모델·loss·BPTT·checkpoint 계약 | [모델 명세](specification.md) |
 | 설정·데이터·학습·모니터링·사후 분석 | [실행 workflow](workflow.md) |
-| off/upload/queue·인증·전송·안전 중단 | [GRT Server 연결](server.md) |
+| off/upload/queue·캐시·재개·결과 회수 | [GRT Server 연결](server.md) |
 | 현재 연구 선택·공통 지표 정의 | [연구 요약](research.md) |
 | 실험별 질문·조건·결과·판단 | [실험 목록](experiments/README.md) |
 | 원본 JSON 보존·출처 | [results](../results/README.md) |
