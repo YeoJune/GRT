@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import threading
+import tempfile
 import time
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -224,6 +225,7 @@ class ServerRun:
         self.stop_file = self.directory / 'stop'
         self._last_online = time.monotonic()
         self._checkpoint_stamp = None
+        self._checkpoint_id = None
         try:
             if self.state.get('server_url', client.url) != client.url:
                 raise ValueError('Existing run belongs to a different server')
@@ -318,7 +320,8 @@ class ServerRun:
                 pass
         reply = self.client.request('POST', '/attempts/' + self.state['assignment']['attempt_id'] + '/heartbeat',
             {**self.lease, 'stage': self.stage, **({'progress': progress} if progress else {}),
-             'summary': self.wandb_summary()},
+             'summary': self.wandb_summary(),
+             **({'last_verified_checkpoint_id': self._checkpoint_id} if self._checkpoint_id else {})},
             stop_event=self._done)
         self._last_online = time.monotonic()
         if reply['command'] == 'cancel':
@@ -346,7 +349,7 @@ class ServerRun:
         if self.error:
             raise self.error
 
-    def upload(self, path, kind):
+    def upload(self, path, kind, *, extensions=None):
         import requests
         path = Path(path)
         sha = digest(path)
@@ -356,7 +359,7 @@ class ServerRun:
         if previous:
             return previous
         body = dict(name=path.name, kind=kind, size_bytes=path.stat().st_size, sha256=sha,
-            format=path.suffix.lstrip('.') or 'binary', format_version='1',
+            format=path.suffix.lstrip('.') or 'binary', format_version='1', extensions=extensions or {},
             job_id=self.job['id'], attempt_id=self.state['assignment']['attempt_id'])
         reserved = self.mutation('upload:' + identity, '/artifacts/uploads', body)
         current = self.client.request('GET', '/artifacts/uploads/' + reserved['id'])
@@ -387,29 +390,29 @@ class ServerRun:
             self._save()
         return current
 
-    def checkpoint(self):
-        if self.stage != 'training' or self.error or getattr(self, '_checkpoint_retry_at', 0) > time.monotonic():
+    def checkpoint(self, *, force=False):
+        if not force and (self.stage != 'training' or self.error or getattr(self, '_checkpoint_retry_at', 0) > time.monotonic()):
             return
         source = self.run.run_dir / self.model / 'last.pt'
         if not source.exists():
             return
         stamp = source.stat()
         identity = (stamp.st_ino, stamp.st_mtime_ns, stamp.st_size)
-        if identity == self._checkpoint_stamp:
+        if not force and identity == self._checkpoint_stamp:
             return
-        snapshot = self.directory / 'last.pt'
         try:
-            snapshot.unlink(missing_ok=True)
-            os.link(source, snapshot)
-            self.upload(snapshot, 'checkpoint')
+            from grt.utils.server_resume import snapshot_run
+            with tempfile.TemporaryDirectory(dir=self.directory, prefix='snapshot-') as temporary:
+                snapshot, step = snapshot_run(self, temporary)
+                item = self.upload(snapshot, 'checkpoint', extensions={'resume_format': 'grt.resume/1', 'step': step})
+            self._checkpoint_id = item['id']
             self._checkpoint_stamp = identity
-        except ServerError as error:
+            self.heartbeat()
+        except (ServerError, OSError, ValueError) as error:
             self._checkpoint_retry_at = time.monotonic() + 30
-            if error.status in (401, 403, 409):
+            if isinstance(error, ServerError) and error.status in (401, 403, 409):
                 self.stop(error)
             # A later tick retries; local checkpoint always remains available.
-        finally:
-            snapshot.unlink(missing_ok=True)
 
     def evidence(self):
         cfg = self.run.config(self.model)
@@ -452,7 +455,10 @@ class ServerRun:
         if self.error and self.error.code == 'cancel_requested':
             outcome = 'cancelled'
         config, provenance = self.evidence()
+        self.checkpoint(force=True)
         artifacts = [config['id'], provenance['id']]
+        if self._checkpoint_id:
+            artifacts.append(self._checkpoint_id)
         for path, kind in [(self.run.report_path, 'result'), (root / 'experiment_config.json', 'result'),
                            (root / 'metadata.json', 'result'), (root / 'last.pt', 'checkpoint'),
                            (root / 'best.pt', 'checkpoint'), (self.run.run_dir / (self.model + '_train_console.txt'), 'log')]:
@@ -519,8 +525,15 @@ def claim_run(repo_dir, *, work_dir, deadline, runtime='remote', device='cuda', 
         state = json.loads(state_path.read_text()) if state_path.exists() else dict(session_key=uuid4().hex)
         assignment = state.get('assignment')
         if assignment:
-            previous = client.request('GET', '/jobs/' + assignment['job']['id'])
-            if previous['status'] not in ('running', 'finalizing'):
+            try:
+                previous = client.request('GET', '/jobs/' + assignment['job']['id'])
+            except ServerError as error:
+                if error.status != 404:
+                    raise
+                previous = {}
+            if (previous.get('status') not in ('running', 'finalizing') or
+                previous.get('active_attempt_id') != assignment['attempt_id'] or
+                previous.get('generation') != assignment['generation']):
                 state.pop('assignment')
                 state.pop('claim_key', None)
                 assignment = None
@@ -550,15 +563,16 @@ def claim_run(repo_dir, *, work_dir, deadline, runtime='remote', device='cuda', 
         commit, source_sha256 = code_identity(repo_dir)
         if (spec['code_ref'], spec['code_sha256'], spec['world_size']) != (commit, source_sha256, world_size):
             raise ValueError('Queued code or world_size differs from this worker')
+        run_id = 'server-' + assignment['job']['id'] + '-g' + str(assignment['generation'])
         raw = deepcopy(spec['config'])
-        raw['run']['output_dir'] = str(Path(work_dir) / ('server-' + assignment['job']['id']))
+        raw['run']['output_dir'] = str(Path(work_dir) / run_id)
         raw['data']['options']['path'] = str(Path(work_dir) / ('wikitext103_' + raw['data']['options']['tokenization']))
         cfg = validate_config(build_config(Config, raw))
         if cfg.data.name != 'wikitext103' or cfg.training.max_steps != spec['target_steps']:
             raise ValueError('Unsupported or inconsistent queued Config')
         run = WikiTextRun(repo_dir, work_dir=Path(work_dir), runtime=runtime if runtime in ('colab', 'kaggle') else 'cpu',
             models=(cfg.model.name,), tokenization=cfg.data.options['tokenization'],
-            run_id='server-' + assignment['job']['id'], world_size=world_size, device=device,
+            run_id=run_id, world_size=world_size, device=device,
             wandb=cfg.wandb.enabled, server_mode='upload', server_url=client.url,
             secret_source=secret_source, server_queue=queue, server_deadline=deadline)
         run.runtime = runtime

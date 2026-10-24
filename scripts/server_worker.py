@@ -44,9 +44,19 @@ def main():
             run.report(plot=False, posthoc=options is not None, posthoc_options=options)
         except Exception:
             failed = True
+            connected = bool(run._server_sessions)
             run._preserve_partial()
             from grt.utils.server import ServerClient
             client = ServerClient(secret_source=args.secret_source)
+            if not connected:
+                assignment = run._queued_assignment
+                client.request('POST', '/attempts/' + assignment['attempt_id'] + '/finish', {
+                    **{key: assignment[key] for key in ('worker_id', 'lease_token', 'generation')},
+                    'outcome': 'failed', 'stage': 'preparing',
+                    'error': 'Worker could not prepare data or restore its authorized snapshot',
+                    'artifact_ids': [], 'manifest': dict(spec_sha256=assignment['job']['spec_sha256'],
+                        config_sha256='0' * 64, completed_steps=0,
+                        target_steps=assignment['job']['spec']['target_steps'], posthoc_completed=False)})
             detail = client.request('GET', '/jobs/' + run._queued_assignment['job']['id'])
             print('Job stopped; inspect local logs and the server job detail.', file=sys.stderr)
             if detail['status'] in ('running', 'finalizing'):

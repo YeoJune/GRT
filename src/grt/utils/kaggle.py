@@ -304,6 +304,12 @@ class WikiTextRun:
         from grt.utils.server_files import cache_prepared
         return cache_prepared(self._connect_server(), self.prepared_dir)
 
+    def restore_server_checkpoint(self):
+        """Restore an explicitly authorized queued resume before preflight/training."""
+        if self.server_mode == 'queue':
+            from grt.utils.server_resume import restore_run
+            restore_run(self)
+
     def _connect_server(self):
         if self._server_client is None:
             from grt.utils.server import ServerClient
@@ -378,6 +384,7 @@ class WikiTextRun:
             session.check()
 
     def preflight(self):
+        self.restore_server_checkpoint()
         from grt.config import save_config
         reports = {}
         manifest = json.loads((self.prepared_dir / 'manifest.json').read_text())

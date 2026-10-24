@@ -74,7 +74,7 @@ worker는 서버가 지정한 임의 코드·URL·shell을 내려받아 실행�
 - 요청 ID·업로드 ID·lease는 run의 `.server/`, 큐 worker 식별 정보는 work 디렉터리의 `.grt-server/`에 0600 파일로 보존한다. API 토큰과 signed URL은 journal이나 결과에 저장하지 않는다. lease는 실행 권한이므로 이 디렉터리를 공개·복제하지 않는다.
 - 전송 실패 후에는 같은 run에서 `report()`를 다시 실행한다. 기존 업로드를 확인하며 학습을 반복하지 않는다. 이미 succeeded인 job은 기존 결과를 재사용한다.
 - W&B나 posthoc가 실패해도 로컬 학습 결과를 먼저 내보내고 가능한 파일을 전송한다. posthoc 실패는 단계 오류로 표시하며 같은 lease가 유효하면 `report(posthoc=True, ...)`로 분석만 재시도한다. 프로세스를 떠날 때는 `job.close()`로 heartbeat를 종료한다.
-- 토큰 교체 후 같은 run으로 재연결하면 journal의 소유권을 확인한다. 같은 Config·manifest·world size의 로컬 checkpoint만 기존 복원 계약으로 재개한다. 원래 lease를 잃었거나 새 세대가 생겼으면 실행 권한을 복제하지 않고 종료 확인·서버 retry가 필요하다. 서버 checkpoint 자동 복원은 제공하지 않는다.
+- 토큰 교체 후 같은 run으로 재연결하면 journal의 소유권을 확인한다. 같은 Config·manifest·world size의 로컬 checkpoint만 기존 복원 계약으로 재개한다. 원래 lease를 잃었거나 새 세대가 생겼으면 실행 권한을 복제하지 않고 종료 확인·서버 retry가 필요하다. 다른 환경에서 이어서 실행하려면 아래의 명시적 서버 snapshot 재개를 사용한다.
 
 ## 검증
 
@@ -102,3 +102,24 @@ job.prepare_data(server_cache='<manifest SHA256>')
 다운로드는 ZIP·manifest·각 파일 SHA256을 검사한 후 확정하며 다른 조건이나 손상된 파일을 조용히 덮어쓰지 않는다. 데이터·tokenizer·전처리 결과가 달라 manifest가 다르면 별개 캐시다. 모델·학습 예산만 달라지고 prepared 데이터가 같으면 재사용한다. 서버 캐시는 명시적으로 업로드한 것만 제공하며 자동 만료하지 않는다. ZIP 크기가 서버의 MAX_ARTIFACT_BYTES(기본 1GiB)를 넘으면 운영 한도·디스크를 조정해야 한다.
 
 큐 worker는 `--prepared-dir` 대신 `--prepared-from-server`를 선택할 수 있다. 이 경우 job의 dataset_sha256과 일치하는 서버 캐시를 받아 사용하며, 없으면 실패한다. 제출자와 worker 모두 선택한 GRT commit을 사용한다.
+
+## 세션 중단 후 이어서 학습
+
+서버 연결 학습은 주기적 checkpoint에서 `grt.resume/1` snapshot ZIP을 전송한다. Last/best checkpoint, 실제 Config, microbatch 보정·preflight 정보, 기존 metrics와 W&B run ID를 포함한다. 모델·optimizer·scheduler·rank별 RNG·token stream 위치·메모리 state는 기존 checkpoint 계약으로 복원하며 `.server`의 lease·토큰은 복제하지 않는다. Heartbeat에 검증된 snapshot ID도 전송한다.
+
+Kaggle/Colab 세션 종료 후 웹의 **이어서 학습** 또는 `npm run cli -- jobs resume JOB_ID`를 선택한다. Stale running 작업은 lease 만료 후 `--evidence '이전 런타임 종료를 확인한 근거'`가 필요하다. 서버는 최신 검증 snapshot을 선택해 같은 job의 새 attempt를 대기열에 넣는다. 처음부터 실행하려면 기존 `jobs retry`를 사용한다. `--checkpoint ARTIFACT_ID`로 같은 실험의 다른 보존 snapshot도 선택할 수 있다.
+
+새 환경에서 **같은 GRT commit·소스·prepared manifest·world size**를 준비하고 큐 worker를 실행한다. 데이터는 로컬 입력 또는 `--prepared-from-server`를 선택한다. `preflight()`가 할당된 snapshot을 검증·다운로드하고 기존 best·batch 보정·학습 상태를 복원한다. GPU 메모리에 맞춰 연구 조건이나 microbatch를 다시 바꾸지 않으며 기존 배치가 들어가는 환경이 필요하다. 재개 시 기존 preflight 보정·측정치를 재사용하므로 새 하드웨어의 속도·peak memory를 다시 측정한 값으로 해석하지 않는다. 새 attempt는 별도 로컬 디렉터리에서 실행한다. 같은 attempt의 동일 로컬 journal을 이용한 재접속은 기존 복원본을 재사용한다.
+
+```bash
+# GRT_server CLI: 종료가 확정된 interrupted/failed/cancelled 작업
+npm run cli -- jobs resume job_123
+# GRT worker: 실제 세션 종료 시각과 원래 world size 지정
+python scripts/server_worker.py --work-dir /path/to/new-work \
+  --prepared-from-server --deadline '<실제 UTC ISO8601 종료 시각>' \
+  --runtime kaggle --device cuda --world-size 2
+```
+
+재개용 snapshot은 실험별 최근 2개와 배정·실행 중인 재개 원본을 보존하고 나머지 snapshot bytes를 정리한다. 정리된 snapshot의 hash·이력은 남으며 최종 원본 report·개별 best/last checkpoint와 공유 prepared 캐시는 이 정리 대상이 아니다. 보관된 snapshot만 재개에 선택할 수 있다.
+
+이 기능 도입 후 생성한 snapshot이 필요하며 기존 raw last.pt 하나만으로는 자동 재개하지 않는다. 서버에 업로드·검증된 지점 이후의 진행은 강제 종료 시 유실될 수 있다. 종료 자체를 서버가 자동 확인하거나 새 Kaggle 세션을 생성하지 않는다. 라이브러리·GPU 변경 시 수치 동등성까지 보장하지 않으며 CPU 검사에서는 중단 없는 실행과 재개의 최종 가중치 일치를 확인한다. 중단 시 추가 validation은 기존 학습 동작으로 유지한다.

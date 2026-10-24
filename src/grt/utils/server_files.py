@@ -79,12 +79,7 @@ def cache_prepared(client, directory):
             raise
     with tempfile.TemporaryDirectory(prefix='grt-prepared-') as temporary:
         archive = Path(temporary) / ('prepared-' + sha + '.zip')
-        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as bundle:
-            for name in sorted(files):
-                info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-                info.external_attr = 0o600 << 16
-                with bundle.open(info, 'w', force_zip64=True) as out, (directory / name).open('rb') as source:
-                    shutil.copyfileobj(source, out, 1024 * 1024)
+        pack_archive(directory, files, archive)
         item = client.request('POST', '/artifacts/uploads', dict(name=archive.name, kind='dataset',
             size_bytes=archive.stat().st_size, sha256=digest(archive), format='zip', format_version='1',
             extensions=dict(cache_format='grt.prepared/1', manifest_sha256=sha)))
@@ -131,21 +126,35 @@ def fetch_prepared(client, sha, destination):
         download_artifact(client, item, root / 'prepared.zip')
         unpacked = root / 'data'
         unpacked.mkdir()
-        with zipfile.ZipFile(root / 'prepared.zip') as bundle:
-            names = set()
-            for member in bundle.infolist():
-                name = PurePosixPath(member.filename)
-                if (name.is_absolute() or '..' in name.parts or '\\' in member.filename or
-                    member.is_dir() or member.compress_type != zipfile.ZIP_STORED or member.filename in names or
-                    (member.external_attr >> 16) & 0o170000 == 0o120000):
-                    raise ValueError('Unsafe prepared archive entry')
-                names.add(member.filename)
-            if sum(m.file_size for m in bundle.infolist()) > item['size_bytes']:
-                raise ValueError('Prepared archive must be uncompressed')
-            bundle.extractall(unpacked)
+        names = unpack_archive(root / 'prepared.zip', unpacked, item['size_bytes'])
         if digest(unpacked / 'manifest.json') != sha:
             raise ValueError('Cached manifest SHA256 mismatch')
         if prepared_files(unpacked) != names:
             raise ValueError('Prepared archive contains untracked files')
         unpacked.rename(destination)
     return destination
+
+
+def unpack_archive(archive, destination, max_bytes):
+    with zipfile.ZipFile(archive) as bundle:
+        names = set()
+        for member in bundle.infolist():
+            name = PurePosixPath(member.filename)
+            if (name.is_absolute() or '..' in name.parts or '\\' in member.filename or
+                member.is_dir() or member.compress_type != zipfile.ZIP_STORED or member.filename in names or
+                (member.external_attr >> 16) & 0o170000 == 0o120000):
+                raise ValueError('Unsafe prepared archive entry')
+            names.add(member.filename)
+        if sum(m.file_size for m in bundle.infolist()) > max_bytes:
+            raise ValueError('Archive exceeds uncompressed size limit')
+        bundle.extractall(destination)
+    return names
+
+
+def pack_archive(directory, names, destination):
+    with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as bundle:
+        for name in sorted(names):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.external_attr = 0o600 << 16
+            with bundle.open(info, 'w', force_zip64=True) as out, (Path(directory) / name).open('rb') as source:
+                shutil.copyfileobj(source, out, 1024 * 1024)

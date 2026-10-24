@@ -415,3 +415,82 @@ def test_prepared_cache_rejects_archive_traversal_before_publishing(tmp_path, cl
         fetch_prepared(client, sha, tmp_path / 'destination')
     assert not (tmp_path / 'destination').exists()
     assert not list(tmp_path.rglob('escaped.txt'))
+
+
+def test_server_resume_restores_training_state_and_matches_uninterrupted_weights(tmp_path, client, monkeypatch):
+    for name in ('source', 'reference'):
+        (tmp_path / name).mkdir()
+    source = make_run(tmp_path / 'source', client, steps=120)
+    source.overrides['evaluation']['every_steps'] = 20
+    source.preflight()
+    session = source._server_sessions['grt']
+    logged = source._logged
+    def interrupt(command, filename, *, poll=None):
+        def stopping():
+            metrics = source.run_dir / 'grt/metrics.jsonl'
+            if metrics.exists() and any(json.loads(line)['step'] >= 2 for line in metrics.read_text().splitlines() if line):
+                session.stop_file.touch()
+            if poll:
+                poll()
+        return logged(command, filename, poll=stopping if filename == 'grt_train_console.txt' else poll)
+    monkeypatch.setattr(source, '_logged', interrupt)
+    try:
+        assert source.train()['grt']['status'] == 'interrupted'
+        source.report(plot=False)
+        partial = client.request('GET', '/jobs/' + session.job['id'])
+        snapshots = [a for a in partial['artifacts'] if a['extensions'].get('resume_format') == 'grt.resume/1' and a['status'] == 'verified']
+        assert snapshots and 0 < max(a['extensions']['step'] for a in snapshots) < 120
+        client.request('POST', '/jobs/' + partial['id'] + '/actions', {'action': 'resume'})
+        resumed = WikiTextRun.claim(REPO, work_dir=tmp_path / 'resumed',
+            deadline=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            runtime='cpu', device='cpu', world_size=1, server_url=client.url, queue=source.server_queue)
+        assert resumed._queued_assignment['resume_mode'] == 'checkpoint'
+        resumed.prepare_data(prepared_input=source.prepared_dir)
+        resumed.preflight()
+        restored = torch.load(resumed.run_dir / 'grt/last.pt', weights_only=False)
+        assert restored['step'] == max(a['extensions']['step'] for a in snapshots)
+        assert (resumed.run_dir / 'grt/best.pt').read_bytes() == (source.run_dir / 'grt/best.pt').read_bytes()
+        resumed.train()
+        resumed.report(plot=False)
+        detail = client.request('GET', '/jobs/' + partial['id'])
+        assert detail['status'] == 'succeeded' and len(detail['attempts']) == 2
+        reference = make_run(tmp_path / 'reference', client, steps=120, mode='off')
+        reference.overrides['evaluation']['every_steps'] = 20
+        reference.preflight()
+        reference.train()
+        final = torch.load(resumed.run_dir / 'grt/last.pt', weights_only=False)
+        uninterrupted = torch.load(reference.run_dir / 'grt/last.pt', weights_only=False)
+        assert final['step'] == uninterrupted['step'] == 120
+        assert final['offset'] == uninterrupted['offset']
+        assert final['target_tokens_seen'] == uninterrupted['target_tokens_seen']
+        for name, tensor in final['model'].items():
+            assert torch.equal(tensor, uninterrupted['model'][name]), name
+        resumed.close()
+    finally:
+        source.close()
+
+
+def test_worker_reports_preparation_failure_without_leaving_a_running_attempt(tmp_path, client):
+    source = make_run(tmp_path, client, mode='off')
+    manifest = source.prepared_dir / 'manifest.json'
+    value = json.loads(manifest.read_text())
+    value['test_cache_identity'] = tmp_path.name
+    manifest.write_text(json.dumps(value))
+    client.ensure_schema()
+    client.ensure_queue(source.server_queue)
+    queued = client.request('POST', '/jobs', source.server_job('grt'))
+    completed = subprocess.run([sys.executable, str(REPO / 'scripts/server_worker.py'),
+        '--work-dir', str(tmp_path / 'worker'), '--prepared-from-server',
+        '--deadline', (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        '--queue', source.server_queue, '--runtime', 'cpu', '--device', 'cpu', '--once'],
+        env={**os.environ, 'GRT_SERVER_URL': client.url, 'GRT_SERVER_TOKEN': client._token,
+             'OMP_NUM_THREADS': '1', 'MKL_NUM_THREADS': '1'}, capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 1
+    assert client._token not in completed.stdout + completed.stderr
+    for _ in range(40):
+        detail = client.request('GET', '/jobs/' + queued['id'])
+        if detail['status'] != 'finalizing':
+            break
+        time.sleep(.1)
+    assert detail['status'] == 'failed'
+    assert detail['attempts'][0]['finish']['error'] == 'Worker could not prepare data or restore its authorized snapshot'
