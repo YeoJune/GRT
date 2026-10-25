@@ -20,7 +20,7 @@ def runs():
 
 def test_received_sources_match_training_checkpoint_and_common_tables(runs):
     # load_runs rejects mismatched manifests, selected steps, metrics and non-GPU provenance.
-    assert len(runs) == 24
+    assert len(runs) == 26
     for group, (_, keys) in report.GROUPS.items():
         table = report.table_block(group, runs)
         for _, label, _ in report.METRICS:
@@ -70,6 +70,8 @@ def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
         ('gate_m20_independent', 38000, 28.25498946758573, 28.28760396048914, 4016),
         ('gate_m20_separate_head', 40000, 28.41196133215214, 28.41196133215214, 4087),
         ('gate_m20_candidate', 39000, 28.178114591242053, 28.203008750372558, 4027),
+        ('gate_m8_independent', 40000, 29.006642171298886, 29.006642171298886, 4001),
+        ('gate_m8_candidate', 38000, 28.92683921352185, 29.027446118291582, 4001),
     ]:
         row = runs[key]
         raw = json.loads((REPO/'results'/f"{row['source']['train_id']}.json").read_text())
@@ -82,9 +84,17 @@ def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
         assert len(experiment['metrics']) == raw_rows and len(row['history']) == 4001
         latest = {v['step']: v for v in experiment['metrics']}
         assert row['history'] == [latest[step] for step in sorted(latest)]
-        expected_counts = {'closed': 0, 'open': 0, 'other': 20} if key.endswith('separate_head') else {'closed': 0, 'open': 1, 'other': 19}
+        if row['M'] == 8:
+            expected_counts = {'closed': 0, 'open': 0, 'other': 8}
+        else:
+            expected_counts = {'closed': 0, 'open': 0, 'other': 20} if key.endswith('separate_head') else {'closed': 0, 'open': 1, 'other': 19}
         assert row['counts'] == expected_counts
         assert row['stats']['over20'] == 0
+
+    # M8 reverses the ranking between best-checkpoint and final-budget PPL.
+    independent, candidate = [runs['gate_m8_' + source] for source in ('independent', 'candidate')]
+    assert candidate['best_ppl'] < independent['best_ppl']
+    assert candidate['final_ppl'] > independent['final_ppl']
 
 
 def test_regeneration_preserves_narrative_and_rejects_ambiguous_markers():

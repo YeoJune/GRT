@@ -5042,6 +5042,366 @@
         "accumulation": 1,
         "target_tokens": 767950848
       }
+    },
+    "gate_m8_independent": {
+      "key": "gate_m8_independent",
+      "method": "Independent",
+      "label": "M8 Independent",
+      "L": 75,
+      "M": 8,
+      "bias": 0,
+      "dropout": 0,
+      "threshold": 10,
+      "coef": 0.0001,
+      "best_step": 40000,
+      "best_nll": 3.367524844150345,
+      "best_ppl": 29.006642171298886,
+      "final_nll": 3.367524844150345,
+      "final_ppl": 29.006642171298886,
+      "wall_h": 11.5802643923375,
+      "peak_gib": 10.898210048675537,
+      "counts": {
+        "closed": 0,
+        "open": 0,
+        "other": 8
+      },
+      "stats": {
+        "write_mean": 0.424317647660132,
+        "slot_std": 0.15979387079444654,
+        "abs_median": 1.9837553799152374,
+        "over20": 0.0,
+        "hidden_norm": 27.65528779476881,
+        "state_rank": 2.5340861633028546,
+        "update_rank": 2.0209004330082045,
+        "cka": 0.6739503089708934,
+        "reset": 0.5274232134839137,
+        "swap": 0.7671405989582335,
+        "swap_lag3": 0.11345212174241295
+      },
+      "groups": {
+        "closed": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "open": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "other": {
+          "size": 8,
+          "reset": [
+            0.5274232134839137,
+            0.2823485138029449,
+            0.12148534897406088,
+            0.07916091366227787
+          ],
+          "swap": [
+            0.7671405989582335,
+            0.27041415407390773,
+            0.15977591123932885,
+            0.11345212174241295
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+open": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+other": {
+          "size": 8,
+          "reset": [
+            0.5274232134839137,
+            0.2823485138029449,
+            0.12148534897406088,
+            0.07916091366227787
+          ],
+          "swap": [
+            0.7671405989582335,
+            0.27041415407390773,
+            0.15977591123932885,
+            0.11345212174241295
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "open+other": {
+          "size": 8,
+          "reset": [
+            0.5274232134839137,
+            0.2823485138029449,
+            0.12148534897406088,
+            0.07916091366227787
+          ],
+          "swap": [
+            0.7671405989582335,
+            0.27041415407390773,
+            0.15977591123932885,
+            0.11345212174241295
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+open+other": {
+          "size": 8,
+          "reset": [
+            0.5274232134839137,
+            0.2823485138029449,
+            0.12148534897406088,
+            0.07916091366227787
+          ],
+          "swap": [
+            0.7671405989582335,
+            0.27041415407390773,
+            0.15977591123932885,
+            0.11345212174241295
+          ],
+          "reset_random": null,
+          "swap_random": null
+        }
+      },
+      "output_bias_range": [
+        -0.20678523182868958,
+        0.7110871076583862
+      ],
+      "output_weight_norm": 1.0772691890597343,
+      "source": {
+        "train_id": "b847ae2264864871b0f132a1ee0ed61e",
+        "post_id": "b67922afa77542ae8273c293fc27a50e",
+        "training_sha256": "4444d57f6f8ff594f0cc9f83fd964ce3add3c0bfc73c765a88d378188ab9085e",
+        "checkpoint_sha256": "a51ec26f969920fe983517db03b0d1557ce4fe41d526abd244cbc54d92d7d9ae",
+        "train_commit": "dde0e8ff79c749e86dd040656bc00fbffeac43f2",
+        "post_commit": "dde0e8ff79c749e86dd040656bc00fbffeac43f2",
+        "train_python": "3.13.15",
+        "train_torch": "2.11.0+cu128",
+        "post_python": "3.13.15",
+        "post_torch": "2.11.0+cu128",
+        "gpu": "Tesla T4",
+        "precision": "fp32",
+        "world_size": 2,
+        "microbatch": 128,
+        "accumulation": 1,
+        "target_tokens": 767950848
+      }
+    },
+    "gate_m8_candidate": {
+      "key": "gate_m8_candidate",
+      "method": "Candidate",
+      "label": "M8 Candidate",
+      "L": 75,
+      "M": 8,
+      "bias": 0,
+      "dropout": 0,
+      "threshold": 10,
+      "coef": 0.0001,
+      "best_step": 38000,
+      "best_nll": 3.3647698566597084,
+      "best_ppl": 28.92683921352185,
+      "final_nll": 3.368241800287574,
+      "final_ppl": 29.027446118291582,
+      "wall_h": 12.322735195661945,
+      "peak_gib": 10.81024169921875,
+      "counts": {
+        "closed": 0,
+        "open": 0,
+        "other": 8
+      },
+      "stats": {
+        "write_mean": 0.5856756818867694,
+        "slot_std": 0.14160660270734154,
+        "abs_median": 2.835401713848114,
+        "over20": 0.0,
+        "hidden_norm": 37.904550180304796,
+        "state_rank": 2.887807740569845,
+        "update_rank": 1.8535928009680207,
+        "cka": 0.5860437965157237,
+        "reset": 0.5129223476925929,
+        "swap": 0.7028419812228313,
+        "swap_lag3": 0.09871621072441358
+      },
+      "groups": {
+        "closed": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "open": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "other": {
+          "size": 8,
+          "reset": [
+            0.5129223476925929,
+            0.1857874126603994,
+            0.08417532380642467,
+            0.04883186442739476
+          ],
+          "swap": [
+            0.7028419812228313,
+            0.24955952617389682,
+            0.14932045416626535,
+            0.09871621072441358
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+open": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+other": {
+          "size": 8,
+          "reset": [
+            0.5129223476925929,
+            0.1857874126603994,
+            0.08417532380642467,
+            0.04883186442739476
+          ],
+          "swap": [
+            0.7028419812228313,
+            0.24955952617389682,
+            0.14932045416626535,
+            0.09871621072441358
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "open+other": {
+          "size": 8,
+          "reset": [
+            0.5129223476925929,
+            0.1857874126603994,
+            0.08417532380642467,
+            0.04883186442739476
+          ],
+          "swap": [
+            0.7028419812228313,
+            0.24955952617389682,
+            0.14932045416626535,
+            0.09871621072441358
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+open+other": {
+          "size": 8,
+          "reset": [
+            0.5129223476925929,
+            0.1857874126603994,
+            0.08417532380642467,
+            0.04883186442739476
+          ],
+          "swap": [
+            0.7028419812228313,
+            0.24955952617389682,
+            0.14932045416626535,
+            0.09871621072441358
+          ],
+          "reset_random": null,
+          "swap_random": null
+        }
+      },
+      "output_bias_range": [
+        -0.06507500261068344,
+        0.14121732115745544
+      ],
+      "output_weight_norm": 1.0809755474328995,
+      "source": {
+        "train_id": "8908b33d329c4264b8c8f96872cada64",
+        "post_id": "31787a5dc9c242768cf51d2a67b1a149",
+        "training_sha256": "5fe45dfba82c5a37d0addddfa04bc64e9dce759c6b10124aae736f5e6710164a",
+        "checkpoint_sha256": "7663f9cf5f3aeaa7a54c6a57e91eca12b8ffdccc2765eb7f1bd90e0672ff1145",
+        "train_commit": "dde0e8ff79c749e86dd040656bc00fbffeac43f2",
+        "post_commit": "dde0e8ff79c749e86dd040656bc00fbffeac43f2",
+        "train_python": "3.13.15",
+        "train_torch": "2.11.0+cu128",
+        "post_python": "3.13.15",
+        "post_torch": "2.11.0+cu128",
+        "gpu": "Tesla T4",
+        "precision": "fp32",
+        "world_size": 2,
+        "microbatch": 128,
+        "accumulation": 1,
+        "target_tokens": 767950848
+      }
     }
   }
 }

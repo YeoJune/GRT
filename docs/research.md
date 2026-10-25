@@ -12,7 +12,7 @@
 | 최적화 | Adam LR5e-4·clip.25·이전3segments BPTT·warmup5% 뒤 cosine·최소 LR 비율1% |
 | 평가 | 전체 validation NLL로 best 선택; best와 final-budget 결과를 별도 표시 |
 
-M20 40k 비교의 best PPL은 candidate28.1781 / independent28.2550 / separate_head28.4120이다. 작은 품질 차이와 reset/swap 진단, 파라미터·연산량을 함께 고려해 candidate를 기본값으로 사용한다. 두 대안의 구현은 유지한다. 다른 M·여러 seed의 전달성과 선택적 detach 효과는 미검증이다.
+M20 40k 비교의 best PPL은 candidate28.1781 / independent28.2550 / separate_head28.4120이다. 작은 품질 차이와 reset/swap 진단, 파라미터·연산량을 함께 고려해 candidate를 기본값으로 사용한다. 두 대안의 구현은 유지한다. M8 40k 전달성은 best에서 candidate가 약0.28% 낮고 final에서는 independent가 약0.07% 낮아 거의 동등하다. M75는 실험 중·결과 미수신이며, 여러 seed와 선택적 detach 효과는 미검증이다.
 
 패널티 A와 dropout0을 모든 M의 후속 비교에 공통 적용한다. M8에서 A+dropout.1의20k 이득은 관측됐지만 M20·M75의 추가 효과는 혼합이었다. 긴 예산에서 같은 조건의 dropout0/.1 재검증이 필요하다. 예산 내 PPL·분화 지표와 수렴 후 우열을 구분한다.
 

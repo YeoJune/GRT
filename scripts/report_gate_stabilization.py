@@ -37,6 +37,8 @@ RUNS = {
     'gate_m20_independent': ('c4b4660b71164924a0bef45863d42a92', 'Independent'),
     'gate_m20_separate_head': ('d598c992d4734bd9aa327cbff78b96c5', 'Separate head'),
     'gate_m20_candidate': ('73881fe675194b53b499eab9e754a6d2', 'Candidate'),
+    'gate_m8_independent': ('b847ae2264864871b0f132a1ee0ed61e', 'Independent'),
+    'gate_m8_candidate': ('8908b33d329c4264b8c8f96872cada64', 'Candidate'),
 }
 GROUPS = {
     'penalty': ('Penalty settings: L75/M20', ['m20_off', 'm20_a', 'm20_b', 'm20_c']),
@@ -48,7 +50,10 @@ GROUPS = {
     'reference': ('Reference: L150 vs L75, bias -2', ['l150_m10', 'l150_m40', 'l150_m160', 'm20_bias_minus']),
     'gate_paths': ('Gate paths: L75/M20, 40k updates',
                    ['gate_m20_independent', 'gate_m20_separate_head', 'gate_m20_candidate']),
+    'gate_transfer_m8': ('Gate paths: L75/M8 transfer, 40k updates',
+                         ['gate_m8_independent', 'gate_m8_candidate']),
 }
+GATE_PATH_GROUPS = ('gate_paths', 'gate_transfer_m8')
 COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A+Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',
           'C': '#8b5cf6', 'Bias-2': '#009E73', 'Bias+2': '#CC79A7',
           'Refine': '#E69F00', 'Uniform': '#CC79A7', 'L150': '#56B4E9',
@@ -222,7 +227,7 @@ def common_figure(group, runs, destination):
         ax.grid(alpha=.2); ax.set_axisbelow(True)
     fig.suptitle(GROUPS[group][0], fontsize=16)
     footer = ('GPU measurements, seed54. Posthoc: windows16/32; same 40k schedule. Repeated steps keep the last logged row.'
-              if group == 'gate_paths' else
+              if group in GATE_PATH_GROUPS else
               'GPU measurements, seed54. Posthoc: windows16/32; Refine logits are base p, gates are effective w. Conditions and versions differ.')
     fig.supxlabel(footer, fontsize=9, y=.025)
     fig.savefig(destination / (group + '.png'), dpi=150); plt.close(fig)
@@ -268,14 +273,16 @@ def generate(root):
     report = root / 'docs/experiments/20261018_l75_gate_stabilization.md'
     text = report.read_text()
     for group in GROUPS:
-        if group != 'gate_paths':
+        if group not in GATE_PATH_GROUPS:
             text = update_block(text, group, table_block(group, runs))
     text = update_block(text, 'effects', dropout_effect_table(runs))
-    path_runs = {key: runs[key] for key in GROUPS['gate_paths'][1]}
+    path_runs = {key: runs[key] for group in GATE_PATH_GROUPS for key in GROUPS[group][1]}
     text = update_block(text, 'sources', source_block({key: r for key, r in runs.items() if key not in path_runs}))
     report.write_text(text)
     path_report = root / 'docs/experiments/20261019_l75_gate_paths.md'
-    text = update_block(path_report.read_text(), 'gate_paths', table_block('gate_paths', runs))
+    text = path_report.read_text()
+    for group in GATE_PATH_GROUPS:
+        text = update_block(text, group, table_block(group, runs))
     text = update_block(text, 'gate_path_sources', source_block(path_runs))
     path_report.write_text(text)
     summary = {key: {k: v for k, v in r.items() if k not in ('history', 'abs_logits', 'slot_stds')} for key, r in runs.items()}

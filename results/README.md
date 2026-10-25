@@ -1,6 +1,6 @@
 # 실험 결과 원본
 
-[L150 용량 비교](../docs/experiments/20261012_small_register_sweep.md)의 학습5개·확장 사후3개와 [L75 gate 안정화](../docs/experiments/20261018_l75_gate_stabilization.md)의 dropout6개·M20 bias2개·Refine/Uniform2개·logit tail5개·A/dropout 결합3개의 학습/사후 원본을 보관한다. [L75 gate 경로 비교](../docs/experiments/20261019_l75_gate_paths.md)의40k independent/separate_head/candidate 학습·사후 각3개도 보관한다. 총 학습 JSON26개·사후 JSON24개이며, 같은 대조군은 중복 저장하지 않는다. 완료된 시도의 조건·결과·판단은 링크한 실험별 문서에 보존하며, 새 결과와 판단도 같은 실험 문서에 반영한다. 실행과 파일 전달은 [공통 workflow](../docs/workflow.md#posthoc-colab)를 따른다.
+[L150 용량 비교](../docs/experiments/20261012_small_register_sweep.md)의 학습5개·확장 사후3개와 [L75 gate 안정화](../docs/experiments/20261018_l75_gate_stabilization.md)의 dropout6개·M20 bias2개·Refine/Uniform2개·logit tail5개·A/dropout 결합3개의 학습/사후 원본을 보관한다. [L75 gate 경로 비교](../docs/experiments/20261019_l75_gate_paths.md)의40k M20 세 경로와 M8 independent/candidate 학습·사후 각5개도 보관한다. 총 학습 JSON28개·사후 JSON26개이며, 같은 대조군은 중복 저장하지 않는다. 완료된 시도의 조건·결과·판단은 링크한 실험별 문서에 보존하며, 새 결과와 판단도 같은 실험 문서에 반영한다. 실행과 파일 전달은 [공통 workflow](../docs/workflow.md#posthoc-colab)를 따른다.
 
 | 경로 / 형식 | 내용 |
 |---|---|
