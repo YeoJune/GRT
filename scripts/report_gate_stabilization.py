@@ -39,6 +39,7 @@ RUNS = {
     'gate_m20_candidate': ('73881fe675194b53b499eab9e754a6d2', 'Candidate'),
     'gate_m8_independent': ('b847ae2264864871b0f132a1ee0ed61e', 'Independent'),
     'gate_m8_candidate': ('8908b33d329c4264b8c8f96872cada64', 'Candidate'),
+    'gate_m75_independent': ('bbd0eca2b36a43be94684b7226118291', 'Independent'),
 }
 GROUPS = {
     'penalty': ('Penalty settings: L75/M20', ['m20_off', 'm20_a', 'm20_b', 'm20_c']),
@@ -52,8 +53,10 @@ GROUPS = {
                    ['gate_m20_independent', 'gate_m20_separate_head', 'gate_m20_candidate']),
     'gate_transfer_m8': ('Gate paths: L75/M8 transfer, 40k updates',
                          ['gate_m8_independent', 'gate_m8_candidate']),
+    'gate_transfer_m75': ('Gate paths: L75/M75, 40k updates (candidate pending)',
+                          ['gate_m75_independent']),
 }
-GATE_PATH_GROUPS = ('gate_paths', 'gate_transfer_m8')
+GATE_PATH_GROUPS = ('gate_paths', 'gate_transfer_m8', 'gate_transfer_m75')
 COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A+Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',
           'C': '#8b5cf6', 'Bias-2': '#009E73', 'Bias+2': '#CC79A7',
           'Refine': '#E69F00', 'Uniform': '#CC79A7', 'L150': '#56B4E9',
@@ -92,13 +95,20 @@ def summarize_window(window, M):
     return out, abs(z).ravel(), gates.std((0, 1)), groups
 
 
+def comparable_config(cfg):
+    # A resumed best.pt may retain the previous attempt's output/display names.
+    # Keep every other field exact, including data path and physical batch size.
+    return {**cfg, 'run': {**cfg['run'], 'output_dir': None},
+            'wandb': {**cfg['wandb'], 'run_name': None}}
+
+
 def load_runs(root):
     posts = [json.loads(p.read_text()) for p in (root / 'results/posthoc').glob('*.json')]
     runs = {}
     for key, (report_id, method) in RUNS.items():
         path = root / 'results' / (report_id + '.json'); raw = path.read_bytes(); t = json.loads(raw)
         e, = t['experiments']; cfg = e['config']; m = cfg['model']; reg = m['register']; s = e['summary']
-        matches = [p for p in posts if p['training_config'] == cfg]
+        matches = [p for p in posts if comparable_config(p['training_config']) == comparable_config(cfg)]
         if len(matches) != 1:
             raise ValueError(f'{key}: expected one matching posthoc report')
         p, = matches
@@ -132,7 +142,8 @@ def load_runs(root):
         runs[key] = dict(key=key, method=method, label=label, L=m['segment_len'], M=m['num_registers'],
             bias=reg['write_gate_bias_init'], dropout=reg['dropout_prob'],
             threshold=reg.get('write_logit_threshold'), coef=reg.get('write_logit_coef', 0),
-            best_step=s['selected_step'], best_nll=s['selected_validation']['loss'],
+            best_step=s['selected_step'], best_target_tokens=p['checkpoint'].get('target_tokens_seen'),
+            best_nll=s['selected_validation']['loss'],
             best_ppl=s['selected_validation']['perplexity'], final_nll=s['validation']['loss'],
             final_ppl=s['validation']['perplexity'], wall_h=s['wall_seconds'] / 3600,
             peak_gib=s['peak_gpu_memory_bytes'] / 2**30, counts=counts, stats=stats, groups=groups,
@@ -192,6 +203,9 @@ def common_figure(group, runs, destination):
         hist = [v for v in r['history'] if 'val/perplexity' in v]
         xx = [v['train/target_tokens'] / 1e6 for v in hist]
         axes[0, 0].plot(xx, [v['val/perplexity'] for v in hist], label=r['label'], **style(r))
+        if r['best_step'] not in {v['step'] for v in hist} and r['best_target_tokens'] is not None:
+            axes[0, 0].scatter([r['best_target_tokens'] / 1e6], [r['best_ppl']],
+                               marker='*', s=70, color=COLORS[r['method']], zorder=4)
         axes[0, 1].plot(xx, [v['grt/write_mean'] for v in hist], **style(r))
         zz = np.sort(r['abs_logits'])
         axes[0, 2].plot(zz, np.arange(1, len(zz) + 1) / len(zz), **style(r))
@@ -229,6 +243,8 @@ def common_figure(group, runs, destination):
     footer = ('GPU measurements, seed54. Posthoc: windows16/32; same 40k schedule. Repeated steps keep the last logged row.'
               if group in GATE_PATH_GROUPS else
               'GPU measurements, seed54. Posthoc: windows16/32; Refine logits are base p, gates are effective w. Conditions and versions differ.')
+    if any(r['best_step'] not in {v['step'] for v in r['history'] if 'val/perplexity' in v} for r in selected):
+        footer += ' Star: selected best outside periodic logs.'
     fig.supxlabel(footer, fontsize=9, y=.025)
     fig.savefig(destination / (group + '.png'), dpi=150); plt.close(fig)
 
