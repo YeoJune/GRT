@@ -38,8 +38,10 @@ RUNS = {
     'gate_m20_separate_head': ('d598c992d4734bd9aa327cbff78b96c5', 'Separate head'),
     'gate_m20_candidate': ('73881fe675194b53b499eab9e754a6d2', 'Candidate'),
     'gate_m8_independent': ('b847ae2264864871b0f132a1ee0ed61e', 'Independent'),
+    'gate_m8_separate_head': ('e1aad6f646664a52b986d0cf59eaff24', 'Separate head'),
     'gate_m8_candidate': ('8908b33d329c4264b8c8f96872cada64', 'Candidate'),
     'gate_m75_independent': ('bbd0eca2b36a43be94684b7226118291', 'Independent'),
+    'gate_m75_candidate': ('1e0143312a004ef9b28e6c104f1dbe89', 'Candidate'),
 }
 GROUPS = {
     'penalty': ('Penalty settings: L75/M20', ['m20_off', 'm20_a', 'm20_b', 'm20_c']),
@@ -52,9 +54,9 @@ GROUPS = {
     'gate_paths': ('Gate paths: L75/M20, 40k updates',
                    ['gate_m20_independent', 'gate_m20_separate_head', 'gate_m20_candidate']),
     'gate_transfer_m8': ('Gate paths: L75/M8 transfer, 40k updates',
-                         ['gate_m8_independent', 'gate_m8_candidate']),
-    'gate_transfer_m75': ('Gate paths: L75/M75, 40k updates (candidate pending)',
-                          ['gate_m75_independent']),
+                         ['gate_m8_independent', 'gate_m8_separate_head', 'gate_m8_candidate']),
+    'gate_transfer_m75': ('Gate paths: L75/M75, 40k updates (separate head pending)',
+                          ['gate_m75_independent', 'gate_m75_candidate']),
 }
 GATE_PATH_GROUPS = ('gate_paths', 'gate_transfer_m8', 'gate_transfer_m75')
 COLORS = {'Off': '#6b7280', 'Dropout': '#D55E00', 'A+Dropout': '#D55E00', 'A': '#0072B2', 'B': '#009E73',

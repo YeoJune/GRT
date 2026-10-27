@@ -21,7 +21,7 @@ def runs():
 
 def test_received_sources_match_training_checkpoint_and_common_tables(runs):
     # load_runs rejects mismatched manifests, selected steps, metrics and non-GPU provenance.
-    assert len(runs) == 27
+    assert len(runs) == 29
     for group, (_, keys) in report.GROUPS.items():
         table = report.table_block(group, runs)
         for _, label, _ in report.METRICS:
@@ -74,6 +74,8 @@ def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
         ('gate_m8_independent', 40000, 29.006642171298886, 29.006642171298886, 4001),
         ('gate_m8_candidate', 38000, 28.92683921352185, 29.027446118291582, 4001),
         ('gate_m75_independent', 39768, 28.326013746946423, 28.475445144947905, 4001),
+        ('gate_m8_separate_head', 37755, 29.21633061766568, 29.466509892782312, 4001),
+        ('gate_m75_candidate', 39000, 27.176870468047007, 27.177628482547842, 4001),
     ]:
         row = runs[key]
         raw = json.loads((REPO/'results'/f"{row['source']['train_id']}.json").read_text())
@@ -86,12 +88,14 @@ def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
         assert len(experiment['metrics']) == raw_rows and len(row['history']) == 4001
         latest = {v['step']: v for v in experiment['metrics']}
         assert row['history'] == [latest[step] for step in sorted(latest)]
-        if row['M'] in (8, 75):
+        if key == 'gate_m75_candidate':
+            expected_counts = {'closed': 0, 'open': 3, 'other': 72}
+        elif row['M'] in (8, 75):
             expected_counts = {'closed': 0, 'open': 0, 'other': row['M']}
         else:
             expected_counts = {'closed': 0, 'open': 0, 'other': 20} if key.endswith('separate_head') else {'closed': 0, 'open': 1, 'other': 19}
         assert row['counts'] == expected_counts
-        assert row['stats']['over20'] == pytest.approx(0.010416666666666668 if row['M'] == 75 else 0)
+        assert row['stats']['over20'] == pytest.approx(0.010416666666666668 if key == 'gate_m75_independent' else 0)
 
     # M8 reverses the ranking between best-checkpoint and final-budget PPL.
     independent, candidate = [runs['gate_m8_' + source] for source in ('independent', 'candidate')]
@@ -99,8 +103,11 @@ def test_received_40k_gate_paths_preserve_best_final_and_resume_history(runs):
     assert candidate['final_ppl'] > independent['final_ppl']
 
 
-def test_resumed_m75_matches_only_attempt_labels_and_preserves_extra_best(runs):
-    row = runs['gate_m75_independent']
+@pytest.mark.parametrize('key,target_tokens', [
+    ('gate_m75_independent', 763496448), ('gate_m8_separate_head', 724846848),
+])
+def test_resumed_sources_match_only_attempt_labels_and_preserve_extra_best(runs, key, target_tokens):
+    row = runs[key]
     train = json.loads((REPO/'results'/f"{row['source']['train_id']}.json").read_text())['experiments'][0]
     post = json.loads((REPO/'results/posthoc'/f"{row['source']['post_id']}.json").read_text())
     assert train['config'] != post['training_config']
@@ -113,7 +120,7 @@ def test_resumed_m75_matches_only_attempt_labels_and_preserves_extra_best(runs):
     changed['data']['options']['path'] += '-other'
     assert report.comparable_config(train['config']) != report.comparable_config(changed)
     assert row['best_step'] not in {v['step'] for v in row['history']}
-    assert row['best_target_tokens'] == post['checkpoint']['target_tokens_seen'] == 763496448
+    assert row['best_target_tokens'] == post['checkpoint']['target_tokens_seen'] == target_tokens
     periodic_best = min(v['val/perplexity'] for v in row['history'] if 'val/perplexity' in v)
     assert row['best_ppl'] < periodic_best
 
