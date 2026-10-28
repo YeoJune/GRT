@@ -5791,6 +5791,187 @@
         "target_tokens": 767950848
       }
     },
+    "gate_m75_separate_head": {
+      "key": "gate_m75_separate_head",
+      "method": "Separate head",
+      "label": "M75 Separate head",
+      "L": 75,
+      "M": 75,
+      "bias": 0,
+      "dropout": 0,
+      "threshold": 10,
+      "coef": 0.0001,
+      "best_step": 38000,
+      "best_target_tokens": 729550848,
+      "best_nll": 3.3927667586471943,
+      "best_ppl": 29.748144450871784,
+      "final_nll": 3.3976926169584707,
+      "final_ppl": 29.895041094460645,
+      "wall_h": 22.171906786621392,
+      "peak_gib": 8.486361503601074,
+      "counts": {
+        "closed": 0,
+        "open": 0,
+        "other": 75
+      },
+      "stats": {
+        "write_mean": 0.27986092713451227,
+        "slot_std": 0.385862479837374,
+        "abs_median": 4.222135066986084,
+        "over20": 0.010416666666666668,
+        "hidden_norm": 87.28296288435658,
+        "state_rank": 24.272279648779698,
+        "update_rank": 11.469620001428288,
+        "cka": 0.5716885571310595,
+        "reset": 0.6238549386295693,
+        "swap": 0.7374618521771323,
+        "swap_lag3": 0.1294744992631977
+      },
+      "groups": {
+        "closed": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "open": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "other": {
+          "size": 75,
+          "reset": [
+            0.6238549386295693,
+            0.4160214395201549,
+            0.17014923288436912,
+            0.08861794337886048
+          ],
+          "swap": [
+            0.7374618521771323,
+            0.3280589486352127,
+            0.1924488162170021,
+            0.1294744992631977
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+open": {
+          "size": 0,
+          "reset": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "swap": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+other": {
+          "size": 75,
+          "reset": [
+            0.6238549386295693,
+            0.4160214395201549,
+            0.17014923288436912,
+            0.08861794337886048
+          ],
+          "swap": [
+            0.7374618521771323,
+            0.3280589486352127,
+            0.1924488162170021,
+            0.1294744992631977
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "open+other": {
+          "size": 75,
+          "reset": [
+            0.6238549386295693,
+            0.4160214395201549,
+            0.17014923288436912,
+            0.08861794337886048
+          ],
+          "swap": [
+            0.7374618521771323,
+            0.3280589486352127,
+            0.1924488162170021,
+            0.1294744992631977
+          ],
+          "reset_random": null,
+          "swap_random": null
+        },
+        "closed+open+other": {
+          "size": 75,
+          "reset": [
+            0.6238549386295693,
+            0.4160214395201549,
+            0.17014923288436912,
+            0.08861794337886048
+          ],
+          "swap": [
+            0.7374618521771323,
+            0.3280589486352127,
+            0.1924488162170021,
+            0.1294744992631977
+          ],
+          "reset_random": null,
+          "swap_random": null
+        }
+      },
+      "output_bias_range": [
+        -0.20748195052146912,
+        0.4196857810020447
+      ],
+      "output_weight_norm": 1.0404455343882242,
+      "source": {
+        "train_id": "1304ffc6733148dd90f2d8f8e428f3d1",
+        "post_id": "6dc022719388475885ed766d195949ca",
+        "training_sha256": "ea9b3f61f65d1fc24f9476edf6615a58c1e192e28b69f2e2731fd66e69f9cc4b",
+        "checkpoint_sha256": "0ae78f9ebadeb4492a8b5e1ed8f9bcb5c4ff5846d1996ade2c010dc6257f27e9",
+        "train_commit": "35eb7f24d452823719ad99401032c2be9edd3418",
+        "post_commit": "35eb7f24d452823719ad99401032c2be9edd3418",
+        "train_python": "3.13.15",
+        "train_torch": "2.11.0+cu128",
+        "post_python": "3.13.15",
+        "post_torch": "2.11.0+cu128",
+        "gpu": "Tesla T4",
+        "precision": "fp32",
+        "world_size": 2,
+        "microbatch": 64,
+        "accumulation": 2,
+        "target_tokens": 767950848
+      }
+    },
     "gate_m75_candidate": {
       "key": "gate_m75_candidate",
       "method": "Candidate",

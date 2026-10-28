@@ -6,6 +6,6 @@
 |---|---|---|
 | L150 baseline·레지스터 용량 | [용량 비교](20261012_small_register_sweep.md) | 수신 학습·사후 결과와 비교 한계 |
 | L75 gate 안정화 | [안정화 탐색](20261018_l75_gate_stabilization.md) | 탐색 완료, 패널티 A·dropout0 선택 |
-| L75/M20 write gate 정보 경로 | [경로 비교](20261019_l75_gate_paths.md) | M20 candidate 선택; M8/M20 세 경로·M75 independent/candidate40k 수신, M75 separate_head 실험 중, 추가 seed 미검증 |
+| L75 write gate 정보 경로·M 전달성 | [경로 비교](20261019_l75_gate_paths.md) | 완료: M8/M20/M75 × 세 경로40k·사후9개 수신, candidate 기본 선택 유지 |
 
 공통 선택·지표는 [연구 요약](../research.md), 최신 실행은 [workflow](../workflow.md), 원본 JSON 보존은 [results](../../results/README.md)를 따른다. 이전 구현의 계획과 일회성 CPU 기능 검증은 [아카이브](../archive/README.md)에 남긴다. 실험별 문서는 당시 조건과 판단 근거를 보존하며, 과거 실행 명령을 현재 사용법으로 안내하지 않는다.
