@@ -276,3 +276,33 @@ def test_unified_notebook_selection_runs_in_local_and_resume_modes(tmp_path, har
         else:
             assert ns['job'].selected_job['id'] == 'job_previous'
     assert not calls and not client.submissions
+
+
+def test_queue_training_failure_keeps_session_for_worker_reporting(tmp_path, monkeypatch):
+    run = WikiTextRun(REPO, models=('grt',), work_dir=tmp_path, wandb=False)
+    run.server_mode = 'queue'
+    run.run_dir.mkdir(parents=True)
+    (run.run_dir / 'grt_preflight').mkdir()
+    (run.run_dir / 'grt_preflight/benchmark.json').write_text('{}')
+    session = object()
+    run._server_sessions['grt'] = session
+    original = server.ServerError(422, 'upload_failed')
+    def fail(*args, **kwargs):
+        raise original
+    monkeypatch.setattr(run, '_launch', fail)
+    monkeypatch.setattr(run, '_preserve_partial', lambda **kwargs: pytest.fail('Worker owns cleanup'))
+    with pytest.raises(server.ServerError) as caught:
+        run.train()
+    assert caught.value is original and run._server_sessions['grt'] is session
+
+
+def test_failure_details_omit_remote_messages_and_commands():
+    secret = 'private-token-and-signed-url'
+    error = subprocess.CalledProcessError(1, ['command', secret], output=secret, stderr=secret)
+    detail = server.failure_details(error, 'training')
+    assert detail['message'] == 'Child process exited with status 1'
+    assert secret not in json.dumps(detail)
+    detail = server.failure_details(ValueError('https://example.com/?signature=' + secret), 'preparing')
+    assert secret not in json.dumps(detail)
+    detail = server.failure_details(server.ServerError(409, 'stale_attempt'), 'training')
+    assert detail['status'] == 409 and detail['code'] == 'stale_attempt'

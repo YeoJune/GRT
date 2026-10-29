@@ -112,6 +112,31 @@ class ServerError(RuntimeError):
         super().__init__(f'GRT Server: {status} {code}')
 
 
+def failure_details(error, phase):
+    """Record useful locations and API codes without credentials or signed URLs."""
+    import traceback
+    known_messages = {
+        'Code changed after server registration',
+        'Dataset changed after server registration',
+        'Actual research configuration differs from the server spec',
+        'Server request changed; use a new run',
+        'Server spec changed; use a new run',
+        'Final DDP peak exceeds the memory limit; reduce microbatch and remeasure',
+        'Insecure upload destination',
+    }
+    message = type(error).__name__
+    if isinstance(error, ServerError) or str(error) in known_messages:
+        message = str(error)
+    elif isinstance(error, subprocess.CalledProcessError):
+        message = f'Child process exited with status {error.returncode}'
+    detail = dict(phase=phase, exception=type(error).__name__, message=message,
+        locations=[dict(file=Path(frame.filename).name, line=frame.lineno, function=frame.name)
+                   for frame in traceback.extract_tb(error.__traceback__)])
+    if isinstance(error, ServerError):
+        detail.update(status=error.status, code=error.code)
+    return detail
+
+
 def validate_url(url):
     parsed = urlsplit(url)
     if (parsed.username or parsed.password or parsed.query or parsed.fragment
@@ -416,9 +441,10 @@ class ServerRun:
 
     def evidence(self):
         cfg = self.run.config(self.model)
-        if (digest(self.run.prepared_dir / 'manifest.json') != self.job['spec']['dataset_sha256']
-            or code_identity(self.run.repo_dir) != (self.job['spec']['code_ref'], self.job['spec']['code_sha256'])):
-            raise ValueError('Code or dataset changed after server registration')
+        if digest(self.run.prepared_dir / 'manifest.json') != self.job['spec']['dataset_sha256']:
+            raise ValueError('Dataset changed after server registration')
+        if code_identity(self.run.repo_dir) != (self.job['spec']['code_ref'], self.job['spec']['code_sha256']):
+            raise ValueError('Code changed after server registration')
         if research_config(asdict(cfg), self.run.world_size) != research_config(self.job['spec']['config'], self.run.world_size):
             raise ValueError('Actual research configuration differs from the server spec')
         config_path = self.directory / 'config.json'
@@ -445,7 +471,7 @@ class ServerRun:
         if self.job['status'] == 'succeeded':
             return self.job
         if self.job['status'] == 'finalizing':
-            return self.wait_finished()
+            return self.wait_finished(allow_failed=error)
         self.stage = 'uploading'
         root = self.run.run_dir / self.model
         summary = json.loads((root / 'summary.json').read_text()) if (root / 'summary.json').exists() else {}
@@ -461,7 +487,9 @@ class ServerRun:
             artifacts.append(self._checkpoint_id)
         for path, kind in [(self.run.report_path, 'result'), (root / 'experiment_config.json', 'result'),
                            (root / 'metadata.json', 'result'), (root / 'last.pt', 'checkpoint'),
-                           (root / 'best.pt', 'checkpoint'), (self.run.run_dir / (self.model + '_train_console.txt'), 'log')]:
+                           (root / 'best.pt', 'checkpoint'), (self.run.run_dir / (self.model + '_train_console.txt'), 'log'),
+                           (self.run.run_dir / 'worker_error.json', 'log'),
+                           (self.run.run_dir / 'sync_error.json', 'log')]:
             if path.is_file():
                 artifacts.append(self.upload(path, kind)['id'])
         analysis = root / 'posthoc_report_path.json'
@@ -480,18 +508,21 @@ class ServerRun:
             completed_steps=step, target_steps=self.job['spec']['target_steps'], posthoc_completed=bool(analyzed))
         self.client.request('POST', '/attempts/' + self.state['assignment']['attempt_id'] + '/heartbeat',
             {**self.lease, 'stage': 'uploading', 'summary': {**summary, **self.wandb_summary(), 'partial_result': outcome != 'completed', 'phase_error': None}})
+        failure = getattr(self.run, '_worker_failure', None) if error else None
         self.mutation('finish', '/attempts/' + self.state['assignment']['attempt_id'] + '/finish',
-            {**self.lease, 'outcome': outcome, 'stage': 'uploading', 'error': 'Local stage failed; inspect preserved results and logs' if error else None,
+            {**self.lease, 'outcome': outcome, 'stage': failure['phase'] if failure else 'uploading',
+             'error': f"{failure['phase']}: {failure['message']}" if failure else
+                 'Local stage failed; inspect preserved results and logs' if error else None,
              'artifact_ids': artifacts, 'manifest': manifest})
         self._done.set()
-        return self.wait_finished()
+        return self.wait_finished(allow_failed=error)
 
-    def wait_finished(self):
+    def wait_finished(self, *, allow_failed=False):
         until = time.monotonic() + 120
         while True:
             self.job = self.client.request('GET', '/jobs/' + self.job['id'])
             if self.job['status'] != 'finalizing':
-                if self.job['status'] == 'failed':
+                if self.job['status'] == 'failed' and not allow_failed:
                     raise ServerError(422, (self.job.get('validation_error') or {}).get('code', 'job_failed'))
                 return self.job
             if time.monotonic() >= until:

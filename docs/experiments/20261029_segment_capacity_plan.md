@@ -1,6 +1,6 @@
 # small · L50/L150 메모리 용량 비교 실험
 
-실험 시작: 2026-10-29 · 갱신: 2026-10-29 · **설정 확정, L50 우선, GPU 결과 미수신**
+실험 시작: 2026-10-29 · 갱신: 2026-10-29 · **설정 확정, L50 우선, M5 GPU preflight 수신·학습 결과 미수신**
 
 [실행 안내](../workflow.md) · [모델 명세](../specification.md) · [선행 L150 용량 비교](20261012_small_register_sweep.md) · [L75 gate 안정화](20261018_l75_gate_stabilization.md) · [candidate 선택](20261019_l75_gate_paths.md) · [원본 보관](../../results/README.md)
 
@@ -120,3 +120,11 @@ T4 두 장 한 쌍에서 학습·정기 평가·checkpoint 저장을 포함한 w
 GRT는 선행 보고와 같은 공통6패널(validation PPL, probe write, 절대 logit ECDF, 슬롯 내 gate std, 문맥 중심화 state/update rank, reset/swap ΔNLL)을 기본으로 한다. 학습 곡선은 실제 누적 새 targets를 가로축에 놓고 학습 probe·사후 window·전체 validation을 구분한다. C/O/T는 calibration window0에서 고정하고 연속 사후 지표는 window16/32 동일 가중 평균으로 기록한다. Rank 절댓값을 M 간 효율 순위로 쓰지 않으며 단일 seed·유한 budget의 결론으로 다룬다.
 
 결과 수신 후 이 문서에 조건·원본 링크·판단을 누적한다. 이전 L75/L150 보고서의 수치와 이번 미실행 조건을 섞지 않는다.
+
+## 7. L50/M5 첫 서버 실행 · 학습 시작 전 중단
+
+2026-10-29 사용자 전달 로그: job `job_mvt0ohj42d5669da3c60bf52bb55`, commit `4727470e5b92260a3216fe22a94872771d1920c9`, prepared manifest `675a7671fa308434d6bab1709fc5280d21f28a70e9664e156ce32d5bbe64b7a3`. GRT L50/M5·100k·T4×2, Python3.12/PyTorch2.10.0+cu128/Transformers4.45.2, seed54, FP32다.
+
+GPU preflight는0.594s/update·micro128×accum1×GPU2=global256·peak7.17GiB/GPU·reserved8.918GiB/GPU(61.2%)로 완료됐다. 계산 전용 ETA는학습16.494h+validation.265h=16.758h이며 준비·저장·RTLA·재개 대기는 제외한다. 이 측정은 위 M5 계획 추정을 보정할 근거지만 실제 전체 wall time이나 학습 수렴 결과는 아니다.
+
+본 학습 명령 출력 전에 worker가 종료되어 summary·학습 metrics는 미수신이다. 당시 코드가 최초 예외를 숨기고 서버에 `worker_failed: Worker could not prepare data or restore its authorized snapshot`을 기록했다. 코드 점검에서 queue train의 내부 정리 후 바깥 worker가 연결 부재를 준비 실패로 오분류하는 경로를 확인했다. Config/provenance 검증·업로드 등을 포함한 학습 시작 경로의 구체적 최초 오류는 원래 로그만으로 확정하지 못했다. 오류 보존/보고 수정과 재실행 절차는 [서버 실패 진단](../server.md#worker-실패-진단)을 따른다.

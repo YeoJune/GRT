@@ -493,4 +493,63 @@ def test_worker_reports_preparation_failure_without_leaving_a_running_attempt(tm
             break
         time.sleep(.1)
     assert detail['status'] == 'failed'
-    assert detail['attempts'][0]['finish']['error'] == 'Worker could not prepare data or restore its authorized snapshot'
+    assert detail['attempts'][0]['finish']['stage'] == 'preparing'
+    assert 'preparing:' in detail['attempts'][0]['finish']['error']
+    assert 'Worker error:' in completed.stderr
+
+
+@pytest.mark.parametrize('fail_at', ['evidence', 'training'])
+def test_worker_preserves_training_error_when_evidence_upload_also_fails(tmp_path, client, monkeypatch, capsys, fail_at):
+    """Match the Kaggle sequence: preflight passes, config upload fails before train."""
+    import importlib.util
+    from grt.utils.server import ServerRun
+    source = make_run(tmp_path, client, mode='off')
+    client.ensure_schema()
+    client.ensure_queue(source.server_queue)
+    queued = client.request('POST', '/jobs', source.server_job('grt'))
+    module_spec = importlib.util.spec_from_file_location('server_worker', REPO / 'scripts/server_worker.py')
+    worker = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(worker)
+    monkeypatch.setenv('GRT_SERVER_URL', client.url)
+    monkeypatch.setattr(sys, 'argv', ['server_worker.py', '--work-dir', str(tmp_path / 'worker'),
+        '--prepared-dir', str(source.prepared_dir), '--deadline', source.server_deadline,
+        '--queue', source.server_queue, '--runtime', 'cpu', '--device', 'cpu', '--once'])
+    upload = ServerRun.upload
+    def reject_config(session, path, kind, **kwargs):
+        if kind == 'config' and fail_at == 'evidence':
+            raise ServerError(422, 'injected_config_upload_failure')
+        return upload(session, path, kind, **kwargs)
+    monkeypatch.setattr(ServerRun, 'upload', reject_config)
+    launch = WikiTextRun._launch
+    def fail_training(run, model, output, *, benchmark=False):
+        if not benchmark and fail_at == 'training':
+            run._server_session(model).evidence()
+            raise ServerError(422, 'injected_training_failure')
+        return launch(run, model, output, benchmark=benchmark)
+    monkeypatch.setattr(WikiTextRun, '_launch', fail_training)
+    assert worker.main() == 1
+    output = capsys.readouterr()
+    root = tmp_path / 'worker' / ('server-' + queued['id'] + '-g1')
+    original = json.loads((root / 'worker_error.json').read_text())
+    expected = 'injected_config_upload_failure' if fail_at == 'evidence' else 'injected_training_failure'
+    assert original['phase'] == 'training' and original['code'] == expected
+    if fail_at == 'evidence':
+        assert original['locations'][-1]['function'] == 'reject_config'
+        assert json.loads((root / 'sync_error.json').read_text())['code'] == original['code']
+    else:
+        assert not (root / 'sync_error.json').exists()
+        assert 'Server sync pending' not in output.out
+    assert not (root / 'grt/last.pt').exists()
+    assert (root / 'grt_preflight/benchmark.json').exists()
+    assert 'Worker error:' in output.err and 'training' in output.err
+    assert client._token not in output.err + output.out
+    for _ in range(40):
+        detail = client.request('GET', '/jobs/' + queued['id'])
+        if detail['status'] != 'finalizing':
+            break
+        time.sleep(.1)
+    assert detail['status'] == 'failed' and len(detail['attempts']) == 1
+    finish = detail['attempts'][0]['finish']
+    assert finish['stage'] == 'training'
+    assert expected in finish['error']
+    assert 'prepare data' not in finish['error']

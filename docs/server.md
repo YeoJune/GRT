@@ -40,6 +40,14 @@ Online W&B run URL은 heartbeat와 완료 시 서버로 전달하며 실험 목�
 
 학습 프로세스 종료만으로 성공을 확정하지 않는다. 최종 `report()`가 업로드·finish를 요청하고 서버가 실제 크기·SHA256과 완료 증거를 검증한 뒤에만 성공을 반환한다.
 
+### Worker 실패 진단
+
+Worker는 최초 오류를 `Worker error:`로 출력하고 run 폴더의 `worker_error.json`에 단계(preparing/preflight/training/posthoc/uploading)·예외 종류·안전한 메시지·호출 위치를 기록한다. API 오류는 HTTP status와 code를 포함하며 토큰·signed URL·원격 원문·프로세스 출력은 기록하지 않는다. 동기화 중 추가 오류는 별도의 `sync_error.json`과 `Synchronization error:`에 기록한다.
+
+큐 worker가 실패 결과 보존과 종료를 한 번만 담당하며, 학습 오류를 준비·snapshot 복원 실패로 덮어쓰지 않는다. Config/provenance 업로드 실패로 정상 종료 보고가 불가능하면 같은 attempt에 실제 단계·오류를 담은 실패 종료를 요청한다. 서버 접근 자체가 막히거나 lease 소유권이 바뀌면 종료 보고도 보류될 수 있으며, 로컬 진단과 파일은 유지하고 다음 job을 가져오지 않는다.
+
+2026-10-29의 L50/M5·100k 실행은 preflight(0.594s/update·micro128×accum1×GPU2·peak7.17GiB) 이후 학습 명령 전 중단됐다. 당시 worker가 최초 오류를 숨겨 실제 서버 API 오류나 검증 실패를 확정할 수 없다. 정상 경로와 config 업로드 실패 주입은 로컬 실제 API·작은 CPU 실험으로 검증했으며, 기존 Kaggle 장애 자체의 재현이나 GPU 학습 성공을 뜻하지 않는다. 수정 버전으로 재실행한 뒤 최초 오류 기록을 확인한다. 기존 job은 원래 commit에 고정되므로 새 코드 확인은 최신 commit의 `new` job에서 수행한다.
+
 ## 큐 등록과 실행
 
 제출용 노트북은 `server_mode='off'`로 두고 코드와 prepared 데이터를 먼저 고정한다. `queue`는 일반 생성자의 설정값으로 넣지 않고 worker/claim으로 시작한다. `job.prepare_data()`로 데이터를 검증한 뒤 다음과 같이 제출 JSON을 만든다. `posthoc_options=None`이면 학습 결과만 요구하며, 분석 옵션을 지정하면 posthoc도 완료에 필수다.

@@ -419,7 +419,7 @@ class WikiTextRun:
             try:
                 self._launch(model, self.run_dir / model)
             except BaseException:
-                if self.server_mode != 'off':
+                if self.server_mode == 'upload':
                     self._preserve_partial()
                 raise
             cfg = self.config(model)
@@ -546,8 +546,17 @@ class WikiTextRun:
                     session.finish(error=True)
                 else:
                     session.preserve_partial(phase)
-        except Exception:
+            return True
+        except Exception as error:
+            from grt.utils.server import failure_details, write_private
+            detail = failure_details(error, 'synchronizing')
+            try:
+                write_private(self.run_dir / 'sync_error.json', detail)
+            except OSError:
+                pass  # Printing the sync error must not replace the original failure.
             print('Server sync pending; local results and private request journal are preserved.')
+            print('Synchronization error:', json.dumps(detail), flush=True)
+            return False
         finally:
             if finalize:
                 self.close()

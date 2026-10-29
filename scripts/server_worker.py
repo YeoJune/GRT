@@ -1,10 +1,12 @@
 """Execute queued WikiText jobs through the same notebook helper, then exit when empty."""
 import argparse
 from pathlib import Path
+import json
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from grt.utils.kaggle import WikiTextRun
+from grt.utils.server import ServerClient, failure_details, write_private
 
 
 def main():
@@ -24,47 +26,61 @@ def main():
     if args.world_size < 1:
         parser.error('--world-size must be positive')
     repo = Path(__file__).resolve().parents[1]
-    failed = False
     while True:
         run = WikiTextRun.claim(repo, work_dir=args.work_dir, deadline=args.deadline,
             runtime=args.runtime, device=args.device, world_size=args.world_size,
             secret_source=args.secret_source, queue=args.queue)
         if run is None:
             print('No compatible queued job; worker stopped.')
-            return int(failed)
+            return 0
+        phase = 'preparing'
         try:
             run.setup(install=False)  # Prepare dependencies once before processing jobs.
             if args.prepared_from_server:
                 run.prepare_data(server_cache=run._queued_assignment['job']['spec']['dataset_sha256'])
             else:
                 run.prepare_data(prepared_input=args.prepared_dir)
+            phase = 'preflight'
             run.preflight()
+            phase = 'training'
             run.train()
             options = run._queued_assignment['job']['spec']['posthoc_options']
+            phase = 'posthoc' if options is not None else 'uploading'
             run.report(plot=False, posthoc=options is not None, posthoc_options=options)
-        except Exception:
-            failed = True
+        except BaseException as error:
+            detail = failure_details(error, phase)
+            run._worker_failure = detail
+            print('Worker error:', json.dumps(detail), file=sys.stderr, flush=True)
+            try:
+                write_private(run.run_dir / 'worker_error.json', detail)
+            except OSError:
+                print('Could not save worker_error.json; the original error is printed above.', file=sys.stderr)
             connected = bool(run._server_sessions)
-            run._preserve_partial()
-            from grt.utils.server import ServerClient
+            synced = run._preserve_partial(phase=phase + '_failed')
             client = ServerClient(secret_source=args.secret_source)
-            if not connected:
-                assignment = run._queued_assignment
-                client.request('POST', '/attempts/' + assignment['attempt_id'] + '/finish', {
-                    **{key: assignment[key] for key in ('worker_id', 'lease_token', 'generation')},
-                    'outcome': 'failed', 'stage': 'preparing',
-                    'error': 'Worker could not prepare data or restore its authorized snapshot',
-                    'artifact_ids': [], 'manifest': dict(spec_sha256=assignment['job']['spec_sha256'],
-                        config_sha256='0' * 64, completed_steps=0,
-                        target_steps=assignment['job']['spec']['target_steps'], posthoc_completed=False)})
-            detail = client.request('GET', '/jobs/' + run._queued_assignment['job']['id'])
+            assignment = run._queued_assignment
+            current = client.request('GET', '/jobs/' + assignment['job']['id'])
+            if (not connected or not synced) and current['status'] == 'running':
+                # Failed attempts may finish without uploaded evidence. Preserve the
+                # actual stage/error instead of misclassifying every failure as setup.
+                try:
+                    progress = (current.get('summary') or {}).get('step', 0)
+                    client.request('POST', '/attempts/' + assignment['attempt_id'] + '/finish', {
+                        **{key: assignment[key] for key in ('worker_id', 'lease_token', 'generation')},
+                        'outcome': 'failed', 'stage': phase,
+                        'error': f"{phase}: {detail['message']}",
+                        'artifact_ids': [], 'manifest': dict(spec_sha256=assignment['job']['spec_sha256'],
+                            config_sha256='0' * 64, completed_steps=progress,
+                            target_steps=assignment['job']['spec']['target_steps'], posthoc_completed=False)})
+                except Exception as sync_error:
+                    print('Failure reporting error:', json.dumps(failure_details(sync_error, 'synchronizing')),
+                          file=sys.stderr, flush=True)
             print('Job stopped; inspect local logs and the server job detail.', file=sys.stderr)
-            if detail['status'] in ('running', 'finalizing'):
-                return 1  # Resolve synchronization/lease ownership before any further claim.
+            return 1  # Never claim another job after a failed or unsynchronized attempt.
         finally:
             run.close()
         if args.once:
-            return int(failed)
+            return 0
 
 
 if __name__ == '__main__':
@@ -72,5 +88,5 @@ if __name__ == '__main__':
         sys.exit(main())
     except Exception as error:
         # API helpers sanitize remote failures; avoid dumping credentials via exception repr/tracebacks.
-        print(type(error).__name__ + ': worker stopped before a new job could start', file=sys.stderr)
+        print('Worker error:', json.dumps(failure_details(error, 'claiming')), file=sys.stderr, flush=True)
         sys.exit(1)
