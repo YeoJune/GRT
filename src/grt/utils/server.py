@@ -112,6 +112,39 @@ class ServerError(RuntimeError):
         super().__init__(f'GRT Server: {status} {code}')
 
 
+def upload_failure(response):
+    """Keep S3's error category; never expose its XML, signed URLs or credentials."""
+    from xml.etree import ElementTree
+    codes = {
+        'AccessDenied': 'upload_access_denied',
+        'SignatureDoesNotMatch': 'upload_signature_mismatch',
+        'ExpiredToken': 'upload_expired_token',
+        'InvalidToken': 'upload_invalid_token',
+        'InvalidAccessKeyId': 'upload_invalid_access_key',
+        'RequestTimeTooSkewed': 'upload_clock_skew',
+        'RequestExpired': 'upload_request_expired',
+        'AuthorizationQueryParametersError': 'upload_authorization_query_error',
+        'AuthorizationHeaderMalformed': 'upload_authorization_header_error',
+        'InvalidRequest': 'upload_invalid_request',
+        'BadDigest': 'upload_checksum_mismatch',
+        'PermanentRedirect': 'upload_region_redirect',
+    }
+    provider_code = None
+    content = response.content
+    if len(content) <= 16384:
+        try:
+            root = ElementTree.fromstring(content)
+            if root.tag.rsplit('}', 1)[-1] == 'Error':
+                provider_code = next((item.text for item in root
+                    if item.tag.rsplit('}', 1)[-1] == 'Code'), None)
+        except ElementTree.ParseError:
+            pass
+    error = ServerError(response.status_code, codes.get(provider_code, 'upload_failed'))
+    if provider_code in codes:
+        error.storage_code = provider_code
+    return error
+
+
 def failure_details(error, phase):
     """Record useful locations and API codes without credentials or signed URLs."""
     import traceback
@@ -134,6 +167,8 @@ def failure_details(error, phase):
                    for frame in traceback.extract_tb(error.__traceback__)])
     if isinstance(error, ServerError):
         detail.update(status=error.status, code=error.code)
+        if hasattr(error, 'storage_code'):
+            detail['storage_code'] = error.storage_code
     return detail
 
 
@@ -400,7 +435,7 @@ class ServerRun:
                 raise ServerError(0, 'upload_unavailable') from None
             # A lost PUT response may have stored immutable bytes already. Let the server verify them.
             if response.status_code not in (200, 201, 204, 409):
-                raise ServerError(response.status_code, 'upload_failed')
+                raise upload_failure(response)
         self.mutation('complete:' + identity, '/artifacts/uploads/' + reserved['id'] + '/complete', {})
         until = time.monotonic() + 120
         while True:

@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit
 import zipfile
 
-from grt.utils.server import ServerError, digest
+from grt.utils.server import ServerError, digest, upload_failure
 
 
 def transfer_url(url):
@@ -98,7 +98,7 @@ def cache_prepared(client, directory):
                 except requests.RequestException:
                     raise ServerError(0, 'upload_unavailable') from None
                 if response.status_code not in (200, 201, 204, 409):
-                    raise ServerError(response.status_code, 'upload_failed')
+                    raise upload_failure(response)
         client.request('POST', '/artifacts/uploads/' + item['id'] + '/complete', {})
         until = time.monotonic() + 600
         while True:

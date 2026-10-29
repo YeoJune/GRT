@@ -306,3 +306,31 @@ def test_failure_details_omit_remote_messages_and_commands():
     assert secret not in json.dumps(detail)
     detail = server.failure_details(server.ServerError(409, 'stale_attempt'), 'training')
     assert detail['status'] == 409 and detail['code'] == 'stale_attempt'
+
+
+@pytest.mark.parametrize('storage_code,code', [
+    ('AccessDenied', 'upload_access_denied'),
+    ('SignatureDoesNotMatch', 'upload_signature_mismatch'),
+    ('ExpiredToken', 'upload_expired_token'),
+    ('InvalidAccessKeyId', 'upload_invalid_access_key'),
+    ('AuthorizationQueryParametersError', 'upload_authorization_query_error'),
+])
+def test_upload_error_keeps_s3_category_without_echoing_xml(storage_code, code):
+    from types import SimpleNamespace
+    response = SimpleNamespace(status_code=403, content=(
+        f'<Error xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+        f'<Code>{storage_code}</Code><Message>private-signed-url</Message>'
+        '<AccessKeyId>private-key-id</AccessKeyId><StringToSign>private-signature</StringToSign>'
+        '</Error>').encode())
+    detail = server.failure_details(server.upload_failure(response), 'training')
+    assert detail['code'] == code and detail['storage_code'] == storage_code
+    assert 'private-' not in json.dumps(detail)
+
+
+@pytest.mark.parametrize('content', [b'<html>private-proxy-error</html>', b'not XML',
+    b'<Error><Code>private-unknown-code</Code></Error>', b'x' * 16385])
+def test_unknown_upload_error_remains_generic(content):
+    from types import SimpleNamespace
+    error = server.upload_failure(SimpleNamespace(status_code=403, content=content))
+    assert error.code == 'upload_failed' and not hasattr(error, 'storage_code')
+    assert 'private-' not in str(error)

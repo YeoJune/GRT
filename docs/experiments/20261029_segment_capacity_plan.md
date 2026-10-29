@@ -128,3 +128,7 @@ GRT는 선행 보고와 같은 공통6패널(validation PPL, probe write, 절대
 GPU preflight는0.594s/update·micro128×accum1×GPU2=global256·peak7.17GiB/GPU·reserved8.918GiB/GPU(61.2%)로 완료됐다. 계산 전용 ETA는학습16.494h+validation.265h=16.758h이며 준비·저장·RTLA·재개 대기는 제외한다. 이 측정은 위 M5 계획 추정을 보정할 근거지만 실제 전체 wall time이나 학습 수렴 결과는 아니다.
 
 본 학습 명령 출력 전에 worker가 종료되어 summary·학습 metrics는 미수신이다. 당시 코드가 최초 예외를 숨기고 서버에 `worker_failed: Worker could not prepare data or restore its authorized snapshot`을 기록했다. 코드 점검에서 queue train의 내부 정리 후 바깥 worker가 연결 부재를 준비 실패로 오분류하는 경로를 확인했다. Config/provenance 검증·업로드 등을 포함한 학습 시작 경로의 구체적 최초 오류는 원래 로그만으로 확정하지 못했다. 오류 보존/보고 수정과 재실행 절차는 [서버 실패 진단](../server.md#worker-실패-진단)을 따른다.
+
+이후 사용자 전달 NeoX L50/M0 로그: job `job_mvt24p5x04e4210be081dffa0e7a`, commit `c4849f9f085e8d1ecd56d19fbd79fb6885c58e37`. 실패 위치는 `ServerRun.evidence()`의 config 업로드이며 저장소 PUT이403을 반환했다. Summary는 없으며 GRT와 NeoX에서 공통으로 관측된 업로드 경로 실패다. 당시 응답 본문을 폐기하여 S3의 실제 Code(AccessDenied/SignatureDoesNotMatch 등)는 전달 로그에 없다.
+
+GRT `c4849f9`와 GRT_server `4bfa012`의 최신 코드를 대조했다. 운영 문서상 저장소는 S3 `grt-server/grt/`·서울 리전이다. 가짜 임시 자격증명을 사용한 AWS SDK presign과 Python requests PUT의 독립 SigV4 계산은 일치했다. 이는 기본 URL/헤더 조합의 오프라인 검증이며 운영 IAM·bucket policy·실제 발급 자격증명과 거절 사유는 검증하지 못했다. 읽기용 데이터 다운로드 성공은 쓰기 권한의 근거가 아니다. 알려진 S3 응답 코드만 보존하도록 client 진단을 보완했으며 운영 장애 원인을 추정으로 확정하지 않는다.
