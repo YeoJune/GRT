@@ -8,7 +8,7 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 [Colab 학습](notebooks/colab.ipynb) 또는 [Kaggle 학습](notebooks/kaggle.ipynb)을 연다. Colab은 GPU1개, Kaggle은 Internet·T4×2를 사용한다. `WANDB_API_KEY` Secret의 notebook 접근을 켜며, `wandb_enabled=False`면 로컬 기록만 남긴다.
 
-현재 기본 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·candidate·패널티 A(10,1e-4)·write dropout0**이다. 예산·M·gate 수치는 기존 선택 셀에서 바꾼다. 새 조건은 새 run으로 실행한다. 선택의 근거와 미검증 범위는 [연구 요약](docs/research.md#현재-선택)에 둔다.
+현재 노트북 시작 조건은 **GRT small·L50/M5·100k·K3·seed54·bias0·read off·candidate·패널티 A(10,1e-4)·write dropout0**이다. [용량 비교 계획](docs/experiments/20261029_segment_capacity_plan.md)에 따라 L50의 M5/10/25/50을 먼저, 이후 L150의 M10/25/75/150·40k를 GRT/RMT와 NeoX baseline으로 비교한다. 예산·M·gate 수치는 기존 선택 셀에서 바꾼다. 새 조건은 새 run으로 실행한다. 선택의 근거와 미검증 범위는 [연구 요약](docs/research.md#현재-선택)에 둔다.
 
 노트북은 `setup → prepare_data → execute` 순서다. 마지막 셀이 preflight·학습·사후 분석·결과 ZIP을 처리한다. Auto-batch는 global256·평가 batch·FP32를 유지하며 microbatch와 accumulation을 조절한다. 실제 Config·메모리·ETA는 preflight 출력에서 확인한다. 같은 Config·world size·manifest의 `last.pt`만 재개한다.
 

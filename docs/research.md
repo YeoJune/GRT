@@ -6,7 +6,7 @@
 
 | 항목 | 값과 적용 범위 |
 |---|---|
-| 기본 실행 | GRT small·L75/M20·seed54·FP32·global batch256·40k updates |
+| 현재 시작 실행 | GRT small·L50/M5·seed54·FP32·global batch256·100k updates |
 | Write 경로 | `candidate`, `write_detach_source=False`; `independent`·`separate_head`도 지원 |
 | Gate | bias0·read off·logit tail threshold10/coef1e-4(A)·write dropout0 |
 | 최적화 | Adam LR5e-4·clip.25·이전3segments BPTT·warmup5% 뒤 cosine·최소 LR 비율1% |
@@ -17,6 +17,8 @@ M20 40k 비교의 best PPL은 candidate28.1781 / independent28.2550 / separate_h
 패널티 A와 dropout0을 모든 M의 후속 비교에 공통 적용한다. M8에서 A+dropout.1의20k 이득은 관측됐지만 M20·M75의 추가 효과는 혼합이었다. 긴 예산에서 같은 조건의 dropout0/.1 재검증이 필요하다. 예산 내 PPL·분화 지표와 수렴 후 우열을 구분한다.
 
 비교 원문: [안정화 탐색](experiments/20261018_l75_gate_stabilization.md) · [M20 write 경로](experiments/20261019_l75_gate_paths.md) · [L150 용량](experiments/20261012_small_register_sweep.md).
+
+후속 실행은 [L50 우선 용량 비교](experiments/20261029_segment_capacity_plan.md)를 따른다. L50 M5/10/25/50·100k 뒤 L150 M10/25/75/150·40k를 실행하며 GRT/RMT는K3, NeoX는M0/K0이다. 새 결과 수신 전까지 위 L75 결론은 선행 근거로 유지한다.
 
 ## 공통 지표와 해석
 

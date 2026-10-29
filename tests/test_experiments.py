@@ -167,10 +167,10 @@ def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, budget, 
     assert ast.literal_eval(warmup.value) == .05
     default_budget = next(node for node in source.body if isinstance(node, ast.Assign)
                           and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'budget')
-    assert ast.literal_eval(default_budget.value) == '40k'
+    assert ast.literal_eval(default_budget.value) == '100k'
     monkeypatch.setattr(WikiTextRun, 'setup', lambda self: None)
     names = set()
-    for memory in (8, 20, 75):
+    for memory in (5, 10, 25, 50):
         for dropout in (0., .1):
             selection = copy.deepcopy(source)
             values = dict(num_registers=memory, write_dropout=dropout, budget=budget,
@@ -184,7 +184,7 @@ def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, budget, 
             exec(compile(ast.fix_missing_locations(selection), '<selection>', 'exec'), namespace)
             job = namespace['job']; cfg = job.config('grt', calibrated=False)
             assert job.models == ('grt',) and job.test_at_end is False
-            assert cfg.model.segment_len == 75 and cfg.model.num_registers == memory
+            assert cfg.model.segment_len == 50 and cfg.model.num_registers == memory
             assert cfg.model.register.write_gate_bias_init == 0
             assert cfg.model.register.dropout_prob == dropout
             assert cfg.model.register.conditional_read is False
@@ -200,7 +200,7 @@ def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, budget, 
             assert cfg.training.memory_fraction == .95 and cfg.rtla.enabled
             assert cfg.evaluation.batch_size == 10 and cfg.evaluation.every_steps == 1000
             names.add(job.run_dir)
-    assert len(names) == 6
+    assert len(names) == 8
 
 
 def test_calibrated_batch_is_preserved_on_existing_run(tmp_path):

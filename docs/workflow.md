@@ -13,11 +13,12 @@
 
 같은 노트북의 `execution_mode='local'`은 서버 없이, `'new'`는 서버 job 등록·실행, `'resume'`은 같은 job의 snapshot 재개다. 서버 모드는 플랫폼 write 토큰 Secret과 종료 여유 시간 `session_hours`를 사용한다. 구체적인 순서는 [서버 연결](server.md#notebook-resume)을 따른다.
 
-[Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. Dropout은 모든 M에서0으로 고정한다. 선택 근거와 미검증 범위는 [연구 요약](research.md#현재-선택)에 관리한다.
+[Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 노트북 시작 조건은 **GRT small·L50/M5·100k·K3·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. 실행 순서와 L150 후속 조건은 [용량 비교 계획](experiments/20261029_segment_capacity_plan.md)을 따른다. Dropout은 모든 M에서0으로 고정한다. 선택 근거와 미검증 범위는 [연구 요약](research.md#현재-선택)에 관리한다.
 
 ```python
-num_registers = 20         # 후속 gate 경로 실험의 시작 M
-budget = '40k'            # 이번 실험의 공통 학습 예산
+segment_len = 50          # L50 먼저; 후속 L150
+num_registers = 5          # L50: 5/10/25/50; L150: 10/25/75/150
+budget = '100k'           # L50:100k, L150:40k; GRT/RMT K3, NeoX K0
 warmup_ratio = 0.05        # 전체 updates의5%; 0이면 off
 write_source = 'candidate' # M20 비교 후 선택한 기본값; 두 대안도 유지
 write_detach_source = False
@@ -57,10 +58,10 @@ WikiText는 linear warmup 뒤 cosine을 적용한다. 노트북 `warmup_ratio`�
 
 ## 3. CLI와 로컬 과제
 
-CLI도 같은 카탈로그를 사용한다. 예를 들어 현재 A의 수치 조건은 다음과 같이 명시한다.
+CLI도 같은 카탈로그를 사용한다. 예를 들어 이번 L50/M5의 A 조건은 다음과 같이 명시한다.
 
 ```bash
-python scripts/train.py --task wikitext103 --model grt --size small --tokenization gpt2_bpe --budget 40k --runtime kaggle --set model.segment_len=75 --set model.num_registers=20 --set model.register.write_gate_bias_init=0 --set model.register.write_logit_threshold=10 --set model.register.write_logit_coef=0.0001 --output-dir runs/gate_candidate_m20_40k --device cuda
+python scripts/train.py --task wikitext103 --model grt --size small --tokenization gpt2_bpe --budget 100k --runtime kaggle --set model.segment_len=50 --set model.num_registers=5 --set model.register.write_gate_bias_init=0 --set model.register.write_logit_threshold=10 --set model.register.write_logit_coef=0.0001 --output-dir runs/capacity_l50_m5_100k --device cuda
 ```
 
 Kaggle2GPU CLI는 `torchrun --standalone --nproc_per_node=2`로 같은 script를 실행한다. `--benchmark-steps`로 preflight를 수행한다. `--config`는 현재 형식의 최종 Config 하나만 읽고 과거 경로·설정 변환은 제공하지 않는다.
