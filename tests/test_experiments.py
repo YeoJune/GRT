@@ -15,14 +15,15 @@ import torch
 from grt.config import load_config, save_config
 from grt.checkpoint import CHECKPOINT_FORMAT, load_checkpoint
 from grt.experiments import load_experiment, parse_overrides
+from grt.utils.notebook import notebook_run
 from grt.utils.kaggle import WikiTextRun, file_hash
 
 REPO = Path(__file__).resolve().parents[1]
 
 
 def test_notebook_selection_does_not_import_transformers_before_setup():
-    code = ("import sys; from grt.utils.kaggle import WikiTextRun; "
-            f"WikiTextRun({str(REPO)!r}, wandb=False); "
+    code = ("import sys; from grt.utils.notebook import notebook_run; "
+            f"notebook_run({str(REPO)!r}, runtime='kaggle', models=('grt',), wandb=False); "
             "assert 'transformers' not in sys.modules; "
             "assert 'grt.models.neox' not in sys.modules")
     subprocess.run([sys.executable, '-c', code], check=True, cwd=REPO,
@@ -179,7 +180,7 @@ def test_selected_penalty_dropout_grid_through_actual_notebook(runtime, budget, 
                     key = node.targets[0].id
                     if key in values:
                         node.value = ast.Constant(values[key])
-            namespace = dict(Path=Path, WikiTextRun=WikiTextRun, repo=REPO)
+            namespace = dict(Path=Path, notebook_run=notebook_run, repo=REPO, session_started=None)
             exec(compile(ast.fix_missing_locations(selection), '<selection>', 'exec'), namespace)
             job = namespace['job']; cfg = job.config('grt', calibrated=False)
             assert job.models == ('grt',) and job.test_at_end is False
@@ -285,13 +286,12 @@ def test_training_report_bundles_real_posthoc_and_reuses_analysis(tmp_path, monk
             'evaluation': {'batch_size': 1, 'every_steps': 2},
             'rtla': {'enabled': True, 'batch_size': 2, 'segments': 2, 'warmup_segments': 1}})
     job.prepare_data(prepared_input=prepared)
-    job.preflight()
-    summary = job.train()['grt']
+    with pytest.raises(subprocess.CalledProcessError):
+        job.execute(download=False, posthoc_options={'window_starts': (0, 1)})
+    summary = json.loads((job.run_dir/'grt/summary.json').read_text())
     checkpoint = job.run_dir/'grt/best.pt'
     before = file_hash(checkpoint)
     bundle_path = job.run_dir/'experiment_results.zip'
-    with pytest.raises(subprocess.CalledProcessError):
-        job.report(plot=False, posthoc=True, posthoc_options={'window_starts': (0, 1)})
     assert 'disjoint' in (job.run_dir/'grt_posthoc_console.txt').read_text()
     assert job.report_path.is_file() and not bundle_path.exists()
     options = dict(batch_size=2, segments=2, warmup_segments=1, horizon=2,

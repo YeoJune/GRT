@@ -10,17 +10,17 @@ GRT·RMT·메모리 없는 NeoX를 공통 GPT-NeoX backbone에서 비교한다. 
 
 현재 기본 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·candidate·패널티 A(10,1e-4)·write dropout0**이다. 예산·M·gate 수치는 기존 선택 셀에서 바꾼다. 새 조건은 새 run으로 실행한다. 선택의 근거와 미검증 범위는 [연구 요약](docs/research.md#현재-선택)에 둔다.
 
-`setup → prepare_data → preflight → train → report` 순서로 실행한다. Auto-batch는 global256·평가 batch·FP32를 유지하며 microbatch와 accumulation을 조절한다. 실제 Config·메모리·ETA는 preflight에서 확인한다. 같은 Config·world size·manifest의 `last.pt`만 재개한다.
+노트북은 `setup → prepare_data → execute` 순서다. 마지막 셀이 preflight·학습·사후 분석·결과 ZIP을 처리한다. Auto-batch는 global256·평가 batch·FP32를 유지하며 microbatch와 accumulation을 조절한다. 실제 Config·메모리·ETA는 preflight 출력에서 확인한다. 같은 Config·world size·manifest의 `last.pt`만 재개한다.
 
-마지막 `job.report(posthoc=True, download=True, ...)`는 best checkpoint의 사후 분석까지 실행한다. 공유할 결과는 **`experiment_results.zip` 하나**이며, 가중치·checkpoint·prepared 데이터는 별도로 보관한다. 다른 세션의 checkpoint는 [Colab 사후 분석](notebooks/colab_analysis.ipynb)과 [파일 배치 안내](docs/workflow.md#posthoc-colab)를 사용한다.
+마지막 `job.execute(download=True, posthoc_options=...)`는 best checkpoint의 사후 분석까지 실행한다. 공유할 결과는 **`experiment_results.zip` 하나**이며, 가중치·checkpoint·prepared 데이터는 별도로 보관한다. 다른 세션의 checkpoint는 [Colab 사후 분석](notebooks/colab_analysis.ipynb)과 [파일 배치 안내](docs/workflow.md#posthoc-colab)를 사용한다.
 
 ## 서버 연결
 
-선택 셀에서 `server_mode='upload'`, 서버 주소·UTC 세션 종료 시각을 지정한다. 플랫폼 Secrets에 `GRT_SERVER_TOKEN` write 토큰을 등록하면 상태·원본 결과·checkpoint를 자동 저장한다. 기본 `off`는 서버 없이 실행한다.
+기존 Colab·Kaggle 노트북의 `execution_mode`를 선택한다. `local`은 서버 없이 실행하고, `new`는 선택한 조건을 서버에 등록해 실행하며 데이터·checkpoint·결과를 저장한다. 플랫폼 Secrets에 `GRT_SERVER_TOKEN` write 토큰을 등록하고 서버 주소와 `session_hours`를 지정한다. 기본 서버는 `https://grt.grtserver.cloud`, 종료 시각은 첫 코드 셀부터11시간 뒤로 고정한다.
 
 Prepared 데이터의 선택적 서버 캐시·다운로드, 불변 Config를 실행하는 큐 worker, snapshot을 통한 중단 후 재개와 결과 회수는 [서버 연결](docs/server.md)을 따른다. 서버 API·운영은 [GRT_server](https://github.com/YeoJune/GRT_server)를 참조한다.
 
-M8/M75 전달성 실험은 [Kaggle 서버 재개 노트북](notebooks/kaggle_gate_transfer.ipynb)을 사용한다. 최초 Save는 `new`, 중단 후 서버에서 **이어서 학습**을 선택한 새 Save는 `resume`과 같은 job ID로 실행한다. 서버 캐시·snapshot 사용을 필수로 하며, 자세한 순서는 [새 Save 재개 안내](docs/server.md#gate-transfer-kaggle)에 있다.
+중단 후 서버에서 **이어서 학습**을 선택하고, 같은 노트북의 새 Save/런타임에서 `execution_mode='resume'`과 `resume_job_id`를 지정한다. 원래 commit·조건·배치를 복원하며 파일을 수동 업로드할 필요가 없다. 자세한 순서는 [노트북 재개 안내](docs/server.md#notebook-resume)에 있다.
 
 ## 설치·로컬 실행
 

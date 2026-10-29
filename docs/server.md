@@ -1,12 +1,14 @@
 # GRT Server 연결
 
-공통 `WikiTextRun`의 선택적 서버 연결을 설명한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md), 환경별 큐 실행·결과 회수·실험 관리는 [환경별 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/environments.md), 서버 운영은 [운영 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/operations.md)를 따른다.
+Colab·Kaggle 공통 노트북의 서버 실행과 하위 `WikiTextRun` 연결을 설명한다. HTTP 계약은 [GRT_server API 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/api.md), 환경별 큐 실행·결과 회수·실험 관리는 [환경별 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/environments.md), 서버 운영은 [운영 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/operations.md)를 따른다.
 
-**읽는 순서:** [자동 저장](#colabkaggle에서-자동-저장) · [큐 등록·실행](#큐-등록과-실행) · [데이터 캐시](#prepared-데이터-공유-캐시) · [중단 후 재개](#세션-중단-후-이어서-학습). Colab/Kaggle의 복사 가능한 worker 셀과 데스크톱 명령은 [환경별 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/environments.md)에 모은다.
+**읽는 순서:** [노트북 실행·재개](#notebook-resume) · [Python 자동 저장](#python에서-직접-자동-저장) · [큐 등록·실행](#큐-등록과-실행) · [데이터 캐시](#prepared-데이터-공유-캐시) · [중단 후 재개](#세션-중단-후-이어서-학습). Colab/Kaggle의 복사 가능한 worker 셀과 데스크톱 명령은 [환경별 가이드](https://github.com/YeoJune/GRT_server/blob/main/docs/environments.md)에 모은다.
 
 서버는 job의 조건·attempt 이력·파일을 보관하고, 사용자가 연결한 worker가 작업을 요청해 학습한다. 한 worker는 순차 실행하며 여러 worker는 다른 작업을 병렬로 실행한다. 서버는 GPU 세션을 시작하거나 코드·prepared 데이터를 자동으로 준비하지 않는다.
 
-## 실행 모드
+## Python API 실행 모드
+
+노트북의 `local/new/resume` 선택은 [통합 실행 안내](#notebook-resume)를 따른다. 아래는 하위 `WikiTextRun` API의 모드다.
 
 | 모드 | 동작 |
 |---|---|
@@ -18,9 +20,9 @@
 
 현재 서버의 `generic/1`과 불변 schema `grt_wikitext_v1`을 사용한다. Config·파일·완료 step을 운반하고 검증하는 연결이며, 서버의 `grt/1` 과학적 완료 검증과는 구분한다. 연결 대상은 WikiText 공통 helper다. Remember CLI는 기존 로컬 실행을 유지한다.
 
-## Colab/Kaggle에서 자동 저장
+## Python에서 직접 자동 저장
 
-플랫폼 Secrets에 `GRT_SERVER_TOKEN`을 등록하고 노트북 접근을 허용한다. write 토큰은 서버 전체 변경 권한을 가지므로 개인 실행 환경에서만 사용한다. 선택 셀의 세 값을 설정한다. deadline은 실제 세션 종료 시각의 UTC ISO8601(`YYYY-MM-DDTHH:MM:SSZ`)이다. KST 18시는 UTC 09시이며 재접속 때 임의로 연장하지 않는다.
+아래는 단계별 제어가 필요한 `WikiTextRun` 직접 사용 API다. 일반 Colab·Kaggle 노트북은 [통합 실행 모드](#notebook-resume)를 사용한다. 플랫폼 Secrets에 `GRT_SERVER_TOKEN`을 등록하고 노트북 접근을 허용한다. write 토큰은 서버 전체 변경 권한을 가지므로 개인 실행 환경에서만 사용한다. 생성자에 다음 세 값을 전달한다. deadline은 실제 세션 종료 시각의 UTC ISO8601(`YYYY-MM-DDTHH:MM:SSZ`)이다. KST 18시는 UTC 09시이며 재접속 때 임의로 연장하지 않는다.
 
 ```python
 server_mode = 'upload'
@@ -120,23 +122,38 @@ python scripts/server_worker.py --work-dir /path/to/new-work \
 
 이 기능 도입 후 생성한 snapshot이 필요하며 기존 raw last.pt 하나만으로는 자동 재개하지 않는다. 서버에 업로드·검증된 지점 이후의 진행은 강제 종료 시 유실될 수 있다. 종료 자체를 서버가 자동 확인하거나 새 Kaggle 세션을 생성하지 않는다. 라이브러리·GPU 변경 시 수치 동등성까지 보장하지 않으며 CPU 검사에서는 중단 없는 실행과 재개의 최종 가중치 일치를 확인한다. 중단 시 추가 validation은 기존 학습 동작으로 유지한다.
 
-<a id="gate-transfer-kaggle"></a>
-## M8/M75 전달성: 새 Kaggle Save에서 재개
+<a id="notebook-resume"></a>
+## 공통 노트북: 서버 실행과 새 세션 재개
 
-[전용 노트북](../notebooks/kaggle_gate_transfer.ipynb)은 서버 캐시·snapshot 사용을 필수로 한다. 기존 범용 노트북의 서버 기본 `off`는 유지한다. Kaggle Internet·T4×2와 Secrets의 write 권한 `GRT_SERVER_TOKEN`·`WANDB_API_KEY` 접근을 켠다.
+[Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb) 모두 같은 선택 셀과 `setup → prepare_data → execute` 흐름을 사용한다. 전용 실험 노트북 없이 M·gate 경로·예산을 선택한다. Kaggle은 Internet·T4×2, Colab은 GPU1개를 사용하고 플랫폼 Secrets의 write 권한 `GRT_SERVER_TOKEN`과 온라인 W&B 사용 시 `WANDB_API_KEY` 접근을 켠다.
 
-최초 Save에서 `execution_mode='new'`, `num_registers=8` 또는 `75`, `write_source='candidate'` 또는 `'independent'`를 고른 뒤 **Save Version → Save & Run All** 한다. 노트북은 데이터를 준비해 서버 캐시에 검증·보관하고, full commit·소스 hash·manifest·사후 분석 조건을 고정한 job 하나를 전용 큐에 등록한 뒤 worker를 실행한다. 출력된 job ID·commit·manifest hash를 보관한다. 셀 재실행 시 같은 제출 본문·멱등 키를 사용한다.
-
-| 새 Save의 목적 | 선택값 | 서버에서 먼저 할 일 |
+| 실행 목적 | 선택값 | 서버에서 먼저 할 일 |
 |---|---|---|
-| 새로운 조건의 첫 실행 | `execution_mode='new'`, M·source 선택 | 없음 |
-| 중단된 같은 실험의 재개 | `execution_mode='resume'`, `resume_job_id='job_...'` | 이전 Save 종료 확인 → 해당 job의 **이어서 학습** |
+| 서버 없이 실행 | `execution_mode='local'` | 없음 |
+| 새로운 조건의 첫 실행 | `execution_mode='new'`, M·source·예산 선택 | 없음 |
+| 중단된 같은 실험의 재개 | `execution_mode='resume'`, `resume_job_id='job_...'` | 이전 세션 종료 확인 → 해당 job의 **이어서 학습** |
 
-중단 후에는 **처음부터 재시도**나 새 job 제출을 사용하지 않는다. Stale running이면 이전 런타임 종료와 lease 만료를 확인하고 서버 웹에 종료 근거를 입력한다. 재개 노트북은 queued 상태와 `resume_artifact_id`를 검사하고, 해당 job의 `spec.code_ref`를 checkout한 뒤 서버 캐시와 snapshot을 복원한다. 로컬 작업 폴더가 없는 새 Save여도 되며 기존 파일을 수동 업로드할 필요는 없다. 위 M·source를 바꿔도 재개 job의 불변 조건은 변경되지 않는다. 같은 T4×2·world size2·기존 microbatch/accumulation을 유지한다.
+서버 주소 기본값은 `https://grt.grtserver.cloud`다. `session_hours=11`은 첫 코드 셀 실행 시각으로부터11시간 뒤를 worker 종료 시각으로 고정한다. 실제 플랫폼 제한보다 짧게 정하고 준비·설치·전송 여유를 포함한다. 셀 재실행이나 같은 런타임의 설정 변경으로 deadline을 연장하지 않는다. 서버는 새 Kaggle Save나 Colab 런타임을 자동 생성하지 않는다.
 
-첫 코드 셀 실행 시각을 로컬 파일에 고정하고 **11시간 뒤를 worker 종료 시각**으로 등록해12시간 강제 종료 전 여유를 둔다. 셀 재실행으로 이 시각을 연장하지 않는다. 학습 중5분 간격 snapshot을 전송하지만 강제 종료·통신 오류에서는 마지막 **verified snapshot** 이후 진행분이 유실될 수 있다. 종료 전에 서버 웹의 snapshot step을 확인한다. 서버는 새 Kaggle Save 자체를 자동 생성하지 않는다.
+### 최초 실행
 
-한 Save는 `--once` worker로 한 조건만 처리한다. M8/candidate, M8/independent, M75/candidate, M75/independent의 네 조건을 각각40k로 실행하며, 각 조건이 중단될 때마다 같은 job을 재개한다. 기존20k 안정화 실험은40k·warmup5% 기준을 대체하지 않는다. 같은40k 기준이 이미 있다면 해당 independent 실행은 생략한다. 완료 기준은40k 학습과 window0/16/32 사후 분석의 서버 검증을 마친 `succeeded`다. 수신 결과는 [기존 경로 비교 보고서](experiments/20261019_l75_gate_paths.md)에 추가한다.
+`new`에서 실험 조건·campaign을 선택한다. Kaggle은 **Save Version → Save & Run All**로 실행한다. 데이터 준비 셀은 prepared 데이터를 검증해 서버 캐시에 보관한다. 기존 manifest hash를 `prepared_cache_sha256`에 넣으면 다운로드해 재사용한다. `execute()`가 full commit·소스 hash·manifest·분석 조건을 고정한 job 하나를 전용 큐에 등록한 뒤 `--once` worker를 실행한다. 출력된 job ID를 보관한다.
+
+동일 campaign·조건·commit·manifest·분석 옵션의 재실행은 같은 멱등 제출을 사용한다. 완료된 job은 다시 학습하지 않는다. 별도 반복 실험은 seed 또는 campaign을 바꿔 새 job으로 등록한다. 서버 모드는 한 세션에 모델 하나를 선택하며 candidate·independent·separate_head와 M 값에 실험별 제한을 두지 않는다.
+
+### 중단 후 새 세션
+
+1. 이전 세션의 실제 종료를 확인하고 서버에서 해당 job의 **이어서 학습**을 선택한다. Stale running이면 lease 만료와 종료 근거가 필요하다. **처음부터 재시도**는 checkpoint 재개가 아니다.
+2. 같은 노트북의 새 Save/런타임에서 `execution_mode='resume'`, 같은 `resume_job_id`를 입력한다. 원래 GPU 수와 기존 microbatch가 들어가는 환경을 사용한다.
+3. 설정 셀은 queued 상태·재개 snapshot·world size를 확인하고, 원래 `spec.code_ref`를 **별도 코드 폴더**에 checkout한다. 현재 노트북 checkout은 바꾸지 않으며 worker 시작 전 소스 hash를 다시 검사한다.
+4. 데이터 셀은 새 데이터를 준비하지 않는다. Worker가 원래 manifest의 서버 캐시와 검증된 snapshot을 받아 last/best·optimizer·scheduler·rank별 RNG·stream·state·W&B ID·기존 preflight/배치를 복원한다.
+5. 복원 step과 같은 job의 attempt 증가를 확인한다. 중단되면 같은 절차로 다시 재개하고, 지정 예산과 사후 분석을 모두 검증한 `succeeded`에서 완료한다.
+
+재개에서는 노트북의 M·경로·예산·W&B·분석 선택값을 사용하지 않고 원래 불변 spec을 따른다. 남은 step 수로 budget을 줄이거나 새 job을 제출하지 않는다. 기존 worker 스크립트를 사용하므로 이번 노트북 정리 이전 commit의 job도 원래 코드로 실행한다.
+
+학습 중5분 간격 snapshot을 전송하지만 강제 종료·통신 오류에서는 마지막 **verified snapshot** 이후 진행분이 유실될 수 있다. 서버 웹에서 상태·snapshot step을 확인한다. 실행 완료 후 마지막 셀은 같은 attempt의 로컬 결과 ZIP 링크(Colab은 다운로드)를 제공하며, 서버에 보관한 원본도 회수할 수 있다. 학습·사후 분석·snapshot 포맷은 기존 계약을 유지한다.
+
+노트북에는 값 선택·데이터 준비·실행 호출만 둔다. `src/grt/utils/notebook.py`는 모드 선택·코드 고정·멱등 제출·Secret 전달을 담당하고, 실제 preflight/학습/분석과 checkpoint 복원은 기존 `WikiTextRun`·`scripts/server_worker.py`에 맡긴다.
 
 ## 장애와 재시도
 

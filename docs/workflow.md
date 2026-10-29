@@ -9,9 +9,9 @@
 - Task: Remember / WikiText-103. Size: base/small/tiny. Model: neox/rmt/grt.
 - Budget: 양의 정수 optimizer updates를 자유 입력한다. `budget='20k'`→20,000, `'1m'`→1,000,000, `'40000'` 또는 `40000`→40,000이다. 접미사는 소문자 `k`/`m`만 허용하고 소수·부호·쉼표·다른 단위는 거부한다. CPU 점검용 `smoke`는200 updates다. 숫자 budget은 기본 validation1k·로그10 간격을 유지하며 `steps=`/`--steps`와 최종 override가 우선한다.
 - Tokenizer: GPT-2 BPE 또는 word. Runtime: Kaggle/Colab/CPU.
-- 노트북은 값 선택과 setup/prepare/preflight/train/report만 담당한다. 공통 동작은 `src/grt/utils/`에 둔다.
+- 노트북은 값 선택과 setup/prepare_data/execute만 담당한다. `utils/notebook.py`가 실행 모드를 선택하고 기존 `WikiTextRun`·`scripts/server_worker.py`에 preflight/학습/분석을 맡긴다.
 
-GRT Server 자동 저장은 선택 셀에서 `server_mode='upload'`로 켠다. 기본 `off`와 로컬 실행 순서는 유지한다. 큐 실행·secret·prepared 공유 캐시·서버 snapshot 재개·결과 회수의 구체적인 방법은 [서버 연결](server.md)을 따른다.
+같은 노트북의 `execution_mode='local'`은 서버 없이, `'new'`는 서버 job 등록·실행, `'resume'`은 같은 job의 snapshot 재개다. 서버 모드는 플랫폼 write 토큰 Secret과 종료 여유 시간 `session_hours`를 사용한다. 구체적인 순서는 [서버 연결](server.md#notebook-resume)을 따른다.
 
 [Colab](../notebooks/colab.ipynb)·[Kaggle](../notebooks/kaggle.ipynb)의 현재 선택은 **GRT small·L75/M20·40k·seed54·bias0·read off·A(10,1e-4)·write dropout0**이다. Dropout은 모든 M에서0으로 고정한다. 선택 근거와 미검증 범위는 [연구 요약](research.md#현재-선택)에 관리한다.
 
@@ -35,9 +35,13 @@ Colab은 GPU와 `WANDB_API_KEY` secret의 노트북 접근을 켠다. Kaggle은 
 ```python
 job.setup()
 job.prepare_data()
-job.preflight()
-job.train()
+job.execute(download=True, posthoc_options=dict(
+    batch_size=8, segments=8, warmup_segments=3, horizon=4,
+    slots=True, registers=True, window_starts=(0, 16, 32), group_repeats=3,
+))
 ```
+
+`execute()`는 preflight → 학습 → 사후 분석 → 결과 내보내기를 수행한다. 서버 모드는 이 순서를 원래 commit의 별도 worker 프로세스에서 실행한다. 단계별 제어가 필요한 Python/CLI에서는 기존 `WikiTextRun.preflight()`·`train()`·`report()`를 직접 사용할 수 있다.
 
 Prepared 데이터는 manifest·train/validation/test.pt·tokenizer/vocabulary artifact를 보존한다. 기존 artifact를 쓸 때는 `job.prepare_data(prepared_input=..., resume_input=...)`에 위치를 준다. 동일 데이터는 hash로 확인한다.
 
@@ -89,7 +93,7 @@ Quality·optimization·memory의 기본 가로축은 실제 누적 target tokens
 학습 노트북의 마지막 셀을 실행한다.
 
 ```python
-job.report(posthoc=True, download=True, posthoc_options=dict(
+job.execute(download=True, posthoc_options=dict(
     batch_size=8, segments=8, warmup_segments=3, horizon=4,
     slots=True, registers=True, window_starts=(0, 16, 32), group_repeats=3,
 ))
@@ -97,7 +101,7 @@ job.report(posthoc=True, download=True, posthoc_options=dict(
 
 이번 run의 GRT best.pt와 prepared 데이터를 자동 선택한다. 별도 Python 프로세스에서 지원 버전 `transformers==4.45.2`로 복원하고 단일 GPU·FP32·dropout off로 분석한다. 선택 step과 checkpoint가 다르면 거부한다. 사후 시간은 학습 ETA와 별도다.
 
-**보내줄 파일은 `experiment_results.zip` 하나**다. 안에는 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`이 있다. 학습 결과를 먼저 저장하므로 분석 실패로 학습 결과가 사라지지 않는다. 분석 로그는 run의 `grt_posthoc_console.txt`에 남고 마지막 셀을 재실행하면 완료된 같은 분석은 재사용한다. 학습 JSON만 필요하면 `job.report(download=True)`다.
+**보내줄 파일은 `experiment_results.zip` 하나**다. 안에는 `experiment_report.json`과 `posthoc/grt/posthoc_report.json`이 있다. 학습 결과를 먼저 저장하므로 분석 실패로 학습 결과가 사라지지 않는다. 분석 로그는 run의 `grt_posthoc_console.txt`에 남는다. 로컬에서는 기존 `job.report(posthoc=True, download=True, ...)`로 분석만 재시도하거나 `job.report(download=True)`로 학습 JSON만 내보낼 수 있다. 서버 모드는 job 상태·snapshot을 확인하고 [재개 절차](server.md#notebook-resume)를 따른다.
 
 다른 세션의 checkpoint는 [Colab 분석 노트북](../notebooks/colab_analysis.ipynb)으로 분석한다. 최신 main checkout과 공통 helper를 사용하고, Drive에는 checkpoint·prepared 데이터만 배치한다. 선택 셀에서 다음 경로를 지정한다.
 

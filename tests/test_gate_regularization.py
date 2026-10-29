@@ -12,6 +12,7 @@ from grt.distributed import DistributedContext
 from grt.logger import TrainingMetrics
 from grt.models.factory import create_model
 from grt.regularization import write_logit_regularization
+from grt.utils.notebook import notebook_run
 from grt.utils.kaggle import WikiTextRun
 from conftest import tiny_config
 
@@ -153,7 +154,7 @@ def test_notebook_penalty_conditions_are_isolated_and_exportable(tmp_path, monke
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
                 if node.targets[0].id in values:
                     node.value = ast.Constant(values[node.targets[0].id])
-        namespace = dict(Path=Path, WikiTextRun=WikiTextRun, repo=repo)
+        namespace = dict(Path=Path, notebook_run=notebook_run, repo=repo, session_started=None)
         exec(compile(ast.fix_missing_locations(selection), '<selection>', 'exec'), namespace)
         job = namespace['job']; cfg = job.config('grt', calibrated=False)
         assert cfg.model.register.write_logit_threshold == threshold

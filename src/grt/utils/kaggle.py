@@ -13,14 +13,14 @@ from uuid import uuid4
 from zipfile import ZipFile, ZIP_DEFLATED
 
 
-def run_logged(command, *, cwd, log_path, poll=None):
+def run_logged(command, *, cwd, log_path, poll=None, env=None):
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     print(' '.join(map(str, command)), flush=True)
     with log_path.open('a', encoding='utf-8') as log:
         process = subprocess.Popen(list(map(str, command)), cwd=cwd,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            bufsize=1, start_new_session=True)
+            bufsize=1, start_new_session=True, env=env)
         try:
             if poll is None:
                 lines = process.stdout
@@ -124,6 +124,7 @@ class WikiTextRun:
     device: str = 'cuda'
     benchmark_steps: int = 10
     overrides: dict = field(default_factory=dict)
+    grt_overrides: dict = field(default_factory=dict)
     num_registers: int | None = None
     router_hidden: int | None = None
     test_at_end: bool = False
@@ -153,7 +154,9 @@ class WikiTextRun:
             raise ValueError('Invalid execution settings')
         name = self.run_id or f'wiki_{self.size}_{self.tokenization}_{self.budget}_seed{self.seed}'
         if not self.run_id:
-            signature = json.dumps(dict(steps=self.steps, overrides=self.overrides,
+            from grt.config import merge_dicts
+            signature_overrides = merge_dicts(self.overrides, self.grt_overrides) if 'grt' in self.models else self.overrides
+            signature = json.dumps(dict(steps=self.steps, overrides=signature_overrides,
                 num_registers=self.num_registers, router_hidden=self.router_hidden,
                 test_at_end=self.test_at_end, runtime=self.runtime, world_size=self.world_size), sort_keys=True)
             name += '-' + hashlib.sha256(signature.encode()).hexdigest()[:8]
@@ -173,6 +176,8 @@ class WikiTextRun:
             'evaluation': {'test_at_end': self.test_at_end},
             'wandb': {'enabled': self.wandb, 'run_name': self.run_dir.name + '-' + model}}
         model_overrides = merge_dicts(environment, self.overrides)
+        if model == 'grt':
+            model_overrides = merge_dicts(model_overrides, self.grt_overrides)
         specific = {}
         if model != 'neox' and self.num_registers is not None:
             specific['num_registers'] = self.num_registers
@@ -431,6 +436,12 @@ class WikiTextRun:
                     raise RuntimeError('W&B logging failed; local results remain in the run directory')
             results[model] = summary
         return results
+
+    def execute(self, *, posthoc_options=None, download=True):
+        """Run the notebook's measured training and best-checkpoint handoff."""
+        self.preflight()
+        self.train()
+        return self.report(posthoc=True, download=download, posthoc_options=posthoc_options)
 
     def posthoc(self, **options):
         """Use a fresh interpreter, just like training, after notebook pip setup."""
