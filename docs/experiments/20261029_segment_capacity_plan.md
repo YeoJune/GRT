@@ -132,3 +132,6 @@ GPU preflight는0.594s/update·micro128×accum1×GPU2=global256·peak7.17GiB/GPU
 이후 사용자 전달 NeoX L50/M0 로그: job `job_mvt24p5x04e4210be081dffa0e7a`, commit `c4849f9f085e8d1ecd56d19fbd79fb6885c58e37`. 실패 위치는 `ServerRun.evidence()`의 config 업로드이며 저장소 PUT이403을 반환했다. Summary는 없으며 GRT와 NeoX에서 공통으로 관측된 업로드 경로 실패다. 당시 응답 본문을 폐기하여 S3의 실제 Code(AccessDenied/SignatureDoesNotMatch 등)는 전달 로그에 없다.
 
 GRT `c4849f9`와 GRT_server `4bfa012`의 최신 코드를 대조했다. 운영 문서상 저장소는 S3 `grt-server/grt/`·서울 리전이다. 가짜 임시 자격증명을 사용한 AWS SDK presign과 Python requests PUT의 독립 SigV4 계산은 일치했다. 이는 기본 URL/헤더 조합의 오프라인 검증이며 운영 IAM·bucket policy·실제 발급 자격증명과 거절 사유는 검증하지 못했다. 읽기용 데이터 다운로드 성공은 쓰기 권한의 근거가 아니다. 알려진 S3 응답 코드만 보존하도록 client 진단을 보완했으며 운영 장애 원인을 추정으로 확정하지 않는다.
+
+
+2026-10-30 사용자 전달 NeoX job `job_mvu6lfaw44f8f3bb68b92effb783`(GRT `811a8e4`)에서 `storage_code=AccessDenied`를 수신했다. 사용자는 같은 서버에서 기존 SDK 마이그레이션의 업로드가 성공했고 IAM 설정을 완료했다고 확인했다. 이후 사용자 지시에 따라 업로드를 실행기→인증된 EC2 API→서버 SDK→S3로 변경한다. 연구 조건은 유지하고 서버/client를 함께 업데이트한 새 job으로 실행한다. 기존 S3 데이터 다운로드는 유지하며, 운영 재실행 결과는 아직 미수신이다.

@@ -112,39 +112,6 @@ class ServerError(RuntimeError):
         super().__init__(f'GRT Server: {status} {code}')
 
 
-def upload_failure(response):
-    """Keep S3's error category; never expose its XML, signed URLs or credentials."""
-    from xml.etree import ElementTree
-    codes = {
-        'AccessDenied': 'upload_access_denied',
-        'SignatureDoesNotMatch': 'upload_signature_mismatch',
-        'ExpiredToken': 'upload_expired_token',
-        'InvalidToken': 'upload_invalid_token',
-        'InvalidAccessKeyId': 'upload_invalid_access_key',
-        'RequestTimeTooSkewed': 'upload_clock_skew',
-        'RequestExpired': 'upload_request_expired',
-        'AuthorizationQueryParametersError': 'upload_authorization_query_error',
-        'AuthorizationHeaderMalformed': 'upload_authorization_header_error',
-        'InvalidRequest': 'upload_invalid_request',
-        'BadDigest': 'upload_checksum_mismatch',
-        'PermanentRedirect': 'upload_region_redirect',
-    }
-    provider_code = None
-    content = response.content
-    if len(content) <= 16384:
-        try:
-            root = ElementTree.fromstring(content)
-            if root.tag.rsplit('}', 1)[-1] == 'Error':
-                provider_code = next((item.text for item in root
-                    if item.tag.rsplit('}', 1)[-1] == 'Code'), None)
-        except ElementTree.ParseError:
-            pass
-    error = ServerError(response.status_code, codes.get(provider_code, 'upload_failed'))
-    if provider_code in codes:
-        error.storage_code = provider_code
-    return error
-
-
 def failure_details(error, phase):
     """Record useful locations and API codes without credentials or signed URLs."""
     import traceback
@@ -167,8 +134,6 @@ def failure_details(error, phase):
                    for frame in traceback.extract_tb(error.__traceback__)])
     if isinstance(error, ServerError):
         detail.update(status=error.status, code=error.code)
-        if hasattr(error, 'storage_code'):
-            detail['storage_code'] = error.storage_code
     return detail
 
 
@@ -212,13 +177,7 @@ class ServerClient:
                 response = requests.request(method, self.url + '/v1' + route,
                     headers={'Authorization': 'Bearer ' + self._token, 'Idempotency-Key': key},
                     json=body, timeout=(5, 20), allow_redirects=False)
-                try:
-                    data = None if response.status_code == 204 else response.json()
-                except ValueError:
-                    raise ServerError(response.status_code, 'invalid_response') from None
-                if not response.ok or response.is_redirect:
-                    raise ServerError(response.status_code, data.get('code', 'http_error') if isinstance(data, dict) else 'http_error')
-                return data
+                return self._response(response)
             except requests.RequestException:
                 error = ServerError(0, 'network_unavailable')
             except ServerError as error_response:
@@ -230,6 +189,38 @@ class ServerClient:
             elif stop_event.wait(2 ** attempt):
                 raise ServerError(0, 'connection_closed')
 
+    @staticmethod
+    def _response(response):
+        try:
+            data = None if response.status_code == 204 else response.json()
+        except ValueError:
+            raise ServerError(response.status_code, 'invalid_response') from None
+        if not response.ok or response.is_redirect:
+            raise ServerError(response.status_code,
+                data.get('code', 'http_error') if isinstance(data, dict) else 'http_error')
+        return data
+
+    def upload_file(self, artifact_id, path):
+        """Send a bounded file to our authenticated API; never send tokens to storage URLs."""
+        import requests
+        if not isinstance(artifact_id, str) or not re.fullmatch(r'art_[A-Za-z0-9_-]+', artifact_id):
+            raise ValueError('Invalid artifact ID')
+        for attempt in range(3):
+            try:
+                with Path(path).open('rb') as stream:
+                    response = requests.put(self.url + '/v1/artifacts/uploads/' + artifact_id + '/content',
+                        data=stream, headers={'Authorization': 'Bearer ' + self._token,
+                            'Content-Type': 'application/octet-stream'},
+                        timeout=(5, 900), allow_redirects=False)
+                return self._response(response)
+            except requests.RequestException:
+                error = ServerError(0, 'upload_unavailable')
+            except ServerError as response_error:
+                error = response_error
+            if attempt == 2 or (error.status and error.status < 500 and error.status != 429):
+                raise error from None
+            time.sleep(2 ** attempt)
+
     def check(self):
         me = self.request('GET', '/me')
         if me.get('api_version') != 'v1' or me.get('kind') != 'write':
@@ -237,6 +228,8 @@ class ServerClient:
         caps = self.request('GET', '/capabilities')
         if 'generic/1' not in caps.get('runners', []):
             raise ServerError(422, 'generic_runner_required')
+        if caps.get('artifact_upload') != 'server':
+            raise ServerError(422, 'server_upload_required')
         return me
 
     def ensure_schema(self):
@@ -410,7 +403,6 @@ class ServerRun:
             raise self.error
 
     def upload(self, path, kind, *, extensions=None):
-        import requests
         path = Path(path)
         sha = digest(path)
         identity = f'{kind}:{path.name}:{sha}'
@@ -424,18 +416,7 @@ class ServerRun:
         reserved = self.mutation('upload:' + identity, '/artifacts/uploads', body)
         current = self.client.request('GET', '/artifacts/uploads/' + reserved['id'])
         if current['status'] == 'reserved':
-            link = self.client.request('POST', '/artifacts/uploads', {'upload_id': reserved['id']})['upload']
-            destination = urlsplit(link['url'])
-            if destination.scheme != 'https' and not (destination.scheme == 'http' and destination.hostname in ('localhost', '127.0.0.1', '::1')):
-                raise ValueError('Insecure upload destination')
-            try:
-                with path.open('rb') as stream:
-                    response = requests.put(link['url'], data=stream, headers=link['headers'], timeout=(5, 120), allow_redirects=False)
-            except requests.RequestException:
-                raise ServerError(0, 'upload_unavailable') from None
-            # A lost PUT response may have stored immutable bytes already. Let the server verify them.
-            if response.status_code not in (200, 201, 204, 409):
-                raise upload_failure(response)
+            self.client.upload_file(reserved['id'], path)
         self.mutation('complete:' + identity, '/artifacts/uploads/' + reserved['id'] + '/complete', {})
         until = time.monotonic() + 120
         while True:

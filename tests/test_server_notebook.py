@@ -308,29 +308,40 @@ def test_failure_details_omit_remote_messages_and_commands():
     assert detail['status'] == 409 and detail['code'] == 'stale_attempt'
 
 
-@pytest.mark.parametrize('storage_code,code', [
-    ('AccessDenied', 'upload_access_denied'),
-    ('SignatureDoesNotMatch', 'upload_signature_mismatch'),
-    ('ExpiredToken', 'upload_expired_token'),
-    ('InvalidAccessKeyId', 'upload_invalid_access_key'),
-    ('AuthorizationQueryParametersError', 'upload_authorization_query_error'),
-])
-def test_upload_error_keeps_s3_category_without_echoing_xml(storage_code, code):
-    from types import SimpleNamespace
-    response = SimpleNamespace(status_code=403, content=(
-        f'<Error xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
-        f'<Code>{storage_code}</Code><Message>private-signed-url</Message>'
-        '<AccessKeyId>private-key-id</AccessKeyId><StringToSign>private-signature</StringToSign>'
-        '</Error>').encode())
-    detail = server.failure_details(server.upload_failure(response), 'training')
-    assert detail['code'] == code and detail['storage_code'] == storage_code
-    assert 'private-' not in json.dumps(detail)
+
+def test_server_upload_reopens_file_on_retry_and_uses_only_authenticated_origin(tmp_path, monkeypatch):
+    import requests
+    monkeypatch.setenv('GRT_SERVER_TOKEN', 'private-test-token')
+    client = server.ServerClient('https://grt.example')
+    path = tmp_path / 'input.bin'
+    path.write_bytes(b'complete upload bytes')
+    calls = []
+    def put(url, **kwargs):
+        calls.append(url)
+        assert url == 'https://grt.example/v1/artifacts/uploads/art_example/content'
+        assert kwargs['headers']['Authorization'] == 'Bearer private-test-token'
+        assert kwargs['allow_redirects'] is False
+        if len(calls) == 1:
+            assert kwargs['data'].read(3) == b'com'
+            raise requests.ConnectionError('response lost')
+        assert kwargs['data'].read() == path.read_bytes()
+        response = requests.Response()
+        response.status_code = 204
+        return response
+    monkeypatch.setattr(requests, 'put', put)
+    monkeypatch.setattr(server.time, 'sleep', lambda _: None)
+    client.upload_file('art_example', path)
+    assert len(calls) == 2
+    for artifact_id in ('https://other.example/art_a', 'art_../../other', 'art_a?token=secret'):
+        with pytest.raises(ValueError, match='artifact ID'):
+            client.upload_file(artifact_id, path)
+    assert len(calls) == 2
 
 
-@pytest.mark.parametrize('content', [b'<html>private-proxy-error</html>', b'not XML',
-    b'<Error><Code>private-unknown-code</Code></Error>', b'x' * 16385])
-def test_unknown_upload_error_remains_generic(content):
-    from types import SimpleNamespace
-    error = server.upload_failure(SimpleNamespace(status_code=403, content=content))
-    assert error.code == 'upload_failed' and not hasattr(error, 'storage_code')
-    assert 'private-' not in str(error)
+def test_server_upload_capability_is_required_before_worker_start(monkeypatch):
+    monkeypatch.setenv('GRT_SERVER_TOKEN', 'private-test-token')
+    client = server.ServerClient('https://grt.example')
+    monkeypatch.setattr(client, 'request', lambda method, route:
+        {'api_version': 'v1', 'kind': 'write'} if route == '/me' else {'runners': ['generic/1']})
+    with pytest.raises(server.ServerError, match='server_upload_required'):
+        client.check()

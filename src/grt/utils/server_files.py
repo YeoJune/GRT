@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit
 import zipfile
 
-from grt.utils.server import ServerError, digest, upload_failure
+from grt.utils.server import ServerError, digest
 
 
 def transfer_url(url):
@@ -68,7 +68,6 @@ def prepared_files(directory):
 
 
 def cache_prepared(client, directory):
-    import requests
     directory = Path(directory)
     files = prepared_files(directory)
     sha = digest(directory / 'manifest.json')
@@ -85,20 +84,13 @@ def cache_prepared(client, directory):
             extensions=dict(cache_format='grt.prepared/1', manifest_sha256=sha)))
         if item['status'] == 'reserved':
             try:
-                link = client.request('POST', '/artifacts/uploads', {'upload_id': item['id']})['upload']
+                client.upload_file(item['id'], archive)
             except ServerError as error:
                 if error.code != 'upload_closed':
                     raise
-                link = None  # A concurrent publisher may already have completed this archive.
-            if link:
-                try:
-                    with archive.open('rb') as stream:
-                        response = requests.put(transfer_url(link['url']), data=stream, headers=link['headers'],
-                            timeout=(5, 120), allow_redirects=False)
-                except requests.RequestException:
-                    raise ServerError(0, 'upload_unavailable') from None
-                if response.status_code not in (200, 201, 204, 409):
-                    raise upload_failure(response)
+                current = client.request('GET', '/artifacts/uploads/' + item['id'])
+                if current['status'] not in ('verifying', 'verified'):
+                    raise
         client.request('POST', '/artifacts/uploads/' + item['id'] + '/complete', {})
         until = time.monotonic() + 600
         while True:

@@ -140,7 +140,8 @@ def test_real_upload_training_posthoc_and_repeat_are_idempotent(tmp_path, client
     original_put = requests.put
     transfers = []
     def put(url, **kwargs):
-        assert 'Authorization' not in kwargs.get('headers', {})
+        assert kwargs.get('headers', {}).get('Authorization') == 'Bearer ' + client._token
+        assert url.startswith(client.url + '/v1/artifacts/uploads/')
         transfers.append(url)
         return original_put(url, **kwargs)
     monkeypatch.setattr(requests, 'put', put)
@@ -247,8 +248,7 @@ def test_upload_response_loss_reuses_reservation_without_retraining(tmp_path, cl
                 raise requests.ConnectionError('lost response')
             return response
         monkeypatch.setattr(requests, 'put', lose_response)
-        with pytest.raises(ServerError, match='upload_unavailable'):
-            run.report(plot=False)
+        run.report(plot=False)  # response loss retries the immutable upload
         run.report(plot=False)
         detail = client.request('GET', '/jobs/' + job_id)
         assert detail['status'] == 'succeeded'
@@ -404,7 +404,8 @@ def test_prepared_cache_rejects_archive_traversal_before_publishing(tmp_path, cl
         format='zip', format_version='1', size_bytes=archive.stat().st_size, sha256=digest(archive),
         extensions={'cache_format': 'grt.prepared/1', 'manifest_sha256': sha}))
     with archive.open('rb') as stream:
-        response = requests.put(item['upload']['url'], data=stream, timeout=5)
+        response = requests.put(item['upload']['url'], data=stream,
+            headers={'Authorization': 'Bearer ' + client._token, 'Content-Type': 'application/octet-stream'}, timeout=5)
     assert response.status_code == 204
     client.request('POST', '/artifacts/uploads/' + item['id'] + '/complete', {})
     for _ in range(40):

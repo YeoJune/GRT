@@ -36,7 +36,7 @@ server_deadline = '<실제 세션 종료 시각: UTC ISO8601>'
 
 Online W&B run URL은 heartbeat와 완료 시 서버로 전달하며 실험 목록·상세에서 클릭해 연다. 기존 실행의 링크는 서버 실험 수정에서 입력할 수 있다.
 
-학습 전에 Config/provenance를 전송한다. 서버 연결 시 5분 간격으로 update 경계에서 확정 checkpoint를 저장하고 helper가 snapshot하여 전송한다. `report()`는 원본 `experiment_report.json`, 실제 Config·metadata·checkpoint·로그와 선택한 posthoc/ZIP을 자동 저장한다. 원본 bytes는 변경하지 않고 서버 검증용 envelope는 별도로 만든다. `download=True`의 기존 로컬 다운로드도 유지한다.
+학습 전에 Config/provenance를 EC2 API에 전송한다. 서버 연결 시 5분 간격으로 update 경계에서 확정 checkpoint를 저장하고 helper가 snapshot하여 전송한다. `report()`는 원본 `experiment_report.json`, 실제 Config·metadata·checkpoint·로그와 선택한 posthoc/ZIP을 자동 저장한다. 원본 bytes는 변경하지 않고 서버 검증용 envelope는 별도로 만든다. `download=True`의 기존 로컬 다운로드도 유지한다.
 
 학습 프로세스 종료만으로 성공을 확정하지 않는다. 최종 `report()`가 업로드·finish를 요청하고 서버가 실제 크기·SHA256과 완료 증거를 검증한 뒤에만 성공을 반환한다.
 
@@ -44,7 +44,7 @@ Online W&B run URL은 heartbeat와 완료 시 서버로 전달하며 실험 목�
 
 Worker는 최초 오류를 `Worker error:`로 출력하고 run 폴더의 `worker_error.json`에 단계(preparing/preflight/training/posthoc/uploading)·예외 종류·안전한 메시지·호출 위치를 기록한다. API 오류는 HTTP status와 code를 포함하며 토큰·signed URL·원격 원문·프로세스 출력은 기록하지 않는다. 동기화 중 추가 오류는 별도의 `sync_error.json`과 `Synchronization error:`에 기록한다.
 
-직접 저장소 PUT 실패는 S3 XML의 알려진 오류 코드만 보존한다. 예를 들어 `upload_access_denied`/`storage_code=AccessDenied`, `upload_signature_mismatch`/`SignatureDoesNotMatch`, `upload_expired_token`/`ExpiredToken`으로 구분한다. XML 원문·Message·AccessKeyId·StringToSign은 출력하지 않는다. 알 수 없는 XML·HTML 응답은 기존 `upload_failed`로 남는다. 이 처리는 결과 파일과 prepared 캐시 업로드에 공통 적용된다.
+모든 파일은 `ServerClient.upload_file()`을 통해 같은 서버 origin의 인증된 `PUT /v1/artifacts/uploads/{id}/content`로 보낸다. 서버가 임시 파일로 크기·SHA256을 검사한 뒤 EC2 자격증명의 AWS SDK로 S3에 저장한다. Prepared·checkpoint·config·provenance·결과 ZIP에 같은 경로를 사용하며 실행기에 AWS 키나 S3 업로드 서명 URL을 전달하지 않는다. 다운로드는 기존의 검증된 파일/VersionId·서명 URL을 유지한다. 서버의 S3 거절은 `502 storage_access_denied`, 그 밖의 S3 업로드 실패는 `502 storage_upload_failed`로 기록한다. Client는 파일을 다시 열어429/5xx/응답 유실을 재시도하고, 서버는 같은 bytes의 재전송을 덮어쓰기 없이 처리한다.
 
 큐 worker가 실패 결과 보존과 종료를 한 번만 담당하며, 학습 오류를 준비·snapshot 복원 실패로 덮어쓰지 않는다. Config/provenance 업로드 실패로 정상 종료 보고가 불가능하면 같은 attempt에 실제 단계·오류를 담은 실패 종료를 요청한다. 서버 접근 자체가 막히거나 lease 소유권이 바뀌면 종료 보고도 보류될 수 있으며, 로컬 진단과 파일은 유지하고 다음 job을 가져오지 않는다.
 
@@ -191,3 +191,8 @@ GRT_TEST_SERVER_REPO=/path/to/GRT_server python -m pytest tests/test_server.py -
 GRT_server checkout에는 `npm ci`가 필요하다. 실제 Express 서버를 임시 SQLite·계정으로 실행해 작은 합성 token 데이터의 CPU 학습·posthoc·원본 다운로드·중복 방지·전송 응답 유실·큐·취소 저장을 검사한다. 서버 설치본이 없으면 외부 통합 검사는 skip된다. 일반 GRT 검사는 서버 없이 실행한다.
 
 자동 검사는 CPU 기능 검증이다. GPU 학습 품질·수렴, 새 플랫폼·저장소·운영 구성은 각 환경에서 확인한다. 배포 검증 기록은 [서버 아카이브](https://github.com/YeoJune/GRT_server/blob/main/docs/archive/README.md)에 보존한다.
+
+
+## EC2 경유 업로드 버전 반영
+
+GRT_server를 먼저 업데이트·빌드·재시작하고 GRT 노트북을 최신 코드로 갱신한다. 노트북은 기존 L/M/예산을 유지하며 `execution_mode='new'`로 시작한다. 이전 commit에 고정된 job의 resume은 이전 직접 업로드 코드를 실행하므로 새 경로 검증에 사용하지 않는다. Prepared 캐시와 기존 S3 결과는 그대로 읽을 수 있으며 데이터 이전은 필요 없다. EC2에는 동시 업로드와 ZIP 생성용 임시 디스크 여유가 필요하다. 이번 코드 변경의 로컬 API·SDK 어댑터 검사는 실제 운영 S3나 Kaggle 성공을 보장하는 실측으로 표현하지 않는다.
