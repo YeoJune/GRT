@@ -345,3 +345,34 @@ def test_server_upload_capability_is_required_before_worker_start(monkeypatch):
         {'api_version': 'v1', 'kind': 'write'} if route == '/me' else {'runners': ['generic/1']})
     with pytest.raises(server.ServerError, match='server_upload_required'):
         client.check()
+
+
+@pytest.mark.parametrize('model', ['neox', 'rmt'])
+def test_baseline_job_does_not_require_grt_posthoc(tmp_path, harness, model):
+    client, _, _ = harness
+    run = notebook.notebook_run(REPO, runtime='kaggle', models=(model,), execution_mode='new',
+        work_dir=tmp_path, budget='100k')
+    run.setup(install=False)
+    run.prepare_data()
+    run.execute(posthoc_options=POSTHOC, download=False)
+    assert client.job['spec']['posthoc_options'] is None
+    assert client.job['policy']['require_posthoc'] is False
+
+
+@pytest.mark.parametrize('error', [OSError('heartbeat failed'), server.ServerError(503, 'network_unavailable')])
+def test_heartbeat_failure_reaches_child_monitor(tmp_path, error):
+    import threading
+    session = object.__new__(server.ServerRun)
+    session.state = {'assignment': {'deadline_at': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), 'heartbeat_seconds': 0}}
+    session._done = threading.Event()
+    session.error = None
+    session.stop_file = tmp_path / 'stop'
+    session._lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    def fail(**kwargs):
+        raise error
+    session.heartbeat = fail
+    session.checkpoint = lambda: pytest.fail('Do not upload after a fatal heartbeat failure')
+    session._heartbeat_loop()
+    assert session.error is error and session.stop_file.exists()
+    with pytest.raises(type(error)):
+        session.poll()

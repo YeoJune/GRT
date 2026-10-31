@@ -22,9 +22,10 @@ class FakeRun:
         torch.rand(5)
         self.logs.append((step, payload))
 
-    def finish(self):
+    def finish(self, *, exit_code=0):
         torch.rand(5)
         self.finished = True
+        self.exit_code = exit_code
 
 
 def test_disabled_monitor_does_not_import_or_connect(tmp_path, monkeypatch):
@@ -89,3 +90,18 @@ def test_monitor_failure_leaves_readable_local_warning(tmp_path, monkeypatch):
     import json
     status = json.loads((tmp_path / 'wandb_status.json').read_text())
     assert status['state'] == 'initialization_failed' and status['failures'] == 1
+
+
+def test_training_exception_finishes_wandb_as_failed(tmp_path, monkeypatch):
+    import json
+    run = FakeRun()
+    monkeypatch.setitem(sys.modules, 'wandb', SimpleNamespace(init=lambda **kwargs: run))
+    cfg = tiny_config(tmp_path)
+    cfg.wandb.enabled = True
+    def crash(*args):
+        raise RuntimeError('training crashed')
+    monkeypatch.setattr(trainer, '_run', crash)
+    with pytest.raises(RuntimeError, match='training crashed'):
+        trainer.run(cfg, torch.device('cpu'))
+    assert run.finished and run.exit_code == 1
+    assert json.loads((tmp_path / 'wandb_status.json').read_text())['state'] == 'failed'

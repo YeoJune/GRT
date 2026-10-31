@@ -175,13 +175,13 @@ class Monitor:
             self._status('summary_failed', error=str(error))
             self.warn(f"W&B summary failed: {error}")
 
-    def finish(self):
+    def finish(self, *, exit_code=0):
         if self.run is None:
             return
         try:
             with preserve_rng():
-                self.run.finish()
-            self._status('finished')
+                self.run.finish(exit_code=exit_code)
+            self._status('finished' if exit_code == 0 else 'failed', exit_code=exit_code)
         except Exception as error:
             self._status('finish_failed', error=str(error))
             self.warn(f"W&B finalization failed: {error}")

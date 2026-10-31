@@ -47,9 +47,12 @@ def run(cfg, device, distributed=None):
         logging_cfg.wandb.enabled = False
     monitor = Monitor(root, logging_cfg)
     try:
-        return _run(cfg, device, monitor, ctx)
-    finally:
-        monitor.finish()
+        result = _run(cfg, device, monitor, ctx)
+    except BaseException:
+        monitor.finish(exit_code=1)
+        raise
+    monitor.finish()
+    return result
 
 
 def _run(cfg, device, monitor, ctx):

@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from grt.utils.kaggle import WikiTextRun
-from grt.utils.server import ServerClient, failure_details, write_private
+from grt.utils.server import ServerClient, failure_details, write_private, finish_failure
 
 
 def main():
@@ -49,32 +49,21 @@ def main():
             run.report(plot=False, posthoc=options is not None, posthoc_options=options)
         except BaseException as error:
             detail = failure_details(error, phase)
-            run._worker_failure = detail
             print('Worker error:', json.dumps(detail), file=sys.stderr, flush=True)
             try:
                 write_private(run.run_dir / 'worker_error.json', detail)
             except OSError:
                 print('Could not save worker_error.json; the original error is printed above.', file=sys.stderr)
-            connected = bool(run._server_sessions)
-            synced = run._preserve_partial(phase=phase + '_failed')
-            client = ServerClient(secret_source=args.secret_source)
-            assignment = run._queued_assignment
-            current = client.request('GET', '/jobs/' + assignment['job']['id'])
-            if (not connected or not synced) and current['status'] == 'running':
-                # Failed attempts may finish without uploaded evidence. Preserve the
-                # actual stage/error instead of misclassifying every failure as setup.
-                try:
-                    progress = (current.get('summary') or {}).get('step', 0)
-                    client.request('POST', '/attempts/' + assignment['attempt_id'] + '/finish', {
-                        **{key: assignment[key] for key in ('worker_id', 'lease_token', 'generation')},
-                        'outcome': 'failed', 'stage': phase,
-                        'error': f"{phase}: {detail['message']}",
-                        'artifact_ids': [], 'manifest': dict(spec_sha256=assignment['job']['spec_sha256'],
-                            config_sha256='0' * 64, completed_steps=progress,
-                            target_steps=assignment['job']['spec']['target_steps'], posthoc_completed=False)})
-                except Exception as sync_error:
-                    print('Failure reporting error:', json.dumps(failure_details(sync_error, 'synchronizing')),
-                          file=sys.stderr, flush=True)
+            run.close()  # A dead training process must not keep its lease alive during cleanup.
+            try:
+                finish_failure(ServerClient(secret_source=args.secret_source), run._queued_assignment, detail)
+            except Exception as sync_error:
+                print('Failure reporting error:', json.dumps(failure_details(sync_error, 'synchronizing')),
+                      file=sys.stderr, flush=True)
+            try:
+                run.export_report()
+            except Exception as local_error:
+                print('Local report error:', json.dumps(failure_details(local_error, 'reporting')), file=sys.stderr)
             print('Job stopped; inspect local logs and the server job detail.', file=sys.stderr)
             return 1  # Never claim another job after a failed or unsynchronized attempt.
         finally:

@@ -46,13 +46,13 @@ Worker는 최초 오류를 `Worker error:`로 출력하고 run 폴더의 `worker
 
 모든 파일은 `ServerClient.upload_file()`을 통해 같은 서버 origin의 인증된 `PUT /v1/artifacts/uploads/{id}/content`로 보낸다. 서버가 임시 파일로 크기·SHA256을 검사한 뒤 EC2 자격증명의 AWS SDK로 S3에 저장한다. Prepared·checkpoint·config·provenance·결과 ZIP에 같은 경로를 사용하며 실행기에 AWS 키나 S3 업로드 서명 URL을 전달하지 않는다. 다운로드는 기존의 검증된 파일/VersionId·서명 URL을 유지한다. 서버의 S3 거절은 `502 storage_access_denied`, 그 밖의 S3 업로드 실패는 `502 storage_upload_failed`로 기록한다. Client는 파일을 다시 열어429/5xx/응답 유실을 재시도하고, 서버는 같은 bytes의 재전송을 덮어쓰기 없이 처리한다.
 
-큐 worker가 실패 결과 보존과 종료를 한 번만 담당하며, 학습 오류를 준비·snapshot 복원 실패로 덮어쓰지 않는다. Config/provenance 업로드 실패로 정상 종료 보고가 불가능하면 같은 attempt에 실제 단계·오류를 담은 실패 종료를 요청한다. 서버 접근 자체가 막히거나 lease 소유권이 바뀌면 종료 보고도 보류될 수 있으며, 로컬 진단과 파일은 유지하고 다음 job을 가져오지 않는다.
+큐 worker는 학습 프로세스 오류를 받으면 heartbeat를 멈추고 해당 attempt에 실제 단계·오류의 실패 종료를 먼저 요청한다. 실패 상태 전달에는 config·checkpoint·결과 업로드가 필요하지 않다. 이후 로컬 진단과 보고서를 보존하고 다음 job을 가져오지 않는다. 서버와 통신할 수 없거나 worker 자체가 종료되면 lease 만료 후 서버가 해당 attempt를 interrupted로 종료하며 자동으로 재실행하지 않는다.
 
 2026-10-29의 L50/M5·100k 실행은 preflight(0.594s/update·micro128×accum1×GPU2·peak7.17GiB) 이후 학습 명령 전 중단됐다. 당시 worker가 최초 오류를 숨겨 실제 서버 API 오류나 검증 실패를 확정할 수 없다. 정상 경로와 config 업로드 실패 주입은 로컬 실제 API·작은 CPU 실험으로 검증했으며, 기존 Kaggle 장애 자체의 재현이나 GPU 학습 성공을 뜻하지 않는다. 수정 버전으로 재실행한 뒤 최초 오류 기록을 확인한다. 기존 job은 원래 commit에 고정되므로 새 코드 확인은 최신 commit의 `new` job에서 수행한다.
 
 ## 큐 등록과 실행
 
-제출용 노트북은 `server_mode='off'`로 두고 코드와 prepared 데이터를 먼저 고정한다. `queue`는 일반 생성자의 설정값으로 넣지 않고 worker/claim으로 시작한다. `job.prepare_data()`로 데이터를 검증한 뒤 다음과 같이 제출 JSON을 만든다. `posthoc_options=None`이면 학습 결과만 요구하며, 분석 옵션을 지정하면 posthoc도 완료에 필수다.
+제출용 노트북은 `server_mode='off'`로 두고 코드와 prepared 데이터를 먼저 고정한다. `queue`는 일반 생성자의 설정값으로 넣지 않고 worker/claim으로 시작한다. `job.prepare_data()`로 데이터를 검증한 뒤 다음과 같이 제출 JSON을 만든다. `posthoc_options=None`이면 학습 결과만 요구한다. 분석은GRT에만 적용하며 RMT/NeoX는 옵션을 전달해도 spec의posthoc_options=None·require_posthoc=false로 등록하고 posthoc_status=skipped로 완료한다. GRT에서 분석 옵션을 지정하면 posthoc도 완료에 필수다.
 
 ```python
 import json
@@ -108,7 +108,7 @@ job.prepare_data(server_cache='<manifest SHA256>')
 
 서버 연결 학습은 주기적 checkpoint에서 `grt.resume/1` snapshot ZIP을 전송한다. Last/best checkpoint, 실제 Config, microbatch 보정·preflight 정보, 기존 metrics와 W&B run ID를 포함한다. 모델·optimizer·scheduler·rank별 RNG·token stream 위치·메모리 state는 기존 checkpoint 계약으로 복원하며 `.server`의 lease·토큰은 복제하지 않는다. Heartbeat에 검증된 snapshot ID도 전송한다.
 
-Kaggle/Colab 세션 종료 후 웹의 **이어서 학습** 또는 `npm run cli -- jobs resume JOB_ID`를 선택한다. Stale running 작업은 lease 만료 후 `--evidence '이전 런타임 종료를 확인한 근거'`가 필요하다. 서버는 최신 검증 snapshot을 선택해 같은 job의 새 attempt를 대기열에 넣는다. 처음부터 실행하려면 기존 `jobs retry`를 사용한다. `--checkpoint ARTIFACT_ID`로 같은 실험의 다른 보존 snapshot도 선택할 수 있다.
+Kaggle/Colab 세션 종료 후 웹의 **이어서 학습** 또는 `npm run cli -- jobs resume JOB_ID`를 선택한다. Heartbeat가 끊기면 lease 만료 후 interrupted로 종료된다. 이후 같은 job의 verified snapshot으로 새 attempt를 재개한다. 서버는 최신 검증 snapshot을 선택해 같은 job의 새 attempt를 대기열에 넣는다. 처음부터 실행하려면 기존 `jobs retry`를 사용한다. `--checkpoint ARTIFACT_ID`로 같은 실험의 다른 보존 snapshot도 선택할 수 있다.
 
 새 환경에서 **같은 GRT commit·소스·prepared manifest·world size**를 준비하고 큐 worker를 실행한다. 데이터는 로컬 입력 또는 `--prepared-from-server`를 선택한다. `preflight()`가 할당된 snapshot을 검증·다운로드하고 기존 best·batch 보정·학습 상태를 복원한다. GPU 메모리에 맞춰 연구 조건이나 microbatch를 다시 바꾸지 않으며 기존 배치가 들어가는 환경이 필요하다. 재개 시 기존 preflight 보정·측정치를 재사용하므로 새 하드웨어의 속도·peak memory를 다시 측정한 값으로 해석하지 않는다. 새 attempt는 별도 로컬 디렉터리에서 실행한다. 같은 attempt의 동일 로컬 journal을 이용한 재접속은 기존 복원본을 재사용한다.
 
@@ -196,3 +196,12 @@ GRT_server checkout에는 `npm ci`가 필요하다. 실제 Express 서버를 임
 ## EC2 경유 업로드 버전 반영
 
 GRT_server를 먼저 업데이트·빌드·재시작하고 GRT 노트북을 최신 코드로 갱신한다. 노트북은 기존 L/M/예산을 유지하며 `execution_mode='new'`로 시작한다. 이전 commit에 고정된 job의 resume은 이전 직접 업로드 코드를 실행하므로 새 경로 검증에 사용하지 않는다. Prepared 캐시와 기존 S3 결과는 그대로 읽을 수 있으며 데이터 이전은 필요 없다. EC2에는 동시 업로드와 ZIP 생성용 임시 디스크 여유가 필요하다. 이번 코드 변경의 로컬 API·SDK 어댑터 검사는 실제 운영 S3나 Kaggle 성공을 보장하는 실측으로 표현하지 않는다.
+
+
+## 상태 판정과 사후 분석
+
+W&B 원격 상태를 폴링해서 서버의 성공/실패를 추정하지 않는다. 정상 학습은 프로세스 종료 코드·summary와 필수 결과 검증으로 완료하고, Python 학습 예외는 W&B에도exit_code=1을 전달한다. 강제 종료는 finally를 실행할 수 없으므로 worker의 실패 보고 또는 서버 lease 만료로 처리한다.
+
+Heartbeat thread의 예상하지 못한 예외도 프로세스 monitor에 전달한다. 일시적 통신 장애의 재시도는 마지막으로 확인한 lease 유효기간 안에서만 허용한다. Lease를 잃으면 이전 attempt는 갱신하거나 결과를 발행할 수 없으며 자동 재배정 없이 interrupted로 남는다. 이는 프로세스 강제 종료를 보장한다는 뜻은 아니므로 재개 전 이전 런타임 종료를 확인한다.
+
+사후 분석 실패와 W&B 기록 검증 실패도 실행 실패로 보고하며 같은 attempt를 계속 running으로 유지하며 재시도하지 않는다. 로컬 checkpoint·이전에 검증된 서버 snapshot은 남는다. 이미 등록된 baseline의 불필요한 posthoc 필수 플래그도 서버 완료 검증에서 제외하지만 GRT의 필수 분석은 그대로 검증한다.

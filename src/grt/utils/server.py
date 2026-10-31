@@ -89,6 +89,8 @@ def code_identity(repo):
 
 def job_definition(run, model, *, posthoc_options=None):
     cfg = run.config(model, calibrated=False)
+    if model != 'grt':
+        posthoc_options = None
     manifest = run.prepared_dir / 'manifest.json'
     if not manifest.exists():
         raise ValueError('Prepare and verify the dataset before creating a server job')
@@ -135,6 +137,18 @@ def failure_details(error, phase):
     if isinstance(error, ServerError):
         detail.update(status=error.status, code=error.code)
     return detail
+
+
+def finish_failure(client, assignment, detail, *, completed_steps=0, outcome='failed'):
+    """Report process failure without depending on artifact or checkpoint uploads."""
+    spec = assignment['job']
+    return client.request('POST', '/attempts/' + assignment['attempt_id'] + '/finish', {
+        **{key: assignment[key] for key in ('worker_id', 'lease_token', 'generation')},
+        'outcome': outcome, 'stage': detail['phase'],
+        'error': f"{detail['phase']}: {detail['message']}", 'artifact_ids': [],
+        'manifest': dict(spec_sha256=spec['spec_sha256'], config_sha256='0' * 64,
+            completed_steps=completed_steps, target_steps=spec['spec']['target_steps'], posthoc_completed=False),
+    }, key='failure-' + assignment['attempt_id'])
 
 
 def validate_url(url):
@@ -276,7 +290,6 @@ class ServerRun:
         self.stage = 'preparing'
         self.error = None
         self.stop_file = self.directory / 'stop'
-        self._last_online = time.monotonic()
         self._checkpoint_stamp = None
         self._checkpoint_id = None
         try:
@@ -342,6 +355,7 @@ class ServerRun:
         if self.job['active_attempt_id'] != assignment['attempt_id'] or self.job['status'] != 'running':
             raise ServerError(409, 'attempt_closed')
         self.stop_file.unlink(missing_ok=True)
+        self._lease_expires_at = datetime.fromisoformat(assignment['lease_expires_at'].replace('Z', '+00:00'))
         self.heartbeat()
         self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
@@ -360,7 +374,7 @@ class ServerRun:
             url = None
         return {'wandb_url': url} if url else {}
 
-    def heartbeat(self):
+    def heartbeat(self, *, background=False):
         progress = None
         metrics = self.run.run_dir / self.model / 'metrics.jsonl'
         if metrics.exists():
@@ -375,8 +389,8 @@ class ServerRun:
             {**self.lease, 'stage': self.stage, **({'progress': progress} if progress else {}),
              'summary': self.wandb_summary(),
              **({'last_verified_checkpoint_id': self._checkpoint_id} if self._checkpoint_id else {})},
-            stop_event=self._done)
-        self._last_online = time.monotonic()
+            stop_event=self._done if background else None)
+        self._lease_expires_at = datetime.fromisoformat(reply['lease_expires_at'].replace('Z', '+00:00'))
         if reply['command'] == 'cancel':
             self.stop(ServerError(409, 'cancel_requested'))
 
@@ -387,20 +401,29 @@ class ServerRun:
                 self.stop(ServerError(409, 'deadline_reached'))
                 return
             try:
-                self.heartbeat()
-            except ServerError as error:
-                if error.status in (401, 403, 409) or time.monotonic() - self._last_online >= 600:
+                self.heartbeat(background=True)
+            except Exception as error:
+                if (not isinstance(error, ServerError) or error.status in (401, 403, 409)
+                    or datetime.now(timezone.utc) >= self._lease_expires_at):
                     self.stop(error)
                     return
 
     def stop(self, error):
         if not self._done.is_set():
             self.error = error
-            self.stop_file.touch(mode=0o600)
+            try:
+                self.stop_file.touch(mode=0o600)
+            except OSError:
+                pass  # The process poll still observes self.error and terminates the child.
 
     def check(self):
         if self.error:
             raise self.error
+
+    def poll(self):
+        self.check()
+        self.checkpoint()
+        self.check()
 
     def upload(self, path, kind, *, extensions=None):
         path = Path(path)
@@ -473,28 +496,24 @@ class ServerRun:
             dataset_sha256=self.job['spec']['dataset_sha256']))
         return artifact, self.upload(provenance, 'provenance')
 
-    def preserve_partial(self, phase):
-        self.evidence()
-        for path, kind in [(self.run.report_path, 'result'),
-                           (self.run.run_dir / self.model / 'last.pt', 'checkpoint'),
-                           (self.run.run_dir / (self.model + '_train_console.txt'), 'log')]:
-            if path.exists():
-                self.upload(path, kind)
-        self.client.request('POST', '/attempts/' + self.state['assignment']['attempt_id'] + '/heartbeat',
-            {**self.lease, 'stage': self.stage, 'summary': {'partial_result': True, 'phase_error': phase}})
-
-    def finish(self, *, error=False, posthoc=False):
+    def finish(self, *, error=None, posthoc=False):
         if self.job['status'] == 'succeeded':
             return self.job
         if self.job['status'] == 'finalizing':
-            return self.wait_finished(allow_failed=error)
-        self.stage = 'uploading'
+            return self.wait_finished(allow_failed=error is not None)
         root = self.run.run_dir / self.model
         summary = json.loads((root / 'summary.json').read_text()) if (root / 'summary.json').exists() else {}
         step = summary.get('step', 0)
+        if error:
+            self.stop_heartbeat()
+            detail = failure_details(error, self.stage)
+            outcome = 'cancelled' if isinstance(self.error, ServerError) and self.error.code == 'cancel_requested' else 'failed'
+            finish_failure(self.client, self.state['assignment'], detail, completed_steps=step, outcome=outcome)
+            return self.wait_finished(allow_failed=True)
+        self.stage = 'uploading'
         completed = summary.get('status') == 'completed' and step >= self.job['spec']['target_steps']
-        outcome = 'failed' if error else 'completed' if completed else 'interrupted'
-        if self.error and self.error.code == 'cancel_requested':
+        outcome = 'completed' if completed else 'interrupted'
+        if isinstance(self.error, ServerError) and self.error.code == 'cancel_requested':
             outcome = 'cancelled'
         config, provenance = self.evidence()
         self.checkpoint(force=True)
@@ -509,7 +528,9 @@ class ServerRun:
             if path.is_file():
                 artifacts.append(self.upload(path, kind)['id'])
         analysis = root / 'posthoc_report_path.json'
-        analyzed = posthoc and analysis.exists()
+        analyzed = self.model == 'grt' and posthoc and analysis.exists()
+        summary['posthoc_status'] = ('skipped' if self.model != 'grt' else
+            'completed' if analyzed else 'not_requested')
         if analyzed:
             path = Path(json.loads(analysis.read_text())['report_path'])
             artifacts.append(self.upload(path, 'result')['id'])
@@ -524,14 +545,11 @@ class ServerRun:
             completed_steps=step, target_steps=self.job['spec']['target_steps'], posthoc_completed=bool(analyzed))
         self.client.request('POST', '/attempts/' + self.state['assignment']['attempt_id'] + '/heartbeat',
             {**self.lease, 'stage': 'uploading', 'summary': {**summary, **self.wandb_summary(), 'partial_result': outcome != 'completed', 'phase_error': None}})
-        failure = getattr(self.run, '_worker_failure', None) if error else None
         self.mutation('finish', '/attempts/' + self.state['assignment']['attempt_id'] + '/finish',
-            {**self.lease, 'outcome': outcome, 'stage': failure['phase'] if failure else 'uploading',
-             'error': f"{failure['phase']}: {failure['message']}" if failure else
-                 'Local stage failed; inspect preserved results and logs' if error else None,
+            {**self.lease, 'outcome': outcome, 'stage': 'uploading', 'error': None,
              'artifact_ids': artifacts, 'manifest': manifest})
         self._done.set()
-        return self.wait_finished(allow_failed=error)
+        return self.wait_finished(allow_failed=error is not None)
 
     def wait_finished(self, *, allow_failed=False):
         until = time.monotonic() + 120
@@ -545,10 +563,13 @@ class ServerRun:
                 raise ServerError(0, 'finalization_pending')
             time.sleep(.25)
 
-    def close(self):
+    def stop_heartbeat(self):
         self._done.set()
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=30)
+
+    def close(self):
+        self.stop_heartbeat()
         if not self._lock_file.closed:
             self._lock_file.close()
 

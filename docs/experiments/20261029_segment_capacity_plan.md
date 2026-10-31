@@ -135,3 +135,6 @@ GRT `c4849f9`와 GRT_server `4bfa012`의 최신 코드를 대조했다. 운영 �
 
 
 2026-10-30 사용자 전달 NeoX job `job_mvu6lfaw44f8f3bb68b92effb783`(GRT `811a8e4`)에서 `storage_code=AccessDenied`를 수신했다. 사용자는 같은 서버에서 기존 SDK 마이그레이션의 업로드가 성공했고 IAM 설정을 완료했다고 확인했다. 이후 사용자 지시에 따라 업로드를 실행기→인증된 EC2 API→서버 SDK→S3로 변경한다. 연구 조건은 유지하고 서버/client를 함께 업데이트한 새 job으로 실행한다. 기존 S3 데이터 다운로드는 유지하며, 운영 재실행 결과는 아직 미수신이다.
+
+
+2026-10-31 사용자 보고: 업로드 경로 변경 후 이전403은 재발하지 않았으나 baseline 사후 분석 완료 검증과 W&B crashed/서버 running 불일치가 발생했다. 점검 결과 baseline 실행 스킵과 require_posthoc 등록이 불일치했고, lease 만료는 stale 표시만 남겼다. Baseline은 정상 skipped 완료, 프로세스 오류는 업로드와 독립적인 실패 보고, worker 유실은 lease 만료 interrupted로 정리한다. 실제 보고된 crash의 최초 stack trace는 미수신이며 이 기록을 특정 학습 오류의 원인 확정으로 해석하지 않는다.

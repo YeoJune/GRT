@@ -42,7 +42,7 @@ job.execute(download=True, posthoc_options=dict(
 ))
 ```
 
-`execute()`는 preflight → 학습 → 사후 분석 → 결과 내보내기를 수행한다. 서버 모드는 이 순서를 원래 commit의 별도 worker 프로세스에서 실행한다. 단계별 제어가 필요한 Python/CLI에서는 기존 `WikiTextRun.preflight()`·`train()`·`report()`를 직접 사용할 수 있다.
+`execute()`는 preflight → 학습 → GRT 사후 분석 → 결과 내보내기를 수행한다. RMT/NeoX는 분석을 정상 스킵하며 서버에서도 분석 미완료 때문에 실패 처리하지 않는다. 서버 모드는 이 순서를 원래 commit의 별도 worker 프로세스에서 실행한다. 단계별 제어가 필요한 Python/CLI에서는 기존 `WikiTextRun.preflight()`·`train()`·`report()`를 직접 사용할 수 있다.
 
 Prepared 데이터는 manifest·train/validation/test.pt·tokenizer/vocabulary artifact를 보존한다. 기존 artifact를 쓸 때는 `job.prepare_data(prepared_input=..., resume_input=...)`에 위치를 준다. 동일 데이터는 hash로 확인한다.
 

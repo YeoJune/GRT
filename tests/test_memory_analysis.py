@@ -106,7 +106,7 @@ def test_stream_monitor_logs_and_preserves_training(tmp_path, monkeypatch):
         def log(self, payload, step):
             self.logs.append((step, payload))
             torch.rand(3)
-        def finish(self):
+        def finish(self, *, exit_code=0):
             pass
     def init(**kwargs):
         run = Run()

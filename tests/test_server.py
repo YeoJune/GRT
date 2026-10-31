@@ -93,11 +93,11 @@ def make_run(tmp_path, client, *, steps=2, model='grt', mode='upload'):
         benchmark_steps=1, server_mode=mode, server_url=client.url,
         server_queue='test-' + tmp_path.name,
         server_deadline=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-        overrides={'model': {'vocab_size': 128, 'd_model': 32, 'segment_len': 4, 'num_registers': 3,
+        overrides={'model': {'vocab_size': 128, 'd_model': 32, 'segment_len': 4, 'num_registers': 0 if model == 'neox' else 3,
             'alu': {'num_layers': 1, 'nhead': 4, 'd_ff': 64},
             **({'router': {'mlp_hidden': 32}} if model == 'grt' else {})},
             'training': {'auto_batch': False, 'batch_size': 1, 'grad_accum_steps': 1,
-                'global_batch_size': 1, 'bptt_segments': 1},
+                'global_batch_size': 1, 'bptt_segments': 0 if model == 'neox' else 1},
             'evaluation': {'batch_size': 1, 'every_steps': 2}, 'wandb': {'every_steps': 1},
             'rtla': {'enabled': False}})
     run.prepare_data(prepared_input=prepared)
@@ -155,11 +155,6 @@ def test_real_upload_training_posthoc_and_repeat_are_idempotent(tmp_path, client
         session.heartbeat()
         assert client.request('GET', '/jobs/' + job_id)['summary']['wandb_url'] == wandb_url
         checkpoint_before = digest(run.run_dir / 'grt/last.pt')
-        with pytest.raises(subprocess.CalledProcessError):
-            run.report(plot=False, posthoc=True, posthoc_options={'window_starts': [0, 1]})
-        partial = client.request('GET', '/jobs/' + job_id)
-        assert partial['status'] == 'running' and partial['summary']['phase_error'] == 'posthoc_failed'
-        assert any(a['name'] == 'experiment_report.json' for a in partial['artifacts'])
         options = dict(batch_size=2, segments=2, warmup_segments=1, horizon=2,
             window_starts=(0, 6, 12), group_repeats=1, lesion_fractions=(.5,))
         run.report(plot=False, posthoc=True, posthoc_options=options)
@@ -536,7 +531,7 @@ def test_worker_preserves_training_error_when_evidence_upload_also_fails(tmp_pat
     assert original['phase'] == 'training' and original['code'] == expected
     if fail_at == 'evidence':
         assert original['locations'][-1]['function'] == 'reject_config'
-        assert json.loads((root / 'sync_error.json').read_text())['code'] == original['code']
+        assert not (root / 'sync_error.json').exists()
     else:
         assert not (root / 'sync_error.json').exists()
         assert 'Server sync pending' not in output.out
@@ -554,3 +549,82 @@ def test_worker_preserves_training_error_when_evidence_upload_also_fails(tmp_pat
     assert finish['stage'] == 'training'
     assert expected in finish['error']
     assert 'prepare data' not in finish['error']
+
+
+@pytest.mark.parametrize('model', ['rmt', 'neox'])
+def test_baseline_skips_posthoc_and_finishes_successfully(tmp_path, client, model):
+    source = make_run(tmp_path, client, mode='off', model=model)
+    definition = source.server_job(model, posthoc_options={'slots': True})
+    assert definition['spec']['posthoc_options'] is None
+    assert definition['policy']['require_posthoc'] is False
+    client.ensure_schema()
+    client.ensure_queue(source.server_queue)
+    queued = client.request('POST', '/jobs', definition)
+    run = WikiTextRun.claim(REPO, work_dir=tmp_path / 'worker', deadline=source.server_deadline,
+        runtime='cpu', device='cpu', world_size=1, server_url=client.url, queue=source.server_queue)
+    try:
+        run.prepare_data(prepared_input=source.prepared_dir)
+        run.preflight()
+        run.train()
+        run.report(plot=False, posthoc=True, posthoc_options={'slots': True})
+        detail = client.request('GET', '/jobs/' + queued['id'])
+        assert detail['status'] == 'succeeded'
+        assert detail['summary']['posthoc_status'] == 'skipped'
+        assert not (run.run_dir / (model + '_posthoc_console.txt')).exists()
+        assert not (run.run_dir / model / 'posthoc_report_path.json').exists()
+    finally:
+        run.close()
+
+
+def test_worker_child_crash_is_failed_without_uploading_failure_artifacts(tmp_path, client, monkeypatch):
+    import importlib.util
+    from grt.utils.server import ServerRun
+    from grt.utils.kaggle import run_logged
+    source = make_run(tmp_path, client, mode='off', model='rmt')
+    client.ensure_schema()
+    client.ensure_queue(source.server_queue)
+    queued = client.request('POST', '/jobs', source.server_job('rmt'))
+    spec = importlib.util.spec_from_file_location('server_worker_crash', REPO / 'scripts/server_worker.py')
+    worker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(worker)
+    monkeypatch.setenv('GRT_SERVER_URL', client.url)
+    monkeypatch.setattr(sys, 'argv', ['server_worker.py', '--work-dir', str(tmp_path / 'worker'),
+        '--prepared-dir', str(source.prepared_dir), '--deadline', source.server_deadline,
+        '--queue', source.server_queue, '--runtime', 'cpu', '--device', 'cpu', '--once'])
+    launch = WikiTextRun._launch
+    sessions = []
+    def crash(run, model, output, *, benchmark=False):
+        if benchmark:
+            return launch(run, model, output, benchmark=True)
+        sessions.append(run._server_session(model))
+        return run_logged([sys.executable, '-c', 'raise SystemExit(7)'], cwd=REPO,
+            log_path=run.run_dir / 'crash.log')
+    monkeypatch.setattr(WikiTextRun, '_launch', crash)
+    monkeypatch.setattr(ServerRun, 'upload', lambda *args, **kwargs: pytest.fail('Failure status must not require uploads'))
+    assert worker.main() == 1
+    assert sessions[0]._done.is_set() and not sessions[0]._thread.is_alive()
+    for _ in range(40):
+        detail = client.request('GET', '/jobs/' + queued['id'])
+        if detail['status'] != 'finalizing':
+            break
+        time.sleep(.1)
+    assert detail['status'] == 'failed' and detail['active_attempt_id'] is None
+    assert 'status 7' in detail['validation_error']['message']
+    assert detail['attempts'][0]['finish']['stage'] == 'training'
+
+
+def test_grt_posthoc_failure_finishes_attempt_instead_of_keeping_heartbeat_alive(tmp_path, client):
+    run = make_run(tmp_path, client)
+    try:
+        run.preflight()
+        run.train()
+        session = run._server_sessions['grt']
+        with pytest.raises(subprocess.CalledProcessError):
+            run.report(plot=False, posthoc=True, posthoc_options={'window_starts': [0, 1]})
+        detail = client.request('GET', '/jobs/' + session.job['id'])
+        assert detail['status'] == 'failed'
+        assert session._done.is_set() and not session._thread.is_alive()
+        assert (run.run_dir / 'grt/last.pt').exists()
+        assert detail['attempts'][0]['finish']['stage'] == 'posthoc'
+    finally:
+        run.close()

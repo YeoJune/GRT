@@ -35,7 +35,8 @@ def run_logged(command, *, cwd, log_path, poll=None, env=None):
                 Thread(target=read_output, daemon=True).start()
                 def monitored_lines():
                     while True:
-                        poll()
+                        if process.poll() is None:
+                            poll()
                         try:
                             line = queue.get(timeout=1)
                         except Empty:
@@ -382,11 +383,16 @@ class WikiTextRun:
             if not benchmark:
                 session.evidence()
                 command += ['--checkpoint-seconds', '300']
-        self._logged(command, model + ('_preflight_console.txt' if benchmark else '_train_console.txt'),
-                     poll=session.checkpoint if session else None)
-        if session:
-            session.checkpoint()
-            session.check()
+        try:
+            self._logged(command, model + ('_preflight_console.txt' if benchmark else '_train_console.txt'),
+                         poll=session.poll if session else None)
+            if session:
+                session.checkpoint()
+                session.check()
+        except BaseException:
+            if session:
+                session.stop_heartbeat()
+            raise
 
     def preflight(self):
         self.restore_server_checkpoint()
@@ -418,9 +424,9 @@ class WikiTextRun:
                 raise ValueError('Run preflight before training')
             try:
                 self._launch(model, self.run_dir / model)
-            except BaseException:
+            except BaseException as error:
                 if self.server_mode == 'upload':
-                    self._preserve_partial()
+                    self._preserve_partial(error)
                 raise
             cfg = self.config(model)
             summary = json.loads((self.run_dir / model / 'summary.json').read_text())
@@ -431,9 +437,10 @@ class WikiTextRun:
                     or (summary['status'] == 'completed' and status.get('last_logged_step', 0) < cfg.training.max_steps)
                     or status['mode'] != cfg.wandb.mode
                     or (cfg.wandb.mode == 'online' and not status.get('url'))):
-                    if self.server_mode != 'off':
-                        self._preserve_partial(finalize=False, phase='monitoring_failed')
-                    raise RuntimeError('W&B logging failed; local results remain in the run directory')
+                    error = RuntimeError('W&B logging failed; local results remain in the run directory')
+                    if self.server_mode == 'upload':
+                        self._preserve_partial(error)
+                    raise error
             results[model] = summary
         return results
 
@@ -503,14 +510,16 @@ class WikiTextRun:
             # Persist training results first, even if analysis is interrupted.
             try:
                 for model in self.models:
+                    if model != 'grt':
+                        continue
                     session = self._server_session(model)
                     if session:
                         session.stage = 'posthoc'
                         session.check()
                 reports = self.posthoc(**(posthoc_options or {}))
-            except BaseException:
-                if self.server_mode != 'off':
-                    self._preserve_partial(finalize=False, phase='posthoc_failed')
+            except BaseException as error:
+                if self.server_mode == 'upload':
+                    self._preserve_partial(error)
                 raise
             from grt.monitoring import print_posthoc_overview
             print_posthoc_overview({model: json.loads(Path(report_path).read_text())
@@ -524,10 +533,16 @@ class WikiTextRun:
             temporary.replace(path)
             print('보내주실 학습·사후 분석 묶음:', path)
         if self.server_mode != 'off':
-            for model in self.models:
-                session = self._server_session(model)
-                session.finish(posthoc=posthoc)
-            self.close()
+            try:
+                for model in self.models:
+                    session = self._server_session(model)
+                    session.finish(posthoc=posthoc)
+            except BaseException as error:
+                if self.server_mode == 'upload':
+                    self._preserve_partial(error)
+                raise
+            finally:
+                self.close()
         if download:
             if self.runtime == 'colab':
                 from google.colab import files
@@ -537,29 +552,20 @@ class WikiTextRun:
                 display(FileLink(str(path)))
         return results
 
-    def _preserve_partial(self, *, finalize=True, phase='training_failed'):
-        """A sync failure never hides the original error or removes local evidence."""
+    def _preserve_partial(self, error):
+        """Report failure first; keep local results without blocking the terminal status."""
+        from grt.utils.server import failure_details
+        try:
+            for session in self._server_sessions.values():
+                session.finish(error=error)
+        except Exception as error:
+            print('Failure reporting error:', json.dumps(failure_details(error, 'synchronizing')), flush=True)
+        finally:
+            self.close()
         try:
             self.export_report()
-            for session in self._server_sessions.values():
-                if finalize:
-                    session.finish(error=True)
-                else:
-                    session.preserve_partial(phase)
-            return True
         except Exception as error:
-            from grt.utils.server import failure_details, write_private
-            detail = failure_details(error, 'synchronizing')
-            try:
-                write_private(self.run_dir / 'sync_error.json', detail)
-            except OSError:
-                pass  # Printing the sync error must not replace the original failure.
-            print('Server sync pending; local results and private request journal are preserved.')
-            print('Synchronization error:', json.dumps(detail), flush=True)
-            return False
-        finally:
-            if finalize:
-                self.close()
+            print('Local report error:', json.dumps(failure_details(error, 'reporting')), flush=True)
 
     @property
     def report_path(self):
